@@ -64,13 +64,16 @@ async function sendMessage() {
 	// Add message to history
 	chatHistory.push({ role: "user", content: message });
 
+	// Define assistantTextEl out here so the catch block can access it
+	let assistantTextEl;
+
 	try {
 		// Create new assistant response element
 		const assistantMessageEl = document.createElement("div");
 		assistantMessageEl.className = "message assistant-message";
 		assistantMessageEl.innerHTML = "<p></p>";
 		chatMessages.appendChild(assistantMessageEl);
-		const assistantTextEl = assistantMessageEl.querySelector("p");
+		assistantTextEl = assistantMessageEl.querySelector("p");
 
 		// Scroll to bottom
 		chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -86,7 +89,24 @@ async function sendMessage() {
 			}),
 		});
 
-		// Handle errors
+		// ==========================================
+		// CLOUDFLARE WAF INTERCEPT (Firewall for AI)
+		// ==========================================
+		if (response.status === 403) {
+			const wafData = await response.json();
+			const blockMessage = wafData.message || "Request blocked by Security Policy.";
+			
+			// Inject the custom WAF message into the chat bubble
+			assistantTextEl.textContent = blockMessage;
+			chatHistory.push({ role: "assistant", content: blockMessage });
+			chatMessages.scrollTop = chatMessages.scrollHeight;
+			
+			// Exit early. The 'finally' block will still run to re-enable the UI.
+			return; 
+		}
+		// ==========================================
+
+		// Handle other standard errors
 		if (!response.ok) {
 			throw new Error("Failed to get response");
 		}
@@ -179,10 +199,12 @@ async function sendMessage() {
 		}
 	} catch (error) {
 		console.error("Error:", error);
-		addMessageToChat(
-			"assistant",
-			"Sorry, there was an error processing your request.",
-		);
+		// Populate the existing bubble with the error instead of creating a new one
+		if (assistantTextEl) {
+			assistantTextEl.textContent = "Sorry, there was an error processing your request.";
+		} else {
+			addMessageToChat("assistant", "Sorry, there was an error processing your request.");
+		}
 	} finally {
 		// Hide typing indicator
 		typingIndicator.classList.remove("visible");
