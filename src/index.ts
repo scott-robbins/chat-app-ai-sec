@@ -11,7 +11,6 @@
 import { Env, ChatMessage } from "./types";
 
 // Model ID for Workers AI model
-// https://developers.cloudflare.com/workers-ai/models/
 const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct-fp8";
 
 // Model ID for text embeddings (used by Vectorize)
@@ -38,25 +37,32 @@ export default {
 		}
 
 		// ==========================================
-		// VECTORIZE SEED ROUTE (Hidden Demo Route)
+		// VECTORIZE SEED ROUTE (Upgraded for Multiple Secrets)
 		// ==========================================
 		if (url.pathname === "/api/seed") {
 			try {
-				const secretText = "The secret Wi-Fi password for the guest lobby is 'OrangeFlamingo2026'.";
+				// We can now add as many secrets to this array as we want!
+				const companyKnowledge = [
+					"The secret Wi-Fi password for the guest lobby is 'OrangeFlamingo2026'.",
+					"Project Nebula is a highly confidential, AI-powered coffee machine scheduled to launch in Q3 2026. Its standout feature is biometric profile recognition."
+				];
 				
-				// 1. Turn the text into a vector embedding
-				const embedding = await env.AI.run(EMBEDDING_MODEL, {
-					text: [secretText]
+				// 1. Turn the entire array of text into vector embeddings all at once
+				const embeddings = await env.AI.run(EMBEDDING_MODEL, {
+					text: companyKnowledge
 				});
 
-				// 2. Insert it into Vectorize with the original text as metadata
-				await env.VECTORIZE.insert([{
-					id: "wifi-secret-001",
-					values: embedding.data[0],
-					metadata: { text: secretText }
-				}]);
+				// 2. Map the data into the format Vectorize expects
+				const vectorsToInsert = companyKnowledge.map((text, index) => ({
+					id: `knowledge-doc-${index}`, // Creates unique IDs: knowledge-doc-0, knowledge-doc-1
+					values: embeddings.data[index],
+					metadata: { text: text }
+				}));
 
-				return new Response("Secret successfully injected into Vectorize! You can now close this tab.", { status: 200 });
+				// 3. Bulk insert them into Vectorize
+				await env.VECTORIZE.insert(vectorsToInsert);
+
+				return new Response("Multiple secrets successfully injected into Vectorize! You can now close this tab.", { status: 200 });
 			} catch (error: any) {
 				return new Response("Error seeding database: " + error.message, { status: 500 });
 			}
@@ -133,15 +139,7 @@ async function handleChatRequest(
 				messages,
 				max_tokens: 1024,
 				stream: true,
-			},
-			{
-				// Uncomment to use AI Gateway
-				// gateway: {
-				//   id: "YOUR_GATEWAY_ID", // Replace with your AI Gateway ID
-				//   skipCache: false,      // Set to true to bypass cache
-				//   cacheTtl: 3600,        // Cache time-to-live in seconds
-				// },
-			},
+			}
 		);
 
 		return new Response(stream, {
