@@ -12,6 +12,11 @@ export interface Env {
 	 * Binding for static assets.
 	 */
 	ASSETS: { fetch: (request: Request) => Promise<Response> };
+
+	/**
+	 * Binding for the Vectorize Index.
+	 */
+	VECTORIZE: VectorizeIndex;
 }
 
 /**
