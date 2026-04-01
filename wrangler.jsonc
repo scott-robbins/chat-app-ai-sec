@@ -18,5 +18,11 @@
 	"ai": {
 		"binding": "AI"
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "chat-knowledge"
+		}
+	]
 }
