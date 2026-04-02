@@ -1,27 +1,17 @@
 /**
  * Type definitions for the LLM chat application.
  */
+import { DurableObjectNamespace } from "@cloudflare/workers-types";
 
 export interface Env {
-	/**
-	 * Binding for the Workers AI API.
-	 */
 	AI: Ai;
-
-	/**
-	 * Binding for static assets.
-	 */
 	ASSETS: { fetch: (request: Request) => Promise<Response> };
-
-	/**
-	 * Binding for the Vectorize Index.
-	 */
 	VECTORIZE: VectorizeIndex;
+	
+	// Our new Durable Object Binding
+	CHAT_SESSION: DurableObjectNamespace;
 }
 
-/**
- * Represents a chat message.
- */
 export interface ChatMessage {
 	role: "system" | "user" | "assistant";
 	content: string;
