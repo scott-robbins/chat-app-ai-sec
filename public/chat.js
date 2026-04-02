@@ -1,32 +1,53 @@
 /**
- * LLM Chat App Frontend
- *
- * Handles the chat UI interactions and communication with the backend API.
+ * LLM Chat App Frontend - Now with Persistent Sessions
  */
-
-// DOM elements
 const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 
-// Chat state
-let chatHistory = [
-	{
-		role: "assistant",
-		content:
-			"Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can I help you today?",
-	},
-];
+// 1. Session Management
+let sessionId = localStorage.getItem("chatSessionId");
+if (!sessionId) {
+    // Generate a random ID if the user is new
+    sessionId = crypto.randomUUID();
+    localStorage.setItem("chatSessionId", sessionId);
+}
+
+let chatHistory = [];
 let isProcessing = false;
 
-// Auto-resize textarea as user types
+// 2. Load History on Page Load
+window.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const response = await fetch('/api/history', {
+            headers: { 'x-session-id': sessionId }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.messages && data.messages.length > 0) {
+                // Clear the default greeting and load history
+                chatMessages.innerHTML = '';
+                chatHistory = data.messages;
+                
+                // Render past messages (ignoring system prompts)
+                chatHistory.forEach(msg => {
+                    if (msg.role !== "system") {
+                        addMessageToChat(msg.role, msg.content);
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        console.error("Could not load history");
+    }
+});
+
 userInput.addEventListener("input", function () {
 	this.style.height = "auto";
 	this.style.height = this.scrollHeight + "px";
 });
 
-// Send message on Enter (without Shift)
 userInput.addEventListener("keydown", function (e) {
 	if (e.key === "Enter" && !e.shiftKey) {
 		e.preventDefault();
@@ -34,91 +55,73 @@ userInput.addEventListener("keydown", function (e) {
 	}
 });
 
-// Send button click handler
 sendButton.addEventListener("click", sendMessage);
 
-/**
- * Sends a message to the chat API and processes the response
- */
 async function sendMessage() {
 	const message = userInput.value.trim();
-
-	// Don't send empty messages
 	if (message === "" || isProcessing) return;
 
-	// Disable input while processing
 	isProcessing = true;
 	userInput.disabled = true;
 	sendButton.disabled = true;
 
-	// Add user message to chat
 	addMessageToChat("user", message);
-
-	// Clear input
 	userInput.value = "";
 	userInput.style.height = "auto";
-
-	// Show typing indicator
 	typingIndicator.classList.add("visible");
 
-	// Add message to history
+	// Add new message to our local array before sending to the server
 	chatHistory.push({ role: "user", content: message });
 
-	// Define assistantTextEl out here so the catch block can access it
 	let assistantTextEl;
 
 	try {
-		// Create new assistant response element
 		const assistantMessageEl = document.createElement("div");
 		assistantMessageEl.className = "message assistant-message";
 		assistantMessageEl.innerHTML = "<p></p>";
 		chatMessages.appendChild(assistantMessageEl);
 		assistantTextEl = assistantMessageEl.querySelector("p");
-
-		// Scroll to bottom
 		chatMessages.scrollTop = chatMessages.scrollHeight;
 
-		// Send request to API
 		const response = await fetch("/api/chat", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+                "x-session-id": sessionId // Pass the session ID to the Worker!
 			},
-			body: JSON.stringify({
-				messages: chatHistory,
-			}),
+			body: JSON.stringify({ messages: chatHistory }),
 		});
 
-		// ==========================================
-		// CLOUDFLARE WAF INTERCEPT (Firewall for AI)
-		// ==========================================
+		// WAF Intercept
 		if (response.status === 403) {
-			const wafData = await response.json();
-			const blockMessage = wafData.message || "Request blocked by Security Policy.";
+			let blockMessage = "Request blocked by Security Policy.";
+			try {
+				const rawResponse = await response.text();
+				const wafData = JSON.parse(rawResponse);
+				if (wafData && wafData.message) blockMessage = wafData.message;
+			} catch (e) {}
 			
-			// Inject the custom WAF message into the chat bubble
 			assistantTextEl.textContent = blockMessage;
 			chatHistory.push({ role: "assistant", content: blockMessage });
-			chatMessages.scrollTop = chatMessages.scrollHeight;
 			
-			// Exit early. The 'finally' block will still run to re-enable the UI.
+            // Save the block message to the server history too!
+            fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+                body: JSON.stringify({ messages: chatHistory })
+            });
+
+			chatMessages.scrollTop = chatMessages.scrollHeight;
 			return; 
 		}
-		// ==========================================
 
-		// Handle other standard errors
-		if (!response.ok) {
-			throw new Error("Failed to get response");
-		}
-		if (!response.body) {
-			throw new Error("Response body is null");
-		}
+		if (!response.ok) throw new Error("Failed to get response");
 
-		// Process streaming response
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
 		let responseText = "";
 		let buffer = "";
+
 		const flushAssistantText = () => {
 			assistantTextEl.textContent = responseText;
 			chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -127,89 +130,47 @@ async function sendMessage() {
 		let sawDone = false;
 		while (true) {
 			const { done, value } = await reader.read();
+			if (done) break;
 
-			if (done) {
-				// Process any remaining complete events in buffer
-				const parsed = consumeSseEvents(buffer + "\n\n");
-				for (const data of parsed.events) {
-					if (data === "[DONE]") {
-						break;
-					}
-					try {
-						const jsonData = JSON.parse(data);
-						// Handle both Workers AI format (response) and OpenAI format (choices[0].delta.content)
-						let content = "";
-						if (
-							typeof jsonData.response === "string" &&
-							jsonData.response.length > 0
-						) {
-							content = jsonData.response;
-						} else if (jsonData.choices?.[0]?.delta?.content) {
-							content = jsonData.choices[0].delta.content;
-						}
-						if (content) {
-							responseText += content;
-							flushAssistantText();
-						}
-					} catch (e) {
-						console.error("Error parsing SSE data as JSON:", e, data);
-					}
-				}
-				break;
-			}
-
-			// Decode chunk
 			buffer += decoder.decode(value, { stream: true });
 			const parsed = consumeSseEvents(buffer);
 			buffer = parsed.buffer;
 			for (const data of parsed.events) {
 				if (data === "[DONE]") {
 					sawDone = true;
-					buffer = "";
 					break;
 				}
 				try {
 					const jsonData = JSON.parse(data);
-					// Handle both Workers AI format (response) and OpenAI format (choices[0].delta.content)
 					let content = "";
-					if (
-						typeof jsonData.response === "string" &&
-						jsonData.response.length > 0
-					) {
-						content = jsonData.response;
-					} else if (jsonData.choices?.[0]?.delta?.content) {
-						content = jsonData.choices[0].delta.content;
-					}
+					if (typeof jsonData.response === "string") content = jsonData.response;
+					else if (jsonData.choices?.[0]?.delta?.content) content = jsonData.choices[0].delta.content;
+					
 					if (content) {
 						responseText += content;
 						flushAssistantText();
 					}
-				} catch (e) {
-					console.error("Error parsing SSE data as JSON:", e, data);
-				}
+				} catch (e) {}
 			}
-			if (sawDone) {
-				break;
-			}
+			if (sawDone) break;
 		}
 
-		// Add completed response to chat history
+		// When stream is done, add AI response to array and do one final sync to the server
 		if (responseText.length > 0) {
 			chatHistory.push({ role: "assistant", content: responseText });
+            
+            // Sync the final AI answer to the Durable Object storage
+            fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+                body: JSON.stringify({ messages: chatHistory })
+            });
 		}
-	} catch (error) {
-		console.error("Error:", error);
-		// Populate the existing bubble with the error instead of creating a new one
-		if (assistantTextEl) {
-			assistantTextEl.textContent = "Sorry, there was an error processing your request.";
-		} else {
-			addMessageToChat("assistant", "Sorry, there was an error processing your request.");
-		}
-	} finally {
-		// Hide typing indicator
-		typingIndicator.classList.remove("visible");
 
-		// Re-enable input
+	} catch (error) {
+		if (assistantTextEl) assistantTextEl.textContent = "Sorry, there was an error processing your request.";
+	} finally {
+		typingIndicator.classList.remove("visible");
 		isProcessing = false;
 		userInput.disabled = false;
 		sendButton.disabled = false;
@@ -217,16 +178,11 @@ async function sendMessage() {
 	}
 }
 
-/**
- * Helper function to add message to chat
- */
 function addMessageToChat(role, content) {
 	const messageEl = document.createElement("div");
 	messageEl.className = `message ${role}-message`;
 	messageEl.innerHTML = `<p>${content}</p>`;
 	chatMessages.appendChild(messageEl);
-
-	// Scroll to bottom
 	chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -237,13 +193,10 @@ function consumeSseEvents(buffer) {
 	while ((eventEndIndex = normalized.indexOf("\n\n")) !== -1) {
 		const rawEvent = normalized.slice(0, eventEndIndex);
 		normalized = normalized.slice(eventEndIndex + 2);
-
 		const lines = rawEvent.split("\n");
 		const dataLines = [];
 		for (const line of lines) {
-			if (line.startsWith("data:")) {
-				dataLines.push(line.slice("data:".length).trimStart());
-			}
+			if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
 		}
 		if (dataLines.length === 0) continue;
 		events.push(dataLines.join("\n"));
