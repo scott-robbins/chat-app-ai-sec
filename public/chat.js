@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Now with Persistent Sessions & UI Controls
+ * LLM Chat App Frontend - Now with Persistent Sessions & UI Controls & R2 Uploads
  */
 
 // DOM elements
@@ -9,6 +9,8 @@ const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 const clearScreenBtn = document.getElementById("clear-screen-btn");
 const newChatBtn = document.getElementById("new-chat-btn");
+const fileUpload = document.getElementById("file-upload");
+const uploadBtn = document.getElementById("upload-btn");
 
 // 1. Session Management
 let sessionId = localStorage.getItem("chatSessionId");
@@ -234,5 +236,45 @@ if (newChatBtn) {
         // 3. Clear the UI
         chatMessages.innerHTML = '';
         addMessageToChat('assistant', 'Started a brand new chat session! The previous conversation was safely saved to the database. How can I help you?');
+    });
+}
+
+// ==========================================
+// FILE UPLOAD HANDLING (R2 + Vectorize)
+// ==========================================
+
+if (uploadBtn && fileUpload) {
+    uploadBtn.addEventListener("click", async () => {
+        const file = fileUpload.files[0];
+        if (!file) {
+            alert("Please select a text file first!");
+            return;
+        }
+
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Uploading & Learning...";
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await fetch("/api/upload", {
+                method: "POST",
+                body: formData
+            });
+            const result = await response.json();
+            
+            if (response.ok) {
+                addMessageToChat('system', `SYSTEM: ${result.message}`);
+                fileUpload.value = ""; // clear the input
+            } else {
+                alert("Error: " + result.error);
+            }
+        } catch (e) {
+            alert("Upload failed. Check console.");
+        } finally {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = "Memorize File";
+        }
     });
 }
