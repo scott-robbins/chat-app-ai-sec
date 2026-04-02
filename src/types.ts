@@ -1,15 +1,13 @@
-/**
- * Type definitions for the LLM chat application.
- */
 import { DurableObjectNamespace } from "@cloudflare/workers-types";
 
 export interface Env {
 	AI: Ai;
 	ASSETS: { fetch: (request: Request) => Promise<Response> };
 	VECTORIZE: VectorizeIndex;
-	
-	// Our new Durable Object Binding
 	CHAT_SESSION: DurableObjectNamespace;
+	
+	// Add our new KV Namespace binding!
+	CHAT_CONFIG: KVNamespace;
 }
 
 export interface ChatMessage {
