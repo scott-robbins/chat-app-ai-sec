@@ -116,9 +116,25 @@ export class ChatSession extends DurableObject<Env> {
 					messages[sysIdx].content = dynamicSystemPrompt;
 				}
 
-				const stream = await this.env.AI.run(MODEL_ID, {
-					messages, max_tokens: 1024, stream: true,
-				});
+				// ==========================================
+				// RUN AI MODEL WITH GATEWAY ROUTING
+				// ==========================================
+				const stream = await this.env.AI.run(
+					MODEL_ID, 
+					{
+						messages, 
+						max_tokens: 1024, 
+						stream: true,
+					},
+					{
+						// Route the request through your AI Gateway
+						gateway: {
+							id: "ai-sec-gateway", // Updated to match your exact dashboard ID!
+							skipCache: false,       // Set to false to enable caching
+							cacheTtl: 3600,         // Cache identical requests for 1 hour
+						}
+					}
+				);
 
 				return new Response(stream, {
 					headers: {
