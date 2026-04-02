@@ -1,10 +1,14 @@
 /**
- * LLM Chat App Frontend - Now with Persistent Sessions
+ * LLM Chat App Frontend - Now with Persistent Sessions & UI Controls
  */
+
+// DOM elements
 const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
+const clearScreenBtn = document.getElementById("clear-screen-btn");
+const newChatBtn = document.getElementById("new-chat-btn");
 
 // 1. Session Management
 let sessionId = localStorage.getItem("chatSessionId");
@@ -202,4 +206,33 @@ function consumeSseEvents(buffer) {
 		events.push(dataLines.join("\n"));
 	}
 	return { events, buffer: normalized };
+}
+
+// ==========================================
+// UI CONTROLS (Clear Screen & New Chat)
+// ==========================================
+
+// Option 1: Clear the UI, but keep the current session memory intact
+if (clearScreenBtn) {
+    clearScreenBtn.addEventListener("click", () => {
+        // We only clear the HTML. We DO NOT clear the chatHistory array or Session ID!
+        chatMessages.innerHTML = '';
+        addMessageToChat('assistant', 'Screen cleared! But I still remember our conversation context. (Refresh the page to bring the history back).');
+    });
+}
+
+// Option 2: Start a brand new session, but leave the old one safely in the database
+if (newChatBtn) {
+    newChatBtn.addEventListener("click", () => {
+        // 1. Generate a brand new Session ID
+        sessionId = crypto.randomUUID();
+        localStorage.setItem("chatSessionId", sessionId);
+        
+        // 2. Wipe the local history array clean
+        chatHistory = [];
+        
+        // 3. Clear the UI
+        chatMessages.innerHTML = '';
+        addMessageToChat('assistant', 'Started a brand new chat session! The previous conversation was safely saved to the database. How can I help you?');
+    });
 }
