@@ -40,5 +40,11 @@
 			"binding": "CHAT_CONFIG",
 			"id": "726f5ce7227c42a997fa509fc947f139"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "DOCUMENTS",
+			"bucket_name": "chat-docs"
+		}
 	]
 }
