@@ -8,6 +8,9 @@ export interface Env {
 	
 	// Add our new KV Namespace binding!
 	CHAT_CONFIG: KVNamespace;
+
+	// Add our new R2 Bucket binding!
+	DOCUMENTS: R2Bucket;
 }
 
 export interface ChatMessage {
