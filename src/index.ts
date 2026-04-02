@@ -50,6 +50,52 @@ export default {
 			}
 		}
 
+		// ==========================================
+		// R2 & VECTORIZE: DOCUMENT UPLOAD ROUTE
+		// ==========================================
+		if (url.pathname === "/api/upload" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				if (!file) return new Response("No file provided", { status: 400 });
+
+				const fileName = file.name;
+				// Extract the raw text from the uploaded file
+				const fileText = await file.text(); 
+
+				// 1. Save the original file safely into R2
+				await env.DOCUMENTS.put(fileName, fileText);
+
+				// 2. Simple Chunking (Split by double line breaks)
+				// We break the document into paragraphs so Vectorize can search it effectively
+				const chunks = fileText.split("\n\n").filter(c => c.trim().length > 20);
+
+				// 3. Embed each chunk and save to Vectorize
+				const vectorsToInsert = [];
+				for (let i = 0; i < chunks.length; i++) {
+					const chunkText = chunks[i].trim();
+					const embedding = await env.AI.run(EMBEDDING_MODEL, { text: [chunkText] });
+					
+					vectorsToInsert.push({
+						id: `${fileName}-chunk-${i}`,
+						values: embedding.data[0],
+						metadata: { text: chunkText, source: fileName } // Save the text AND the filename
+					});
+				}
+
+				// Insert the newly vectorized chunks into the database
+				await env.VECTORIZE.insert(vectorsToInsert);
+
+				return new Response(JSON.stringify({ 
+					success: true, 
+					message: `Successfully saved ${fileName} to R2 and memorized ${chunks.length} chunks of text!` 
+				}), { status: 200, headers: { "Content-Type": "application/json" } });
+
+			} catch (error: any) {
+				return new Response(JSON.stringify({ error: "Upload failed: " + error.message }), { status: 500 });
+			}
+		}
+
 		if (url.pathname === "/api/chat" || url.pathname === "/api/history") {
 			const sessionId = request.headers.get("x-session-id");
 			if (!sessionId) return new Response("Missing Session ID", { status: 400 });
