@@ -34,5 +34,11 @@
 			"tag": "v1",
 			"new_classes": ["ChatSession"]
 		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "CHAT_CONFIG",
+			"id": "726f5ce7227c42a997fa509fc947f139"
+		}
 	]
 }
