@@ -235,7 +235,11 @@
 				</div>
 			</div>
 
-			<div class="message-input">
+			<div class="message-input" style="flex-wrap: wrap;">
+				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
+					<input type="file" id="file-upload" accept=".txt,.md" style="font-size: 0.85rem;" />
+					<button id="upload-btn" style="padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">Memorize File</button>
+				</div>
 				<textarea
 					id="user-input"
 					placeholder="Message AI Assistant..."
