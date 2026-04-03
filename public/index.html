@@ -6,6 +6,7 @@
 		<title>LLM Chat App</title>
 		<style>
 			:root {
+				/* Plain Theme Variables (Default) */
 				--primary-color: #f6821f;
 				--primary-hover: #e67e22;
 				--primary-light: rgba(246, 130, 31, 0.1);
@@ -17,6 +18,37 @@
 				--user-msg-bg: #f6821f;
 				--user-msg-text: #ffffff;
 				--assistant-msg-bg: #ffffff;
+				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
+			}
+
+			/* ==========================================
+			   FANCY THEME OVERRIDES (Dark Mode + Glass)
+			   ========================================== */
+			body.theme-fancy {
+				--app-bg: rgba(30, 41, 59, 0.6); /* Translucent dark for glass effect */
+				--light-bg: rgba(15, 23, 42, 0.4);
+				--border-color: rgba(255, 255, 255, 0.1);
+				--text-color: #f8fafc;
+				--text-light: #cbd5e1;
+				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
+				--body-bg: #0f172a; /* Solid dark base behind lava lamps */
+			}
+
+			body.theme-fancy .chat-container {
+				backdrop-filter: blur(16px);
+				-webkit-backdrop-filter: blur(16px);
+				border: 1px solid rgba(255, 255, 255, 0.15);
+				box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+			}
+
+			body.theme-fancy #user-input {
+				background-color: rgba(15, 23, 42, 0.5);
+				color: white;
+			}
+
+			body.theme-fancy header h1 {
+				color: #ffffff;
+				text-shadow: 0 2px 10px rgba(246, 130, 31, 0.5);
 			}
 
 			* {
@@ -29,14 +61,74 @@
 				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 				line-height: 1.6;
 				color: var(--text-color);
-				background: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
+				background: var(--body-bg);
 				min-height: 100vh;
 				display: flex;
 				flex-direction: column;
 				align-items: center;
 				padding: 2rem 1rem;
+				transition: background 0.5s ease, color 0.5s ease;
 			}
 
+			/* ==========================================
+			   LAVA LAMP ANIMATION CSS
+			   ========================================== */
+			.lava-lamp-container {
+				position: fixed;
+				top: 0;
+				left: 0;
+				width: 100vw;
+				height: 100vh;
+				z-index: -1;
+				overflow: hidden;
+				display: none; /* Hidden by default */
+			}
+
+			body.theme-fancy .lava-lamp-container {
+				display: block; /* Only show when fancy theme is active */
+			}
+
+			.blob {
+				position: absolute;
+				border-radius: 50%;
+				filter: blur(80px); /* Creates the liquid lava look */
+				opacity: 0.6;
+				animation: float 15s infinite alternate ease-in-out;
+			}
+
+			.blob1 {
+				width: 400px; height: 400px;
+				background: #f6821f; /* Cloudflare Orange */
+				top: -100px; left: -100px;
+				animation-duration: 18s;
+			}
+
+			.blob2 {
+				width: 500px; height: 500px;
+				background: #d95d14; /* Deep Orange */
+				bottom: -150px; right: -100px;
+				animation-duration: 22s;
+				animation-delay: 2s;
+			}
+
+			.blob3 {
+				width: 300px; height: 300px;
+				background: #faad3f; /* Light Orange/Yellow */
+				top: 40%; left: 30%;
+				animation-duration: 25s;
+				animation-delay: 5s;
+			}
+
+			@keyframes float {
+				0% { transform: translate(0, 0) scale(1); }
+				33% { transform: translate(150px, 100px) scale(1.1); }
+				66% { transform: translate(-50px, 200px) scale(0.9); }
+				100% { transform: translate(100px, -50px) scale(1.2); }
+			}
+
+			/* ==========================================
+			   CORE UI STYLES
+			   ========================================== */
 			header {
 				text-align: center;
 				margin-bottom: 2rem;
@@ -49,6 +141,7 @@
 				color: var(--primary-color);
 				font-weight: 700;
 				letter-spacing: -0.5px;
+				transition: color 0.3s ease;
 			}
 
 			header p {
@@ -66,9 +159,10 @@
 				min-height: 500px;
 				background-color: var(--app-bg);
 				border-radius: 16px;
-				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
 				overflow: hidden;
-				border: 1px solid rgba(226, 232, 240, 0.8);
+				border: 1px solid var(--border-color);
+				transition: all 0.5s ease;
 			}
 
 			.chat-messages {
@@ -79,6 +173,7 @@
 				display: flex;
 				flex-direction: column;
 				gap: 1rem;
+				transition: background-color 0.5s ease;
 			}
 
 			.message {
@@ -99,15 +194,16 @@
 				background-color: var(--user-msg-bg);
 				color: var(--user-msg-text);
 				align-self: flex-end;
-				border-radius: 18px 18px 4px 18px; /* Creates a message tail */
+				border-radius: 18px 18px 4px 18px;
 			}
 
 			.assistant-message {
 				background-color: var(--assistant-msg-bg);
 				color: var(--text-color);
 				align-self: flex-start;
-				border-radius: 18px 18px 18px 4px; /* Creates a message tail */
+				border-radius: 18px 18px 18px 4px;
 				border: 1px solid var(--border-color);
+				transition: all 0.5s ease;
 			}
 
 			.message-input {
@@ -117,6 +213,7 @@
 				border-top: 1px solid var(--border-color);
 				align-items: flex-end;
 				gap: 0.75rem;
+				transition: background-color 0.5s ease;
 			}
 
 			#user-input {
@@ -129,14 +226,13 @@
 				resize: none;
 				min-height: 50px;
 				max-height: 150px;
-				background-color: #f8fafc;
+				background-color: var(--app-bg);
 				transition: all 0.2s ease;
 			}
 
 			#user-input:focus {
 				outline: none;
 				border-color: var(--primary-color);
-				background-color: var(--app-bg);
 				box-shadow: 0 0 0 4px var(--primary-light);
 			}
 
@@ -209,15 +305,40 @@
 				color: var(--text-light);
 				width: 100%;
 			}
+
+			.controls-row {
+				margin-top: 1rem; 
+				display: flex; 
+				justify-content: center; 
+				gap: 10px;
+				flex-wrap: wrap;
+			}
+			
+			.btn-secondary {
+				padding: 6px 12px; 
+				border-radius: 6px; 
+				border: 1px solid var(--border-color); 
+				background: var(--app-bg); 
+				cursor: pointer; 
+				color: var(--text-color);
+				transition: all 0.3s ease;
+			}
 		</style>
 	</head>
 	<body>
+		<div class="lava-lamp-container">
+			<div class="blob blob1"></div>
+			<div class="blob blob2"></div>
+			<div class="blob blob3"></div>
+		</div>
+
 		<header>
 			<h1>Cloudflare AI Chat</h1>
 			<p>Powered by Cloudflare Workers AI</p>
 			
-			<div style="margin-top: 1rem; display: flex; justify-content: center; gap: 10px;">
-				<button id="clear-screen-btn" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); cursor: pointer; color: var(--text-color);">Clear Screen</button>
+			<div class="controls-row">
+				<button id="theme-toggle-btn" class="btn-secondary">✨ Toggle Theme</button>
+				<button id="clear-screen-btn" class="btn-secondary">Clear Screen</button>
 				<button id="new-chat-btn" style="padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer;">New Chat</button>
 			</div>
 		</header>
@@ -237,8 +358,8 @@
 
 			<div class="message-input" style="flex-wrap: wrap;">
 				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
-					<input type="file" id="file-upload" accept=".txt,.md" style="font-size: 0.85rem;" />
-					<button id="upload-btn" style="padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">Memorize File</button>
+					<input type="file" id="file-upload" accept=".txt,.md" style="font-size: 0.85rem; color: var(--text-color);" />
+					<button id="upload-btn" class="btn-secondary">Memorize File</button>
 				</div>
 				<textarea
 					id="user-input"
