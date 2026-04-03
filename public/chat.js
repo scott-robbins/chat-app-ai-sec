@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Full Multimodal Upgrade & Maintenance Mode Support
+ * LLM Chat App Frontend - Full Multimodal Upgrade, Maintenance Mode & Personality Swap
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -12,6 +12,7 @@ const fileUpload = document.getElementById("file-upload");
 const uploadBtn = document.getElementById("upload-btn");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const modelSelector = document.getElementById("model-selector");
+const promptSelector = document.getElementById("prompt-selector"); // NEW
 
 let sessionId = localStorage.getItem("chatSessionId");
 if (!sessionId) {
@@ -45,6 +46,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         if (configRes.ok) {
             const config = await configRes.json();
             if (modelSelector && config.model) modelSelector.value = config.model;
+            
+            // NEW: Set the active personality in the dropdown
+            if (promptSelector && config.prompt) {
+                let optionExists = Array.from(promptSelector.options).some(opt => opt.value === config.prompt);
+                if (!optionExists) {
+                    promptSelector.add(new Option("Custom Personality", config.prompt));
+                }
+                promptSelector.value = config.prompt;
+            }
         }
     } catch (e) { console.error("Could not load config"); }
 });
@@ -124,7 +134,6 @@ async function sendMessage() {
 			return; 
 		}
 
-		// NEW: Gracefully handle the Global Kill Switch (Maintenance Mode)
 		if (response.status === 503) {
 			const errorData = await response.json();
 			assistantTextEl.innerHTML = marked.parse(`**SYSTEM:** ${errorData.error}`);
@@ -310,6 +319,26 @@ if (modelSelector) {
             alert("Failed to swap brain. Check console.");
         } finally {
             modelSelector.disabled = false;
+        }
+    });
+}
+
+// NEW: Event listener for the personality prompt dropdown
+if (promptSelector) {
+    promptSelector.addEventListener("change", async (e) => {
+        const newPrompt = e.target.value;
+        promptSelector.disabled = true; 
+
+        try {
+            const res = await fetch(`/api/set-prompt?text=${encodeURIComponent(newPrompt)}`);
+            if (res.ok) {
+                const selectedText = promptSelector.options[promptSelector.selectedIndex].text;
+                addMessageToChat('system', `**SYSTEM:** Personality swap successful! Jolene is now acting as: \`${selectedText}\`.`);
+            } else { alert("Failed to change personality."); }
+        } catch (err) {
+            alert("Failed to change personality. Check console.");
+        } finally {
+            promptSelector.disabled = false;
         }
     });
 }
