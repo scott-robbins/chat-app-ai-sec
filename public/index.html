@@ -4,9 +4,14 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>LLM Chat App</title>
+		
+		<script src="https://unpkg.com/@phosphor-icons/web"></script>
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
 		<style>
 			:root {
-				/* Plain Theme Variables (Default) */
 				--primary-color: #f6821f;
 				--primary-hover: #e67e22;
 				--primary-light: rgba(246, 130, 31, 0.1);
@@ -21,17 +26,14 @@
 				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 			}
 
-			/* ==========================================
-			   FANCY THEME OVERRIDES (Dark Mode + Glass)
-			   ========================================== */
 			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.6); /* Translucent dark for glass effect */
+				--app-bg: rgba(30, 41, 59, 0.6);
 				--light-bg: rgba(15, 23, 42, 0.4);
 				--border-color: rgba(255, 255, 255, 0.1);
 				--text-color: #f8fafc;
 				--text-light: #cbd5e1;
 				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
-				--body-bg: #0f172a; /* Solid dark base behind lava lamps */
+				--body-bg: #0f172a;
 			}
 
 			body.theme-fancy .chat-container {
@@ -70,54 +72,19 @@
 				transition: background 0.5s ease, color 0.5s ease;
 			}
 
-			/* ==========================================
-			   LAVA LAMP ANIMATION CSS
-			   ========================================== */
 			.lava-lamp-container {
 				position: fixed;
-				top: 0;
-				left: 0;
-				width: 100vw;
-				height: 100vh;
-				z-index: -1;
-				overflow: hidden;
-				display: none; /* Hidden by default */
+				top: 0; left: 0; width: 100vw; height: 100vh;
+				z-index: -1; overflow: hidden; display: none;
 			}
-
-			body.theme-fancy .lava-lamp-container {
-				display: block; /* Only show when fancy theme is active */
-			}
-
+			body.theme-fancy .lava-lamp-container { display: block; }
 			.blob {
-				position: absolute;
-				border-radius: 50%;
-				filter: blur(80px); /* Creates the liquid lava look */
-				opacity: 0.6;
+				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
 				animation: float 15s infinite alternate ease-in-out;
 			}
-
-			.blob1 {
-				width: 400px; height: 400px;
-				background: #f6821f; /* Cloudflare Orange */
-				top: -100px; left: -100px;
-				animation-duration: 18s;
-			}
-
-			.blob2 {
-				width: 500px; height: 500px;
-				background: #d95d14; /* Deep Orange */
-				bottom: -150px; right: -100px;
-				animation-duration: 22s;
-				animation-delay: 2s;
-			}
-
-			.blob3 {
-				width: 300px; height: 300px;
-				background: #faad3f; /* Light Orange/Yellow */
-				top: 40%; left: 30%;
-				animation-duration: 25s;
-				animation-delay: 5s;
-			}
+			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; animation-duration: 18s; }
+			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; animation-duration: 22s; animation-delay: 2s; }
+			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; animation-duration: 25s; animation-delay: 5s; }
 
 			@keyframes float {
 				0% { transform: translate(0, 0) scale(1); }
@@ -126,202 +93,101 @@
 				100% { transform: translate(100px, -50px) scale(1.2); }
 			}
 
-			/* ==========================================
-			   CORE UI STYLES
-			   ========================================== */
-			header {
-				text-align: center;
-				margin-bottom: 2rem;
-				width: 100%;
-				max-width: 800px;
+			/* NEW MESSAGE ANIMATION */
+			@keyframes slideUpFade {
+				from { opacity: 0; transform: translateY(15px); }
+				to { opacity: 1; transform: translateY(0); }
 			}
 
-			h1 {
-				font-size: 1.75rem;
-				color: var(--primary-color);
-				font-weight: 700;
-				letter-spacing: -0.5px;
-				transition: color 0.3s ease;
-			}
-
-			header p {
-				color: var(--text-light);
-				font-size: 0.95rem;
-				margin-top: 0.25rem;
-			}
+			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
+			h1 { font-size: 1.75rem; color: var(--primary-color); font-weight: 700; letter-spacing: -0.5px; transition: color 0.3s ease; }
+			header p { color: var(--text-light); font-size: 0.95rem; margin-top: 0.25rem; }
 
 			.chat-container {
-				display: flex;
-				flex-direction: column;
-				width: 100%;
-				max-width: 800px;
-				height: calc(100vh - 220px);
-				min-height: 500px;
-				background-color: var(--app-bg);
-				border-radius: 16px;
-				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
-				overflow: hidden;
-				border: 1px solid var(--border-color);
-				transition: all 0.5s ease;
+				display: flex; flex-direction: column; width: 100%; max-width: 800px;
+				height: calc(100vh - 220px); min-height: 500px; background-color: var(--app-bg);
+				border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+				overflow: hidden; border: 1px solid var(--border-color); transition: all 0.5s ease;
 			}
 
 			.chat-messages {
-				flex: 1;
-				overflow-y: auto;
-				padding: 1.5rem;
-				background-color: var(--light-bg);
-				display: flex;
-				flex-direction: column;
-				gap: 1rem;
-				transition: background-color 0.5s ease;
+				flex: 1; overflow-y: auto; padding: 1.5rem; background-color: var(--light-bg);
+				display: flex; flex-direction: column; gap: 1rem; transition: background-color 0.5s ease;
 			}
 
 			.message {
-				padding: 0.85rem 1.2rem;
-				max-width: 80%;
-				box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-				font-size: 0.95rem;
-				line-height: 1.5;
+				padding: 0.85rem 1.2rem; max-width: 85%; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+				font-size: 0.95rem; line-height: 1.6;
+				animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; /* Applied smooth animation */
 			}
 
-			.message p {
-				white-space: pre-line;
-				margin: 0;
-				overflow-wrap: anywhere;
-			}
+			/* MARKDOWN STYLES */
+			.message-content { width: 100%; overflow-x: auto; }
+			.user-message .message-content { white-space: pre-wrap; }
+			.message-content p { margin-bottom: 0.75rem; }
+			.message-content p:last-child { margin-bottom: 0; }
+			.message-content pre { background: #1a1b26; border-radius: 8px; padding: 1rem; margin: 0.5rem 0; overflow-x: auto; border: 1px solid rgba(255,255,255,0.1); }
+			.message-content code { font-family: 'Courier New', Courier, monospace; background: rgba(128,128,128,0.2); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.85em; }
+			.message-content pre code { background: transparent; padding: 0; font-size: 0.9em; }
+			.message-content ul, .message-content ol { margin-left: 1.5rem; margin-bottom: 0.75rem; }
 
 			.user-message {
-				background-color: var(--user-msg-bg);
-				color: var(--user-msg-text);
-				align-self: flex-end;
-				border-radius: 18px 18px 4px 18px;
+				background-color: var(--user-msg-bg); color: var(--user-msg-text);
+				align-self: flex-end; border-radius: 18px 18px 4px 18px;
 			}
 
 			.assistant-message {
-				background-color: var(--assistant-msg-bg);
-				color: var(--text-color);
-				align-self: flex-start;
-				border-radius: 18px 18px 18px 4px;
-				border: 1px solid var(--border-color);
-				transition: all 0.5s ease;
+				background-color: var(--assistant-msg-bg); color: var(--text-color);
+				align-self: flex-start; border-radius: 18px 18px 18px 4px;
+				border: 1px solid var(--border-color); transition: all 0.5s ease;
 			}
 
 			.message-input {
-				display: flex;
-				padding: 1rem;
-				background-color: var(--app-bg);
-				border-top: 1px solid var(--border-color);
-				align-items: flex-end;
-				gap: 0.75rem;
+				display: flex; padding: 1rem; background-color: var(--app-bg);
+				border-top: 1px solid var(--border-color); align-items: flex-end; gap: 0.75rem;
 				transition: background-color 0.5s ease;
 			}
 
 			#user-input {
-				flex: 1;
-				padding: 0.85rem 1rem;
-				border: 1px solid var(--border-color);
-				border-radius: 12px;
-				font-family: inherit;
-				font-size: 0.95rem;
-				resize: none;
-				min-height: 50px;
-				max-height: 150px;
-				background-color: var(--app-bg);
-				transition: all 0.2s ease;
+				flex: 1; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
+				border-radius: 12px; font-family: inherit; font-size: 0.95rem; resize: none;
+				min-height: 50px; max-height: 150px; background-color: var(--app-bg); transition: all 0.2s ease;
 			}
 
-			#user-input:focus {
-				outline: none;
-				border-color: var(--primary-color);
-				box-shadow: 0 0 0 4px var(--primary-light);
-			}
+			#user-input:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 4px var(--primary-light); }
 
 			#send-button {
-				padding: 0 1.5rem;
-				height: 50px;
-				background-color: var(--primary-color);
-				color: white;
-				border: none;
-				border-radius: 12px;
-				font-weight: 600;
-				font-size: 0.95rem;
-				cursor: pointer;
-				transition: all 0.2s ease;
-				display: flex;
-				align-items: center;
-				justify-content: center;
+				padding: 0 1.5rem; height: 50px; background-color: var(--primary-color); color: white;
+				border: none; border-radius: 12px; font-weight: 600; font-size: 1.25rem;
+				cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center;
 			}
 
-			#send-button:hover:not(:disabled) {
-				background-color: var(--primary-hover);
-				transform: translateY(-1px);
-			}
+			#send-button:hover:not(:disabled) { background-color: var(--primary-hover); transform: translateY(-1px); }
+			#send-button:disabled { background-color: var(--border-color); color: var(--text-light); cursor: not-allowed; }
 
-			#send-button:disabled {
-				background-color: var(--border-color);
-				color: var(--text-light);
-				cursor: not-allowed;
-			}
-
-			/* Animated Typing Indicator */
 			.typing-indicator {
-				display: none;
-				align-self: flex-start;
-				background-color: var(--assistant-msg-bg);
-				border: 1px solid var(--border-color);
-				border-radius: 18px 18px 18px 4px;
-				padding: 1rem 1.2rem;
-				margin-bottom: 1rem;
-				box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+				display: none; align-self: flex-start; background-color: var(--assistant-msg-bg);
+				border: 1px solid var(--border-color); border-radius: 18px 18px 18px 4px; padding: 1rem 1.2rem;
+				margin-bottom: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
 			}
-
-			.typing-indicator.visible {
-				display: flex;
-				gap: 4px;
-				align-items: center;
-			}
-
-			.typing-indicator span {
-				width: 6px;
-				height: 6px;
-				background-color: var(--primary-color);
-				border-radius: 50%;
-				animation: bounce 1.4s infinite ease-in-out both;
-			}
-
+			.typing-indicator.visible { display: flex; gap: 4px; align-items: center; }
+			.typing-indicator span { width: 6px; height: 6px; background-color: var(--primary-color); border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
 			.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
 			.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
 			.typing-indicator span:nth-child(3) { animation-delay: 0s; }
+			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
 
-			@keyframes bounce {
-				0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
-				40% { transform: scale(1); opacity: 1; }
-			}
-
-			footer {
-				margin-top: 2rem;
-				text-align: center;
-				font-size: 0.85rem;
-				color: var(--text-light);
-				width: 100%;
-			}
-
-			.controls-row {
-				margin-top: 1rem; 
-				display: flex; 
-				justify-content: center; 
-				gap: 10px;
-				flex-wrap: wrap;
-			}
-			
+			footer { margin-top: 2rem; text-align: center; font-size: 0.85rem; color: var(--text-light); width: 100%; }
+			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 			.btn-secondary {
-				padding: 6px 12px; 
-				border-radius: 6px; 
-				border: 1px solid var(--border-color); 
-				background: var(--app-bg); 
-				cursor: pointer; 
-				color: var(--text-color);
-				transition: all 0.3s ease;
+				padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); 
+				background: var(--app-bg); cursor: pointer; color: var(--text-color);
+				transition: all 0.3s ease; display: flex; align-items: center; gap: 6px;
+			}
+			.btn-primary {
+				padding: 6px 12px; border-radius: 6px; border: none; 
+				background: var(--primary-color); color: white; cursor: pointer;
+				display: flex; align-items: center; gap: 6px;
 			}
 		</style>
 	</head>
@@ -337,37 +203,31 @@
 			<p>Powered by Cloudflare Workers AI</p>
 			
 			<div class="controls-row">
-				<button id="theme-toggle-btn" class="btn-secondary">✨ Toggle Theme</button>
-				<button id="clear-screen-btn" class="btn-secondary">Clear Screen</button>
-				<button id="new-chat-btn" style="padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer;">New Chat</button>
+				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
+				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
 			</div>
 		</header>
 
 		<div class="chat-container">
 			<div id="chat-messages" class="chat-messages">
 				<div class="message assistant-message">
-					<p>Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can I help you today?</p>
+					<div class="message-content">
+						<p>Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can I help you today?</p>
+					</div>
 				</div>
-				
 				<div class="typing-indicator" id="typing-indicator">
-					<span></span>
-					<span></span>
-					<span></span>
+					<span></span><span></span><span></span>
 				</div>
 			</div>
 
 			<div class="message-input" style="flex-wrap: wrap;">
 				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
 					<input type="file" id="file-upload" accept=".txt,.md" style="font-size: 0.85rem; color: var(--text-color);" />
-					<button id="upload-btn" class="btn-secondary">Memorize File</button>
+					<button id="upload-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
 				</div>
-				<textarea
-					id="user-input"
-					placeholder="Message AI Assistant..."
-					rows="1"
-					autofocus
-				></textarea>
-				<button id="send-button">Send</button>
+				<textarea id="user-input" placeholder="Message AI Assistant..." rows="1" autofocus></textarea>
+				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
 			</div>
 		</div>
 
