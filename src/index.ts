@@ -1,10 +1,7 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
-
-// Edge-friendly PDF extraction
 import { extractText } from "unpdf";
 
-// UPDATED: Using Llama 3.2 Vision as the default
 const DEFAULT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
@@ -19,9 +16,6 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
-		// ==========================================
-		// KV: CONFIGURATION ROUTES (Model & Prompt)
-		// ==========================================
 		if (url.pathname === "/api/config" && request.method === "GET") {
 			const model = await env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 			return new Response(JSON.stringify({ model }), { 
@@ -47,9 +41,6 @@ export default {
 			return new Response("Please provide a prompt.", { status: 400 });
 		}
 
-		// ==========================================
-		// TEMPORARY ROUTE: ACCEPT META LICENSE
-		// ==========================================
 		if (url.pathname === "/api/agree") {
 			try {
 				const response = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
@@ -80,9 +71,7 @@ export default {
 			}
 		}
 
-		// ==========================================
 		// R2 & VECTORIZE: DOCUMENT UPLOAD ROUTE
-		// ==========================================
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -94,22 +83,15 @@ export default {
 
 				if (fileName.toLowerCase().endsWith(".pdf")) {
 					const arrayBuffer = await file.arrayBuffer();
-					
-					// Save the original binary PDF safely into R2
 					await env.DOCUMENTS.put(fileName, arrayBuffer);
 
-					// Use Cloudflare's Native AI Markdown Conversion
 					const result = await (env.AI as any).toMarkdown({
 						name: fileName,
 						blob: new Blob([arrayBuffer])
 					});
 
 					const parsedDoc = Array.isArray(result) ? result[0] : result;
-					
-					if (parsedDoc.format === "error") {
-						throw new Error("Cloudflare AI failed to parse PDF: " + parsedDoc.error);
-					}
-
+					if (parsedDoc.format === "error") throw new Error("Cloudflare AI failed to parse PDF: " + parsedDoc.error);
 					fileText = parsedDoc.data;
 				} else {
 					fileText = await file.text(); 
@@ -174,7 +156,8 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
-				const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
+				// NEW: Extract image from the payload
+				const { messages = [], image } = (await request.json()) as { messages: ChatMessage[], image?: string };
 				await this.ctx.storage.put("messages", messages);
 
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model");
@@ -185,17 +168,20 @@ export class ChatSession extends DurableObject<Env> {
 					baseSystemPrompt = "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 				}
 
-				const latestMessage = messages[messages.length - 1]?.content || "";
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestMessage] });
-				
-				const searchResults = await this.env.VECTORIZE.query(queryVector.data[0], {
-					topK: 1, returnMetadata: "all"
-				});
-
+				// Only perform RAG search if NO image was provided (saves resources)
 				let dynamicSystemPrompt = baseSystemPrompt;
-				if (searchResults.matches.length > 0 && searchResults.matches[0].score > 0.5) {
-					const foundContext = searchResults.matches[0].metadata?.text;
-					dynamicSystemPrompt += `\n\nUse this internal context to answer the user: ${foundContext}`;
+				if (!image) {
+					const latestMessage = messages[messages.length - 1]?.content || "";
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestMessage] });
+					
+					const searchResults = await this.env.VECTORIZE.query(queryVector.data[0], {
+						topK: 1, returnMetadata: "all"
+					});
+
+					if (searchResults.matches.length > 0 && searchResults.matches[0].score > 0.5) {
+						const foundContext = searchResults.matches[0].metadata?.text;
+						dynamicSystemPrompt += `\n\nUse this internal context to answer the user: ${foundContext}`;
+					}
 				}
 
 				const sysIdx = messages.findIndex((msg) => msg.role === "system");
@@ -205,28 +191,32 @@ export class ChatSession extends DurableObject<Env> {
 					messages[sysIdx].content = dynamicSystemPrompt;
 				}
 
+				// NEW: Prepare the payload for the AI
+				const aiPayload: any = {
+					messages, 
+					max_tokens: 1024, 
+					stream: true
+				};
+
+				// NEW: If an image was passed, convert Base64 string to a Uint8 byte array
+				if (image) {
+					const base64Data = image.split(",")[1];
+					const binaryString = atob(base64Data);
+					const bytes = new Uint8Array(binaryString.length);
+					for (let i = 0; i < binaryString.length; i++) {
+						bytes[i] = binaryString.charCodeAt(i);
+					}
+					aiPayload.image = Array.from(bytes);
+				}
+
 				const stream = await this.env.AI.run(
 					activeModel, 
-					{
-						messages, 
-						max_tokens: 1024, 
-						stream: true,
-					},
-					{
-						gateway: {
-							id: "ai-sec-gateway",
-							skipCache: false,
-							cacheTtl: 3600,
-						}
-					}
+					aiPayload,
+					{ gateway: { id: "ai-sec-gateway", skipCache: false, cacheTtl: 3600 } }
 				);
 
 				return new Response(stream, {
-					headers: {
-						"content-type": "text/event-stream; charset=utf-8",
-						"cache-control": "no-cache",
-						connection: "keep-alive",
-					},
+					headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
 				});
 			} catch (error) {
 				return new Response(JSON.stringify({ error: "Failed to process request" }), { status: 500 });
