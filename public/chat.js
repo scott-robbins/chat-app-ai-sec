@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Full Multimodal Upgrade
+ * LLM Chat App Frontend - Full Multimodal Upgrade & Maintenance Mode Support
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -21,7 +21,7 @@ if (!sessionId) {
 
 let chatHistory = [];
 let isProcessing = false;
-let pendingImageBase64 = null; // NEW: Holds the image waiting to be sent
+let pendingImageBase64 = null; 
 
 marked.setOptions({ breaks: true });
 
@@ -63,13 +63,11 @@ userInput.addEventListener("keydown", function (e) {
 
 sendButton.addEventListener("click", sendMessage);
 
-// NEW: Instantly intercept images when selected in the file picker
 if (fileUpload) {
     fileUpload.addEventListener("change", () => {
         const file = fileUpload.files[0];
         if (!file) return;
         
-        // If it's an image, read it and hold it in memory
         if (file.type.startsWith("image/")) {
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -107,7 +105,6 @@ async function sendMessage() {
 		assistantTextEl = assistantMessageEl.querySelector(".message-content");
 		chatMessages.scrollTop = chatMessages.scrollHeight;
 
-        // NEW: Attach the image string to the JSON payload if one is waiting
         const payload = { messages: chatHistory };
         if (pendingImageBase64) {
             payload.image = pendingImageBase64;
@@ -123,6 +120,15 @@ async function sendMessage() {
 			let blockMessage = "Request blocked by Security Policy.";
 			assistantTextEl.innerHTML = marked.parse(blockMessage);
 			chatHistory.push({ role: "assistant", content: blockMessage });
+			chatMessages.scrollTop = chatMessages.scrollHeight;
+			return; 
+		}
+
+		// NEW: Gracefully handle the Global Kill Switch (Maintenance Mode)
+		if (response.status === 503) {
+			const errorData = await response.json();
+			assistantTextEl.innerHTML = marked.parse(`**SYSTEM:** ${errorData.error}`);
+			chatHistory.push({ role: "assistant", content: errorData.error });
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 			return; 
 		}
@@ -182,7 +188,6 @@ async function sendMessage() {
 		userInput.disabled = false;
 		sendButton.disabled = false;
         
-        // NEW: Clear the image buffer and reset the file input after sending
         pendingImageBase64 = null;
         if (fileUpload) fileUpload.value = "";
         
@@ -253,7 +258,6 @@ if (uploadBtn && fileUpload) {
         const file = fileUpload.files[0];
         if (!file) { alert("Please select a text file or PDF first!"); return; }
 
-        // NEW: Stop users from trying to "Memorize" an image.
         if (file.type.startsWith("image/")) {
             alert("Images are handled directly in the chat! Just type a question and click the 'Send' button instead.");
             return;
