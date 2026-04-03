@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - UI Polish Upgrade
+ * LLM Chat App Frontend - UI Polish & Brain Swap Upgrades
  */
 
 // DOM elements
@@ -12,6 +12,7 @@ const newChatBtn = document.getElementById("new-chat-btn");
 const fileUpload = document.getElementById("file-upload");
 const uploadBtn = document.getElementById("upload-btn");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
+const modelSelector = document.getElementById("model-selector");
 
 // 1. Session Management
 let sessionId = localStorage.getItem("chatSessionId");
@@ -23,31 +24,35 @@ if (!sessionId) {
 let chatHistory = [];
 let isProcessing = false;
 
-// Configure Marked.js (Markdown parser) to be safe and recognize line breaks
 marked.setOptions({ breaks: true });
 
-// 2. Load History on Page Load
+// 2. Load History & Config on Page Load
 window.addEventListener('DOMContentLoaded', async () => {
+    // Load History
     try {
-        const response = await fetch('/api/history', {
-            headers: { 'x-session-id': sessionId }
-        });
+        const response = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (response.ok) {
             const data = await response.json();
             if (data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
-                
                 chatHistory.forEach(msg => {
-                    if (msg.role !== "system") {
-                        addMessageToChat(msg.role, msg.content);
-                    }
+                    if (msg.role !== "system") addMessageToChat(msg.role, msg.content);
                 });
             }
         }
-    } catch (e) {
-        console.error("Could not load history");
-    }
+    } catch (e) { console.error("Could not load history"); }
+
+    // Load Active Model from KV
+    try {
+        const configRes = await fetch('/api/config');
+        if (configRes.ok) {
+            const config = await configRes.json();
+            if (modelSelector && config.model) {
+                modelSelector.value = config.model;
+            }
+        }
+    } catch (e) { console.error("Could not load config"); }
 });
 
 userInput.addEventListener("input", function () {
@@ -85,7 +90,6 @@ async function sendMessage() {
 	try {
 		assistantMessageEl = document.createElement("div");
 		assistantMessageEl.className = "message assistant-message";
-		// Create the inner container for markdown
 		assistantMessageEl.innerHTML = "<div class='message-content'></div>";
 		chatMessages.appendChild(assistantMessageEl);
 		assistantTextEl = assistantMessageEl.querySelector(".message-content");
@@ -125,14 +129,10 @@ async function sendMessage() {
 		let buffer = "";
 
 		const flushAssistantText = () => {
-			// Parse the Markdown into HTML
 			assistantTextEl.innerHTML = marked.parse(responseText);
-			
-			// Apply the beautiful code styling to any detected code blocks
 			assistantMessageEl.querySelectorAll('pre code').forEach((block) => {
 				hljs.highlightElement(block);
 			});
-			
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 		};
 
@@ -188,7 +188,6 @@ function addMessageToChat(role, content) {
 	const contentEl = document.createElement("div");
 	contentEl.className = "message-content";
 	
-	// Only parse markdown for the AI (keeps user messages raw so code isn't accidentally formatted)
 	if (role === "assistant" || role === "system") {
 		contentEl.innerHTML = marked.parse(content);
 	} else {
@@ -198,7 +197,6 @@ function addMessageToChat(role, content) {
 	messageEl.appendChild(contentEl);
 	chatMessages.appendChild(messageEl);
 
-	// Style code blocks for historical AI messages
 	if (role === "assistant" || role === "system") {
 		messageEl.querySelectorAll('pre code').forEach((block) => {
 			hljs.highlightElement(block);
@@ -290,6 +288,30 @@ if (themeToggleBtn) {
             localStorage.setItem("chatTheme", "fancy");
         } else {
             localStorage.setItem("chatTheme", "plain");
+        }
+    });
+}
+
+// ==========================================
+// BRAIN SWAP (Model Selection Logic)
+// ==========================================
+if (modelSelector) {
+    modelSelector.addEventListener("change", async (e) => {
+        const newModel = e.target.value;
+        modelSelector.disabled = true; // Briefly disable while updating
+
+        try {
+            const res = await fetch(`/api/set-model?name=${encodeURIComponent(newModel)}`);
+            if (res.ok) {
+                // Show a clean system notification in the chat
+                addMessageToChat('system', `**SYSTEM:** Brain swap successful! Jolene is now running on \`${newModel}\`.`);
+            } else {
+                alert("Failed to swap brain.");
+            }
+        } catch (err) {
+            alert("Failed to swap brain. Check console.");
+        } finally {
+            modelSelector.disabled = false;
         }
     });
 }
