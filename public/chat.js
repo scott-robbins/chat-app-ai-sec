@@ -11,6 +11,7 @@ const clearScreenBtn = document.getElementById("clear-screen-btn");
 const newChatBtn = document.getElementById("new-chat-btn");
 const fileUpload = document.getElementById("file-upload");
 const uploadBtn = document.getElementById("upload-btn");
+const themeToggleBtn = document.getElementById("theme-toggle-btn");
 
 // 1. Session Management
 let sessionId = localStorage.getItem("chatSessionId");
@@ -275,6 +276,31 @@ if (uploadBtn && fileUpload) {
         } finally {
             uploadBtn.disabled = false;
             uploadBtn.textContent = "Memorize File";
+        }
+    });
+}
+
+// ==========================================
+// AESTHETICS (Theme Toggle Logic)
+// ==========================================
+
+// 1. Check if the user already saved a preference
+const savedTheme = localStorage.getItem("chatTheme");
+if (savedTheme === "fancy") {
+    document.body.classList.add("theme-fancy");
+}
+
+// 2. Listen for clicks on the toggle button
+if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+        // Toggle the class on the body element
+        document.body.classList.toggle("theme-fancy");
+        
+        // Save their preference to the browser
+        if (document.body.classList.contains("theme-fancy")) {
+            localStorage.setItem("chatTheme", "fancy");
+        } else {
+            localStorage.setItem("chatTheme", "plain");
         }
     });
 }
