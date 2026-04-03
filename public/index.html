@@ -93,7 +93,6 @@
 				100% { transform: translate(100px, -50px) scale(1.2); }
 			}
 
-			/* NEW MESSAGE ANIMATION */
 			@keyframes slideUpFade {
 				from { opacity: 0; transform: translateY(15px); }
 				to { opacity: 1; transform: translateY(0); }
@@ -118,10 +117,9 @@
 			.message {
 				padding: 0.85rem 1.2rem; max-width: 85%; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
 				font-size: 0.95rem; line-height: 1.6;
-				animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; /* Applied smooth animation */
+				animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
 			}
 
-			/* MARKDOWN STYLES */
 			.message-content { width: 100%; overflow-x: auto; }
 			.user-message .message-content { white-space: pre-wrap; }
 			.message-content p { margin-bottom: 0.75rem; }
@@ -189,6 +187,14 @@
 				background: var(--primary-color); color: white; cursor: pointer;
 				display: flex; align-items: center; gap: 6px;
 			}
+			select.btn-secondary {
+				appearance: auto;
+				padding-right: 25px;
+			}
+			select.btn-secondary option {
+				background-color: var(--app-bg);
+				color: var(--text-color);
+			}
 		</style>
 	</head>
 	<body>
@@ -203,6 +209,13 @@
 			<p>Powered by Cloudflare Workers AI</p>
 			
 			<div class="controls-row">
+				<select id="model-selector" class="btn-secondary" title="Change the AI Model">
+					<option value="@cf/meta/llama-3.1-8b-instruct-fp8">Llama 3.1 (8B)</option>
+					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
+					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
+					<option value="@cf/qwen/qwen1.5-14b-chat-awq">Qwen 1.5 (14B)</option>
+				</select>
+				
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
 				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
