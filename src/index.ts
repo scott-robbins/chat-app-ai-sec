@@ -1,9 +1,8 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-// NEW IMPORTS FOR PDF PARSING
-import { Buffer } from "node:buffer";
-import pdf from "pdf-parse";
+// NEW IMPORT FOR EDGE-FRIENDLY PDF PARSING
+import { extractText } from "unpdf";
 
 const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
@@ -80,13 +79,13 @@ export default {
 
 				// 1. Check if the file is a PDF or a standard text file
 				if (fileName.toLowerCase().endsWith(".pdf")) {
-					// Convert the file to a Node.js Buffer for the pdf-parse library
+					// Use pure web standards for the edge!
 					const arrayBuffer = await file.arrayBuffer();
-					const buffer = Buffer.from(arrayBuffer);
+					const uint8Array = new Uint8Array(arrayBuffer);
 					
-					// Extract the text from the PDF
-					const pdfData = await pdf(buffer);
-					fileText = pdfData.text;
+					// Extract the text using our new edge-friendly library
+					const parsedPdf = await extractText(uint8Array);
+					fileText = parsedPdf.text;
 
 					// Save the original binary PDF safely into R2
 					await env.DOCUMENTS.put(fileName, arrayBuffer);
