@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Now with Persistent Sessions & UI Controls & R2 Uploads
+ * LLM Chat App Frontend - UI Polish Upgrade
  */
 
 // DOM elements
@@ -16,13 +16,15 @@ const themeToggleBtn = document.getElementById("theme-toggle-btn");
 // 1. Session Management
 let sessionId = localStorage.getItem("chatSessionId");
 if (!sessionId) {
-    // Generate a random ID if the user is new
     sessionId = crypto.randomUUID();
     localStorage.setItem("chatSessionId", sessionId);
 }
 
 let chatHistory = [];
 let isProcessing = false;
+
+// Configure Marked.js (Markdown parser) to be safe and recognize line breaks
+marked.setOptions({ breaks: true });
 
 // 2. Load History on Page Load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -33,11 +35,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         if (response.ok) {
             const data = await response.json();
             if (data.messages && data.messages.length > 0) {
-                // Clear the default greeting and load history
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
                 
-                // Render past messages (ignoring system prompts)
                 chatHistory.forEach(msg => {
                     if (msg.role !== "system") {
                         addMessageToChat(msg.role, msg.content);
@@ -77,29 +77,26 @@ async function sendMessage() {
 	userInput.style.height = "auto";
 	typingIndicator.classList.add("visible");
 
-	// Add new message to our local array before sending to the server
 	chatHistory.push({ role: "user", content: message });
 
 	let assistantTextEl;
+	let assistantMessageEl;
 
 	try {
-		const assistantMessageEl = document.createElement("div");
+		assistantMessageEl = document.createElement("div");
 		assistantMessageEl.className = "message assistant-message";
-		assistantMessageEl.innerHTML = "<p></p>";
+		// Create the inner container for markdown
+		assistantMessageEl.innerHTML = "<div class='message-content'></div>";
 		chatMessages.appendChild(assistantMessageEl);
-		assistantTextEl = assistantMessageEl.querySelector("p");
+		assistantTextEl = assistantMessageEl.querySelector(".message-content");
 		chatMessages.scrollTop = chatMessages.scrollHeight;
 
 		const response = await fetch("/api/chat", {
 			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-                "x-session-id": sessionId // Pass the session ID to the Worker!
-			},
+			headers: { "Content-Type": "application/json", "x-session-id": sessionId },
 			body: JSON.stringify({ messages: chatHistory }),
 		});
 
-		// WAF Intercept
 		if (response.status === 403) {
 			let blockMessage = "Request blocked by Security Policy.";
 			try {
@@ -108,16 +105,14 @@ async function sendMessage() {
 				if (wafData && wafData.message) blockMessage = wafData.message;
 			} catch (e) {}
 			
-			assistantTextEl.textContent = blockMessage;
+			assistantTextEl.innerHTML = marked.parse(blockMessage);
 			chatHistory.push({ role: "assistant", content: blockMessage });
 			
-            // Save the block message to the server history too!
             fetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "x-session-id": sessionId },
                 body: JSON.stringify({ messages: chatHistory })
             });
-
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 			return; 
 		}
@@ -130,7 +125,14 @@ async function sendMessage() {
 		let buffer = "";
 
 		const flushAssistantText = () => {
-			assistantTextEl.textContent = responseText;
+			// Parse the Markdown into HTML
+			assistantTextEl.innerHTML = marked.parse(responseText);
+			
+			// Apply the beautiful code styling to any detected code blocks
+			assistantMessageEl.querySelectorAll('pre code').forEach((block) => {
+				hljs.highlightElement(block);
+			});
+			
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 		};
 
@@ -143,10 +145,7 @@ async function sendMessage() {
 			const parsed = consumeSseEvents(buffer);
 			buffer = parsed.buffer;
 			for (const data of parsed.events) {
-				if (data === "[DONE]") {
-					sawDone = true;
-					break;
-				}
+				if (data === "[DONE]") { sawDone = true; break; }
 				try {
 					const jsonData = JSON.parse(data);
 					let content = "";
@@ -162,11 +161,8 @@ async function sendMessage() {
 			if (sawDone) break;
 		}
 
-		// When stream is done, add AI response to array and do one final sync to the server
 		if (responseText.length > 0) {
 			chatHistory.push({ role: "assistant", content: responseText });
-            
-            // Sync the final AI answer to the Durable Object storage
             fetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "x-session-id": sessionId },
@@ -175,7 +171,7 @@ async function sendMessage() {
 		}
 
 	} catch (error) {
-		if (assistantTextEl) assistantTextEl.textContent = "Sorry, there was an error processing your request.";
+		if (assistantTextEl) assistantTextEl.innerHTML = "<p>Sorry, there was an error processing your request.</p>";
 	} finally {
 		typingIndicator.classList.remove("visible");
 		isProcessing = false;
@@ -188,8 +184,27 @@ async function sendMessage() {
 function addMessageToChat(role, content) {
 	const messageEl = document.createElement("div");
 	messageEl.className = `message ${role}-message`;
-	messageEl.innerHTML = `<p>${content}</p>`;
+	
+	const contentEl = document.createElement("div");
+	contentEl.className = "message-content";
+	
+	// Only parse markdown for the AI (keeps user messages raw so code isn't accidentally formatted)
+	if (role === "assistant" || role === "system") {
+		contentEl.innerHTML = marked.parse(content);
+	} else {
+		contentEl.textContent = content;
+	}
+	
+	messageEl.appendChild(contentEl);
 	chatMessages.appendChild(messageEl);
+
+	// Style code blocks for historical AI messages
+	if (role === "assistant" || role === "system") {
+		messageEl.querySelectorAll('pre code').forEach((block) => {
+			hljs.highlightElement(block);
+		});
+	}
+
 	chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -212,70 +227,50 @@ function consumeSseEvents(buffer) {
 }
 
 // ==========================================
-// UI CONTROLS (Clear Screen & New Chat)
+// UI CONTROLS 
 // ==========================================
 
-// Option 1: Clear the UI, but keep the current session memory intact
 if (clearScreenBtn) {
     clearScreenBtn.addEventListener("click", () => {
-        // We only clear the HTML. We DO NOT clear the chatHistory array or Session ID!
         chatMessages.innerHTML = '';
-        addMessageToChat('assistant', 'Screen cleared! But I still remember our conversation context. (Refresh the page to bring the history back).');
+        addMessageToChat('assistant', 'Screen cleared! But I still remember our conversation context. *(Refresh the page to bring the history back).*');
     });
 }
 
-// Option 2: Start a brand new session, but leave the old one safely in the database
 if (newChatBtn) {
     newChatBtn.addEventListener("click", () => {
-        // 1. Generate a brand new Session ID
         sessionId = crypto.randomUUID();
         localStorage.setItem("chatSessionId", sessionId);
-        
-        // 2. Wipe the local history array clean
         chatHistory = [];
-        
-        // 3. Clear the UI
         chatMessages.innerHTML = '';
         addMessageToChat('assistant', 'Started a brand new chat session! The previous conversation was safely saved to the database. How can I help you?');
     });
 }
 
-// ==========================================
-// FILE UPLOAD HANDLING (R2 + Vectorize)
-// ==========================================
-
 if (uploadBtn && fileUpload) {
     uploadBtn.addEventListener("click", async () => {
         const file = fileUpload.files[0];
-        if (!file) {
-            alert("Please select a text file first!");
-            return;
-        }
+        if (!file) { alert("Please select a text file first!"); return; }
 
         uploadBtn.disabled = true;
-        uploadBtn.textContent = "Uploading & Learning...";
+        uploadBtn.innerHTML = "<i class='ph ph-spinner-gap'></i> Uploading...";
 
         const formData = new FormData();
         formData.append("file", file);
 
         try {
-            const response = await fetch("/api/upload", {
-                method: "POST",
-                body: formData
-            });
+            const response = await fetch("/api/upload", { method: "POST", body: formData });
             const result = await response.json();
             
             if (response.ok) {
-                addMessageToChat('system', `SYSTEM: ${result.message}`);
-                fileUpload.value = ""; // clear the input
-            } else {
-                alert("Error: " + result.error);
-            }
+                addMessageToChat('system', `**SYSTEM:** ${result.message}`);
+                fileUpload.value = ""; 
+            } else { alert("Error: " + result.error); }
         } catch (e) {
             alert("Upload failed. Check console.");
         } finally {
             uploadBtn.disabled = false;
-            uploadBtn.textContent = "Memorize File";
+            uploadBtn.innerHTML = "<i class='ph ph-paperclip'></i> Memorize File";
         }
     });
 }
@@ -283,20 +278,14 @@ if (uploadBtn && fileUpload) {
 // ==========================================
 // AESTHETICS (Theme Toggle Logic)
 // ==========================================
-
-// 1. Check if the user already saved a preference
 const savedTheme = localStorage.getItem("chatTheme");
 if (savedTheme === "fancy") {
     document.body.classList.add("theme-fancy");
 }
 
-// 2. Listen for clicks on the toggle button
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", () => {
-        // Toggle the class on the body element
         document.body.classList.toggle("theme-fancy");
-        
-        // Save their preference to the browser
         if (document.body.classList.contains("theme-fancy")) {
             localStorage.setItem("chatTheme", "fancy");
         } else {
