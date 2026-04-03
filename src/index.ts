@@ -1,7 +1,7 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct-fp8";
+const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // =====================================================================
@@ -16,19 +16,32 @@ export default {
 		}
 
 		// ==========================================
-		// KV: SET SYSTEM PROMPT ROUTE
+		// KV: CONFIGURATION ROUTES (Model & Prompt)
 		// ==========================================
+		if (url.pathname === "/api/config" && request.method === "GET") {
+			// Fetch the current active model from KV
+			const model = await env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
+			return new Response(JSON.stringify({ model }), { 
+				status: 200, headers: { "Content-Type": "application/json" } 
+			});
+		}
+
+		if (url.pathname === "/api/set-model") {
+			const newModel = url.searchParams.get("name");
+			if (newModel) {
+				await env.CHAT_CONFIG.put("active_model", newModel);
+				return new Response(`Success! Brain swapped to: ${newModel}`, { status: 200 });
+			}
+			return new Response("Please provide a model name.", { status: 400 });
+		}
+
 		if (url.pathname === "/api/set-prompt") {
-			// Get the 'text' parameter from the URL (e.g. ?text=You are a pirate)
 			const newPrompt = url.searchParams.get("text");
-			
 			if (newPrompt) {
-				// Save it to KV!
 				await env.CHAT_CONFIG.put("system_prompt", newPrompt);
 				return new Response(`Success! The bot's personality is now: "${newPrompt}"`, { status: 200 });
 			}
-			
-			return new Response("Please provide a prompt. Example: your-url.com/api/set-prompt?text=You are a grumpy cat.", { status: 400 });
+			return new Response("Please provide a prompt.", { status: 400 });
 		}
 
 		if (url.pathname === "/api/seed") {
@@ -60,17 +73,11 @@ export default {
 				if (!file) return new Response("No file provided", { status: 400 });
 
 				const fileName = file.name;
-				// Extract the raw text from the uploaded file
 				const fileText = await file.text(); 
 
-				// 1. Save the original file safely into R2
 				await env.DOCUMENTS.put(fileName, fileText);
-
-				// 2. Simple Chunking (Split by double line breaks)
-				// We break the document into paragraphs so Vectorize can search it effectively
 				const chunks = fileText.split("\n\n").filter(c => c.trim().length > 20);
 
-				// 3. Embed each chunk and save to Vectorize
 				const vectorsToInsert = [];
 				for (let i = 0; i < chunks.length; i++) {
 					const chunkText = chunks[i].trim();
@@ -79,11 +86,10 @@ export default {
 					vectorsToInsert.push({
 						id: `${fileName}-chunk-${i}`,
 						values: embedding.data[0],
-						metadata: { text: chunkText, source: fileName } // Save the text AND the filename
+						metadata: { text: chunkText, source: fileName }
 					});
 				}
 
-				// Insert the newly vectorized chunks into the database
 				await env.VECTORIZE.insert(vectorsToInsert);
 
 				return new Response(JSON.stringify({ 
@@ -132,16 +138,16 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
 				await this.ctx.storage.put("messages", messages);
 
-				// ==========================================
-				// KV: GET SYSTEM PROMPT
-				// ==========================================
-				// Ask KV for the prompt. If it's empty, use the default string.
+				// KV: Get Active Model & System Prompt
+				let activeModel = await this.env.CHAT_CONFIG.get("active_model");
+				if (!activeModel) activeModel = DEFAULT_MODEL;
+
 				let baseSystemPrompt = await this.env.CHAT_CONFIG.get("system_prompt");
 				if (!baseSystemPrompt) {
 					baseSystemPrompt = "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 				}
 
-				// Vectorize RAG Logic (Injecting context into our KV prompt)
+				// Vectorize RAG Logic
 				const latestMessage = messages[messages.length - 1]?.content || "";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestMessage] });
 				
@@ -162,22 +168,19 @@ export class ChatSession extends DurableObject<Env> {
 					messages[sysIdx].content = dynamicSystemPrompt;
 				}
 
-				// ==========================================
-				// RUN AI MODEL WITH GATEWAY ROUTING
-				// ==========================================
+				// RUN AI MODEL (Now dynamically selected from KV!)
 				const stream = await this.env.AI.run(
-					MODEL_ID, 
+					activeModel, 
 					{
 						messages, 
 						max_tokens: 1024, 
 						stream: true,
 					},
 					{
-						// Route the request through your AI Gateway
 						gateway: {
-							id: "ai-sec-gateway", // Updated to match your exact dashboard ID!
-							skipCache: false,       // Set to false to enable caching
-							cacheTtl: 3600,         // Cache identical requests for 1 hour
+							id: "ai-sec-gateway",
+							skipCache: false,
+							cacheTtl: 3600,
 						}
 					}
 				);
