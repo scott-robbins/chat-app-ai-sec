@@ -1,7 +1,11 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
+// Edge-friendly PDF extraction
+import { extractText } from "unpdf";
+
+// UPDATED: Using Llama 3.2 Vision as the default
+const DEFAULT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // =====================================================================
@@ -43,6 +47,20 @@ export default {
 			return new Response("Please provide a prompt.", { status: 400 });
 		}
 
+		// ==========================================
+		// TEMPORARY ROUTE: ACCEPT META LICENSE
+		// ==========================================
+		if (url.pathname === "/api/agree") {
+			try {
+				const response = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+					prompt: "agree"
+				});
+				return new Response("Successfully agreed to Meta License! AI Response: " + JSON.stringify(response), { status: 200 });
+			} catch (error: any) {
+				return new Response("Error agreeing to license: " + error.message, { status: 500 });
+			}
+		}
+
 		if (url.pathname === "/api/seed") {
 			try {
 				const companyKnowledge = [
@@ -74,20 +92,18 @@ export default {
 				const fileName = file.name;
 				let fileText = "";
 
-				// 1. Check if the file is a PDF or a standard text file
 				if (fileName.toLowerCase().endsWith(".pdf")) {
 					const arrayBuffer = await file.arrayBuffer();
 					
 					// Save the original binary PDF safely into R2
 					await env.DOCUMENTS.put(fileName, arrayBuffer);
 
-					// Use Cloudflare's Native AI Markdown Conversion!
+					// Use Cloudflare's Native AI Markdown Conversion
 					const result = await (env.AI as any).toMarkdown({
 						name: fileName,
 						blob: new Blob([arrayBuffer])
 					});
 
-					// The AI returns an array of documents or a single document
 					const parsedDoc = Array.isArray(result) ? result[0] : result;
 					
 					if (parsedDoc.format === "error") {
@@ -96,16 +112,11 @@ export default {
 
 					fileText = parsedDoc.data;
 				} else {
-					// It's a normal text file
 					fileText = await file.text(); 
-					// Save the original text file safely into R2
 					await env.DOCUMENTS.put(fileName, fileText);
 				}
 
-				// 2. Simple Chunking (Split by double line breaks)
 				const chunks = fileText.split("\n\n").filter(c => c.trim().length > 20);
-
-				// 3. Embed each chunk and save to Vectorize
 				const vectorsToInsert = [];
 				for (let i = 0; i < chunks.length; i++) {
 					const chunkText = chunks[i].trim();
