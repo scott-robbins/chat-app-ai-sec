@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Full Multimodal Upgrade, Maintenance Mode, Personality Swap & Image Gen
+ * LLM Chat App Frontend - Full Multimodal Upgrade, Maintenance Mode & Personality Swap
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -12,7 +12,7 @@ const fileUpload = document.getElementById("file-upload");
 const uploadBtn = document.getElementById("upload-btn");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const modelSelector = document.getElementById("model-selector");
-const promptSelector = document.getElementById("prompt-selector");
+const promptSelector = document.getElementById("prompt-selector"); // NEW
 
 let sessionId = localStorage.getItem("chatSessionId");
 if (!sessionId) {
@@ -47,6 +47,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             const config = await configRes.json();
             if (modelSelector && config.model) modelSelector.value = config.model;
             
+            // NEW: Set the active personality in the dropdown
             if (promptSelector && config.prompt) {
                 let optionExists = Array.from(promptSelector.options).some(opt => opt.value === config.prompt);
                 if (!optionExists) {
@@ -143,32 +144,6 @@ async function sendMessage() {
 
 		if (!response.ok) throw new Error("Failed to get response");
 
-        // --- NEW: LOGIC TO HANDLE IMAGE GENERATION RESPONSES ---
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-            const data = await response.json();
-            if (data.image) {
-                typingIndicator.classList.remove("visible");
-                const imgHtml = `<p>${data.description}</p><img src="${data.image}" style="width:100%; border-radius:12px; margin-top:10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);" />`;
-                assistantTextEl.innerHTML = imgHtml;
-                chatHistory.push({ role: "assistant", content: imgHtml });
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-                
-                // Save the "assistant" message to DO storage manually since it wasn't a stream
-                fetch("/api/chat", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-                    body: JSON.stringify({ messages: chatHistory })
-                });
-                
-                isProcessing = false;
-                sendButton.disabled = false;
-                userInput.disabled = false;
-                return; // Stop here, no stream to read
-            }
-        }
-        // --- END IMAGE GEN LOGIC ---
-
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
 		let responseText = "";
@@ -236,7 +211,6 @@ function addMessageToChat(role, content) {
 	const contentEl = document.createElement("div");
 	contentEl.className = "message-content";
 	
-    // If content contains an img tag (from history), don't treat it as raw text
 	if (role === "assistant" || role === "system") {
 		contentEl.innerHTML = marked.parse(content);
 	} else {
@@ -349,6 +323,7 @@ if (modelSelector) {
     });
 }
 
+// NEW: Event listener for the personality prompt dropdown
 if (promptSelector) {
     promptSelector.addEventListener("change", async (e) => {
         const newPrompt = e.target.value;
@@ -367,3 +342,5 @@ if (promptSelector) {
         }
     });
 }
+
+
