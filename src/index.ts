@@ -49,7 +49,6 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
-		// UPDATED: Now returns both the active model AND the active system prompt
 		if (url.pathname === "/api/config" && request.method === "GET") {
 			const model = await env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 			let prompt = await env.CHAT_CONFIG.get("system_prompt");
@@ -193,6 +192,34 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const { messages = [], image } = (await request.json()) as { messages: ChatMessage[], image?: string };
+				const latestMessage = messages[messages.length - 1]?.content || "";
+
+				// ==========================================
+				// NEW: IMAGE GENERATION (/imagine)
+				// ==========================================
+				if (latestMessage.toLowerCase().startsWith("/imagine ")) {
+					const prompt = latestMessage.slice(9); // Strip the command
+					
+					// Run Nano Banana 2 (Gemini 3 Flash Image)
+					const imageResponse = await this.env.AI.run("@cf/google/gemini-3-flash-image", {
+						prompt: prompt
+					});
+
+					// Convert binary result to Base64 for the frontend
+					const binaryString = String.fromCharCode(...new Uint8Array(imageResponse));
+					const base64Image = btoa(binaryString);
+
+					return new Response(JSON.stringify({ 
+						image: `data:image/png;base64,${base64Image}`,
+						description: `Generated image for: "${prompt}"` 
+					}), {
+						headers: { "Content-Type": "application/json" }
+					});
+				}
+
+				// ==========================================
+				// STANDARD CHAT LOGIC (TEXT/VISION)
+				// ==========================================
 				await this.ctx.storage.put("messages", messages);
 
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model");
@@ -205,9 +232,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				let dynamicSystemPrompt = baseSystemPrompt;
 				if (!image) {
-					const latestMessage = messages[messages.length - 1]?.content || "";
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestMessage] });
-					
 					const searchResults = await this.env.VECTORIZE.query(queryVector.data[0], {
 						topK: 1, returnMetadata: "all"
 					});
