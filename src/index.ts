@@ -1,9 +1,6 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-// NEW IMPORT FOR EDGE-FRIENDLY PDF PARSING
-import { extractText } from "unpdf";
-
 const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
@@ -79,16 +76,25 @@ export default {
 
 				// 1. Check if the file is a PDF or a standard text file
 				if (fileName.toLowerCase().endsWith(".pdf")) {
-					// Use pure web standards for the edge!
 					const arrayBuffer = await file.arrayBuffer();
-					const uint8Array = new Uint8Array(arrayBuffer);
 					
-					// Extract the text using our new edge-friendly library
-					const parsedPdf = await extractText(uint8Array);
-					fileText = parsedPdf.text;
-
 					// Save the original binary PDF safely into R2
 					await env.DOCUMENTS.put(fileName, arrayBuffer);
+
+					// Use Cloudflare's Native AI Markdown Conversion!
+					const result = await (env.AI as any).toMarkdown({
+						name: fileName,
+						blob: new Blob([arrayBuffer])
+					});
+
+					// The AI returns an array of documents or a single document
+					const parsedDoc = Array.isArray(result) ? result[0] : result;
+					
+					if (parsedDoc.format === "error") {
+						throw new Error("Cloudflare AI failed to parse PDF: " + parsedDoc.error);
+					}
+
+					fileText = parsedDoc.data;
 				} else {
 					// It's a normal text file
 					fileText = await file.text(); 
