@@ -210,6 +210,7 @@
 			
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary" title="Change the AI Model">
+					<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (11B)</option>
 					<option value="@cf/meta/llama-3.1-8b-instruct-fp8">Llama 3.1 (8B)</option>
 					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
 					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
@@ -236,7 +237,7 @@
 
 			<div class="message-input" style="flex-wrap: wrap;">
 				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
-					<input type="file" id="file-upload" accept=".txt,.md,.pdf" style="font-size: 0.85rem; color: var(--text-color);" />
+					<input type="file" id="file-upload" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" style="font-size: 0.85rem; color: var(--text-color);" />
 					<button id="upload-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
 				</div>
 				<textarea id="user-input" placeholder="Message AI Assistant..." rows="1" autofocus></textarea>
