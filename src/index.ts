@@ -14,7 +14,6 @@ export default {
 		// ==========================================
 		// THE GLOBAL KILL SWITCH (Maintenance Mode)
 		// ==========================================
-		// 1. The hidden route to flip the switch
 		if (url.pathname === "/api/toggle-maintenance") {
 			const currentState = await env.CHAT_CONFIG.get("is_maintenance_mode");
 			const newState = currentState === "true" ? "false" : "true";
@@ -22,16 +21,13 @@ export default {
 			return new Response(`Success! Maintenance mode is now: ${newState.toUpperCase()}`, { status: 200 });
 		}
 
-		// 2. The Bouncer: Check if the switch is ON before allowing anyone in
 		const isMaintenance = await env.CHAT_CONFIG.get("is_maintenance_mode");
 		if (isMaintenance === "true") {
-			// If it's an API request, return a JSON error
 			if (url.pathname.startsWith("/api/")) {
 				return new Response(JSON.stringify({ error: "Jolene is currently getting an upgrade. Be right back! 🛠️" }), { 
 					status: 503, headers: { "Content-Type": "application/json" } 
 				});
 			}
-			// If it's a browser requesting the page, return a friendly HTML screen
 			return new Response(`
 				<!DOCTYPE html>
 				<html>
@@ -53,9 +49,13 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
+		// UPDATED: Now returns both the active model AND the active system prompt
 		if (url.pathname === "/api/config" && request.method === "GET") {
 			const model = await env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
-			return new Response(JSON.stringify({ model }), { 
+			let prompt = await env.CHAT_CONFIG.get("system_prompt");
+			if (!prompt) prompt = "You are a helpful, friendly assistant. Provide concise and accurate responses.";
+			
+			return new Response(JSON.stringify({ model, prompt }), { 
 				status: 200, headers: { "Content-Type": "application/json" } 
 			});
 		}
@@ -108,7 +108,6 @@ export default {
 			}
 		}
 
-		// R2 & VECTORIZE: DOCUMENT UPLOAD ROUTE
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
