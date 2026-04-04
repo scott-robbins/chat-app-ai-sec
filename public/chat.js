@@ -14,7 +14,6 @@ localStorage.setItem("chatSessionId", sessionId);
 
 let chatHistory = [];
 let isProcessing = false;
-let pendingImageBase64 = null; 
 
 marked.setOptions({ breaks: true });
 
@@ -43,20 +42,6 @@ userInput.addEventListener("input", function () { this.style.height = "auto"; th
 userInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 sendButton.addEventListener("click", sendMessage);
 
-if (fileUpload) {
-    fileUpload.addEventListener("change", () => {
-        const file = fileUpload.files[0];
-        if (file && file.type.startsWith("image/")) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                pendingImageBase64 = e.target.result;
-                addMessageToChat('system', `**SYSTEM:** Attached ${file.name}.`);
-            };
-            reader.readAsDataURL(file);
-        }
-    });
-}
-
 async function sendMessage() {
 	const message = userInput.value.trim();
 	if (message === "" || isProcessing) return;
@@ -83,22 +68,15 @@ async function sendMessage() {
 		const response = await fetch("/api/chat", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-			body: JSON.stringify({ messages: chatHistory, image: pendingImageBase64 }),
+			body: JSON.stringify({ messages: chatHistory }),
 		});
 
-		if (response.status === 503 || response.status === 403) {
-			const data = await response.json();
-			assistantTextEl.innerHTML = marked.parse(`**SYSTEM:** ${data.error || "Blocked"}`);
-			return;
-		}
-
-        // --- IMAGE HANDLER ---
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
             const data = await response.json();
             if (data.image) {
                 typingIndicator.classList.remove("visible");
-                const html = `<p>${data.description}</p><img src="${data.image}" style="width:100%; border-radius:12px; margin-top:10px;" />`;
+                const html = `<p>${data.description}</p><img src="${data.image}" style="width:100%; border-radius:12px; margin-top:10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);" />`;
                 assistantTextEl.innerHTML = html;
                 chatHistory.push({ role: "assistant", content: html });
                 return;
@@ -121,8 +99,7 @@ async function sendMessage() {
 				if (data === "[DONE]") break;
 				try {
 					const json = JSON.parse(data);
-					const content = json.response || json.choices?.[0]?.delta?.content || "";
-					responseText += content;
+					responseText += json.response || json.choices?.[0]?.delta?.content || "";
 					assistantTextEl.innerHTML = marked.parse(responseText);
 				} catch (e) {}
 			}
@@ -135,7 +112,6 @@ async function sendMessage() {
 		isProcessing = false;
 		userInput.disabled = false;
 		sendButton.disabled = false;
-        pendingImageBase64 = null;
 		userInput.focus();
 	}
 }
@@ -164,7 +140,7 @@ if (uploadBtn && fileUpload) {
         try {
             const res = await fetch("/api/upload", { method: "POST", body: formData });
             const result = await res.json();
-            addMessageToChat('system', `**SYSTEM:** ${result.message || result.error}`);
+            addMessageToChat('system', result.message || "Done");
         } catch (e) {} finally { uploadBtn.innerText = "Memorize File"; }
     });
 }
@@ -173,6 +149,5 @@ if (themeToggleBtn) themeToggleBtn.addEventListener("click", () => { document.bo
 if (modelSelector) {
     modelSelector.addEventListener("change", async (e) => {
         await fetch(`/api/set-model?name=${encodeURIComponent(e.target.value)}`);
-        addMessageToChat('system', `**SYSTEM:** Swapped to ${e.target.value}`);
     });
 }
