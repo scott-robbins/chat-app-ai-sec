@@ -42,6 +42,12 @@ async function init() {
 }
 init();
 
+// Visual Feedback when Model is Switched
+modelSelector?.addEventListener("change", () => {
+    const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
+    addMessageToChat('assistant', `*Switched brain to **${selectedModelName}**. Our conversation continues!*`);
+});
+
 async function sendMessage() {
     const message = userInput.value.trim();
     if (!message || isProcessing) return;
@@ -68,7 +74,10 @@ async function sendMessage() {
             }),
         });
 
-        if (!response.ok) throw new Error(`Server returned ${response.status}`);
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Server returned ${response.status}`);
+        }
 
         typingIndicator?.classList.remove("visible");
 
@@ -99,22 +108,18 @@ async function sendMessage() {
                         if (dataString === "[DONE]") break;
                         
                         try {
-                            // THE FIX: Check if the data is already an object or needs parsing
                             let json;
                             try {
                                 json = JSON.parse(dataString);
                             } catch(e) {
-                                // If parsing fails, it might be raw text
                                 json = { response: dataString }; 
                             }
 
-                            // Extract content safely
                             const content = json.response || json.choices?.[0]?.delta?.content || "";
                             
-                            // Prevent adding the string "[object Object]"
                             if (typeof content === 'string') {
                                 text += content;
-                            } else if (typeof content === 'object') {
+                            } else if (typeof content === 'object' && content !== null) {
                                 text += JSON.stringify(content);
                             }
 
@@ -130,7 +135,7 @@ async function sendMessage() {
         }
     } catch (err) {
         typingIndicator?.classList.remove("visible");
-        addMessageToChat("assistant", "System Error: " + err.message);
+        addMessageToChat("assistant", "**System Error:** " + err.message);
     } finally {
         isProcessing = false;
         chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -147,7 +152,6 @@ function createMessageElement(role) {
 
 function addMessageToChat(role, content) {
     const el = createMessageElement(role);
-    // Ensure content is a string before passing to marked
     const safeContent = typeof content === 'string' ? content : JSON.stringify(content);
     el.querySelector(".message-content").innerHTML = marked.parse(safeContent);
     chatMessages.appendChild(el);
