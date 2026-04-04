@@ -21,23 +21,18 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: STABLE & CHUNKED ENCODING ---
+				// --- ART GENERATION: THE RELIABLE REDUCER ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
 					
-					// We use SDXL for stability while we confirm the pipeline is fixed
+					// We'll stick with SDXL for this test to be safe
 					const imageResponse = await this.env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt });
 					
-					// Convert binary image to base64 using a chunked approach to prevent 0.1kB "Empty" responses
-					const bytes = new Uint8Array(imageResponse);
-					let binary = "";
-					const chunkSize = 8192; // Process 8KB at a time
-					
-					for (let i = 0; i < bytes.length; i += chunkSize) {
-						binary += String.fromCharCode.apply(null, Array.from(bytes.slice(i, i + chunkSize)));
-					}
-					
-					const base64Image = btoa(binary);
+					// Use a reducer to build the string byte-by-byte. 
+					// This avoids the "Stack Size Exceeded" error that causes 0.2kB responses.
+					const base64Image = btoa(
+						new Uint8Array(imageResponse).reduce((data, byte) => data + String.fromCharCode(byte), '')
+					);
 					
 					return new Response(JSON.stringify({ 
 						image: `data:image/png;base64,${base64Image}`,
@@ -47,7 +42,7 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// --- STANDARD CHAT LOGIC ---
+				// --- CHAT LOGIC ---
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
