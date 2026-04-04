@@ -23,6 +23,9 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
+				
+				// UPDATE: Use the model the user selected in the UI
+				const selectedModel = body.model || DEFAULT_MODEL;
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
@@ -43,10 +46,14 @@ export class ChatSession extends DurableObject<Env> {
 
 				let sysPrompt = "You are Jolene. Give a natural, conversational response. If you use a tool, summarize the result for a human.";
 				if (contextText) sysPrompt += ` Knowledge: ${contextText}`;
-				messages.unshift({ role: "system", content: sysPrompt });
+				
+				// Ensure system prompt is always at the start
+				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
+				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
+				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// Running without stream to ensure tool logic finishes
-				const response = await this.env.AI.run(DEFAULT_MODEL, { messages, tools, stream: false });
+				// Use selectedModel here
+				const response = await this.env.AI.run(selectedModel, { messages, tools, stream: false });
 
 				let finalContent = "";
 
@@ -58,11 +65,12 @@ export class ChatSession extends DurableObject<Env> {
 					messages.push(response);
 					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
 
-					const secondRun = await this.env.AI.run(DEFAULT_MODEL, { messages });
-					finalContent = secondRun.response;
+					const secondRun = await this.env.AI.run(selectedModel, { messages });
+					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
 				} else {
-					// CRITICAL FIX: Ensure we get the string response
-					finalContent = typeof response.response === 'string' ? response.response : JSON.stringify(response.response);
+					finalContent = response.response || response.choices?.[0]?.message?.content || "";
+					// Final check to make sure it's a string
+					if (typeof finalContent !== 'string') finalContent = JSON.stringify(finalContent);
 				}
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
