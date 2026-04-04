@@ -21,18 +21,19 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: STRIP NEWLINES ---
+				// --- ART GENERATION: STABLE DIFFUSION SWAP ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
-					const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
+					// Swapping to SDXL for a baseline test
+					const imageResponse = await this.env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt });
 					
 					const bytes = new Uint8Array(imageResponse);
 					let binary = "";
 					for (let i = 0; i < bytes.byteLength; i++) {
 						binary += String.fromCharCode(bytes[i]);
 					}
-					// CRITICAL FIX: Ensure no spaces or newlines exist in the Base64 string
-					const base64Image = btoa(binary).replace(/[\r\n\t\s]+/gm, "");
+					// Double-cleaning the string
+					const base64Image = btoa(binary).replace(/[\r\n\x0B\x0C\u0085\u2028\u2029]+/g, "");
 					
 					return new Response(JSON.stringify({ 
 						image: `data:image/png;base64,${base64Image}`,
