@@ -43,9 +43,10 @@ async function init() {
 }
 init();
 
+// Visual Feedback when Model is Switched
 modelSelector?.addEventListener("change", () => {
     const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
-    addMessageToChat('assistant', `*Switched brain to **${selectedModelName}**.*`);
+    addMessageToChat('assistant', `*Switched brain to **${selectedModelName}**. Our conversation continues!*`);
 });
 
 async function sendMessage() {
@@ -67,7 +68,8 @@ async function sendMessage() {
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
             body: JSON.stringify({ 
                 messages: chatHistory,
-                model: modelSelector?.value || "@cf/meta/llama-3.1-8b-instruct"
+                // Updated fallback to Llama 3.2 Vision
+                model: modelSelector?.value || "@cf/meta/llama-3.2-11b-vision-instruct"
             }),
         });
 
@@ -101,17 +103,14 @@ async function sendMessage() {
                         if (dataString === "[DONE]") break;
                         
                         try {
-                            // IMPROVED PARSING:
                             let content = "";
                             try {
                                 const json = JSON.parse(dataString);
                                 content = json.response || json.choices?.[0]?.delta?.content || "";
                             } catch(e) {
-                                // If it wasn't JSON, it's raw text
                                 content = dataString; 
                             }
 
-                            // If content is STILL somehow an object (the [object Object] bug)
                             if (typeof content === 'object' && content !== null) {
                                 text += JSON.stringify(content);
                             } else {
