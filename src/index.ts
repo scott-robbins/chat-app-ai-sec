@@ -4,19 +4,14 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// =====================================================================
-// 1. THE MAIN WORKER ROUTER
-// =====================================================================
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Route for serving the frontend assets
 		if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
 			return env.ASSETS.fetch(request);
 		}
 
-		// GET current app configuration
 		if (url.pathname === "/api/config" && request.method === "GET") {
 			const model = await env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 			return new Response(JSON.stringify({ model }), { 
@@ -24,7 +19,7 @@ export default {
 			});
 		}
 
-		// SET the active AI model
+		// ROUTE: Swap the AI Brain
 		if (url.pathname === "/api/set-model") {
 			const newModel = url.searchParams.get("name");
 			if (newModel) {
@@ -34,28 +29,33 @@ export default {
 			return new Response("Please provide a model name.", { status: 400 });
 		}
 
-		// THE CRUCIAL HANDSHAKE: Agree to Meta License for Llama 3.2 Vision
+		// ROUTE: Change the Personality (System Prompt)
+		if (url.pathname === "/api/set-prompt") {
+			const newPrompt = url.searchParams.get("text");
+			if (newPrompt) {
+				await env.CHAT_CONFIG.put("system_prompt", newPrompt);
+				return new Response(`Success! Jolene's personality is now: "${newPrompt}"`, { status: 200 });
+			}
+			return new Response("Please provide a prompt text.", { status: 400 });
+		}
+
+		// ROUTE: Meta License Handshake
 		if (url.pathname === "/api/agree") {
 			try {
-				const response = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-					prompt: "agree"
-				});
-				return new Response("Successfully agreed to Meta License! AI Response: " + JSON.stringify(response), { status: 200 });
+				const response = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", { prompt: "agree" });
+				return new Response("Successfully agreed to Meta License!", { status: 200 });
 			} catch (error: any) {
-				return new Response("Error agreeing to license: " + error.message, { status: 500 });
+				return new Response("Error: " + error.message, { status: 500 });
 			}
 		}
 
-		// DOCUMENT UPLOAD: R2 storage and Vectorize embedding
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				if (!file) return new Response("No file provided", { status: 400 });
-
 				const fileName = file.name;
 				let fileText = "";
-
 				if (fileName.toLowerCase().endsWith(".pdf")) {
 					const arrayBuffer = await file.arrayBuffer();
 					await env.DOCUMENTS.put(fileName, arrayBuffer);
@@ -66,7 +66,6 @@ export default {
 					fileText = await file.text(); 
 					await env.DOCUMENTS.put(fileName, fileText);
 				}
-
 				const chunks = fileText.split("\n\n").filter(c => c.trim().length > 20);
 				const vectorsToInsert = [];
 				for (let i = 0; i < chunks.length; i++) {
@@ -81,7 +80,6 @@ export default {
 			}
 		}
 
-		// HAND-OFF to Durable Object for Chat and History
 		if (url.pathname === "/api/chat" || url.pathname === "/api/history") {
 			const sessionId = request.headers.get("x-session-id");
 			if (!sessionId) return new Response("Missing Session ID", { status: 400 });
@@ -94,9 +92,6 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
-// =====================================================================
-// 2. THE DURABLE OBJECT CLASS (Stateful Storage & AI Logic)
-// =====================================================================
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
@@ -110,12 +105,10 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
-				const body = await request.json() as any;
-				const messages = body.messages || [];
-				const image = body.image;
+				const { messages = [], image } = (await request.json()) as { messages: ChatMessage[], image?: string };
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// INTERCEPT: Image Generation (/imagine)
+				// INTERCEPT: Art Generation
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
 					const imageResponse = await this.env.AI.run("@cf/google/gemini-3-flash-image", { prompt });
@@ -126,12 +119,13 @@ export class ChatSession extends DurableObject<Env> {
 					}), { headers: { "Content-Type": "application/json" } });
 				}
 
-				// LOGIC: Chat & Vision
+				// LOGIC: System Prompt Retrieval
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
-				let sysPrompt = "You are a helpful assistant.";
+				
+				// Here is where we pull the Sarcastic prompt you saved via the URL!
+				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
 
-				// RAG: Document search if no image is attached
 				if (!image) {
 					try {
 						const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -139,13 +133,18 @@ export class ChatSession extends DurableObject<Env> {
 						if (searchResults.matches.length > 0 && searchResults.matches[0].score > 0.5) {
 							sysPrompt += `\n\nContext: ${searchResults.matches[0].metadata?.text}`;
 						}
-					} catch (e) { console.error("RAG error ignored for stability."); }
+					} catch (e) {}
 				}
+
+				// Inject the system prompt into the messages array
+				const sysIdx = messages.findIndex((msg) => msg.role === "system");
+				if (sysIdx === -1) messages.unshift({ role: "system", content: sysPrompt });
+				else messages[sysIdx].content = sysPrompt;
 
 				const aiPayload: any = { messages, max_tokens: 1024, stream: true };
 
 				if (image && image.includes(",")) {
-					activeModel = DEFAULT_MODEL; // Force Vision-capable model
+					activeModel = DEFAULT_MODEL;
 					const base64Data = image.split(",")[1];
 					const bytes = new Uint8Array(atob(base64Data).split("").map(c => c.charCodeAt(0)));
 					aiPayload.image = Array.from(bytes);
@@ -155,7 +154,7 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(stream, { headers: { "content-type": "text/event-stream" } });
 
 			} catch (error: any) {
-				return new Response(JSON.stringify({ error: "AI Processing Error: " + error.message }), { status: 500 });
+				return new Response(JSON.stringify({ error: "AI Error" }), { status: 500 });
 			}
 		}
 		return new Response("Not allowed", { status: 405 });
