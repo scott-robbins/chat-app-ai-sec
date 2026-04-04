@@ -4,6 +4,7 @@ const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const newChatBtn = document.getElementById("new-chat-btn");
+const clearScreenBtn = document.getElementById("clear-screen-btn"); // Ensure this ID matches your HTML
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
@@ -17,7 +18,7 @@ themeToggleBtn.addEventListener("click", () => {
     localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
 });
 
-// Init
+// Init - Loads from D1
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
@@ -51,9 +52,8 @@ async function sendMessage() {
     addMessageToChat("user", message);
     userInput.value = "";
     
-    // SHOW THINKING DOTS
     typingIndicator.classList.add("visible");
-    chatMessages.appendChild(typingIndicator); // Move dots to bottom
+    chatMessages.appendChild(typingIndicator); 
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
     chatHistory.push({ role: "user", content: message });
@@ -66,8 +66,6 @@ async function sendMessage() {
         });
 
         const contentType = response.headers.get("Content-Type") || "";
-
-        // HIDE THINKING DOTS before rendering response
         typingIndicator.classList.remove("visible");
 
         if (contentType.includes("image/png")) {
@@ -78,7 +76,7 @@ async function sendMessage() {
             const msgEl = createMessageElement("assistant");
             msgEl.querySelector(".message-content").innerHTML = `<p><strong>Jolene's Vision:</strong> "${prompt}"</p><img src="${url}" style="width:100%; border-radius:12px; margin-top:10px; display:block;" />`;
             chatMessages.appendChild(msgEl);
-            chatHistory.push({ role: "assistant", content: "[Image Generated]" });
+            chatHistory.push({ role: "assistant", content: `[Generated Image: ${prompt}]` });
         } 
         else {
             const reader = response.body.getReader();
@@ -131,7 +129,17 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+// --- BUTTON LOGIC ---
+
+// New Chat: Nukes the session so you get a truly fresh start in D1
 newChatBtn.addEventListener("click", () => { 
     localStorage.removeItem("chatSessionId"); 
     location.reload(); 
+});
+
+// Clear Screen: Just hides the current bubbles for a "fresh look"
+clearScreenBtn.addEventListener("click", () => {
+    chatMessages.innerHTML = '';
+    // We keep the chatHistory array so the AI still has context if you keep typing
+    addMessageToChat('assistant', 'Screen cleared! I still remember our conversation, but the view is fresh. How can I help?');
 });
