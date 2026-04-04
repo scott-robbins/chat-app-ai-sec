@@ -8,31 +8,87 @@ export class ChatSession extends DurableObject<Env> {
 
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "default";
 
+		// --- FETCH HISTORY FROM D1 ---
 		if (url.pathname === "/api/history") {
-			const saved = await this.ctx.storage.get<ChatMessage[]>("messages") || [];
-			return new Response(JSON.stringify({ messages: saved }), { headers: { "Content-Type": "application/json" } });
+			try {
+				const { results } = await this.env.jolene_db.prepare(
+					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
+				).bind(sessionId).all();
+				
+				return new Response(JSON.stringify({ messages: results }), { 
+					headers: { "Content-Type": "application/json" } 
+				});
+			} catch (e: any) {
+				return new Response(JSON.stringify({ messages: [] }), { headers: { "Content-Type": "application/json" } });
+			}
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const messages = body.messages || [];
-				const latest = messages[messages.length - 1]?.content || "";
+				const latestUserMessage = messages[messages.length - 1]?.content || "";
+
+				// 1. SAVE USER MESSAGE TO D1
+				await this.env.jolene_db.prepare(
+					"INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)"
+				).bind(sessionId, "user", latestUserMessage).run();
 
 				// --- ART GENERATION ---
-				if (latest.toLowerCase().startsWith("/imagine ")) {
-					const prompt = latest.slice(9);
+				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
+					const prompt = latestUserMessage.slice(9);
 					const img = await this.env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt });
+					
+					// Save the fact that an image was generated to history
+					await this.env.jolene_db.prepare(
+						"INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)"
+					).bind(sessionId, "assistant", `[Generated Image: ${prompt}]`).run();
+
 					return new Response(img, { 
 						headers: { "Content-Type": "image/png", "x-prompt": encodeURIComponent(prompt) } 
 					});
 				}
 
-				// --- TEXT CHAT ---
-				await this.ctx.storage.put("messages", messages);
+				// --- TEXT CHAT WITH D1 STREAM SAVING ---
 				const stream = await this.env.AI.run(DEFAULT_MODEL, { messages, stream: true });
-				return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+				
+				// We use a TransformStream to "spy" on the data so we can save the full response to D1
+				const [outStream, saveStream] = stream.tee();
+
+				// This background task gathers the stream and saves it once complete
+				this.ctx.waitUntil((async () => {
+					const reader = saveStream.getReader();
+					const decoder = new TextDecoder();
+					let fullAssistantText = "";
+					
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						const chunk = decoder.decode(value);
+						const lines = chunk.split("\n");
+						for (const line of lines) {
+							if (line.startsWith("data: ")) {
+								const data = line.slice(6).trim();
+								if (data === "[DONE]") break;
+								try {
+									const json = JSON.parse(data);
+									fullAssistantText += json.response || json.choices?.[0]?.delta?.content || "";
+								} catch (e) {}
+							}
+						}
+					}
+					
+					// SAVE ASSISTANT RESPONSE TO D1
+					if (fullAssistantText) {
+						await this.env.jolene_db.prepare(
+							"INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)"
+						).bind(sessionId, "assistant", fullAssistantText).run();
+					}
+				})());
+
+				return new Response(outStream, { headers: { "Content-Type": "text/event-stream" } });
 
 			} catch (e: any) {
 				return new Response(JSON.stringify({ error: e.message }), { status: 500 });
