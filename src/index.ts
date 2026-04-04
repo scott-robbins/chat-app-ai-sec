@@ -11,7 +11,6 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
-		// --- FETCH HISTORY ---
 		if (url.pathname === "/api/history") {
 			try {
 				const { results } = await this.env.jolene_db.prepare(
@@ -29,145 +28,93 @@ export class ChatSession extends DurableObject<Env> {
 				const messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// 1. SAVE USER MESSAGE TO D1
-				await this.env.jolene_db.prepare(
-					"INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)"
-				).bind(sessionId, "user", latestUserMessage).run();
+				// 1. SAVE USER MESSAGE
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "user", latestUserMessage).run();
 
 				// 2. VECTOR SEARCH (RAG)
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
-					if (matches.matches.length > 0 && matches.matches[0].score > 0.6) {
+					if (matches.matches.length > 0 && matches.matches[0].score > 0.5) {
 						contextText = matches.matches.map(m => m.metadata?.text).join("\n");
 					}
-				} catch (e) {
-					console.error("Vectorize Error:", e);
-				}
+				} catch (e) { console.error("RAG Error"); }
 
 				// 3. ART GENERATION
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
 					const img = await this.env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt });
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", `[Generated Image: ${prompt}]`).run();
+						.bind(sessionId, "assistant", `[Image: ${prompt}]`).run();
 					return new Response(img, { headers: { "Content-Type": "image/png", "x-prompt": encodeURIComponent(prompt) } });
 				}
 
-				// 4. DEFINE TOOLS
+				// 4. TOOLS DEFINITION
 				const tools = [
 					{
 						name: "get_weather",
-						description: "Get the current weather for a location",
-						parameters: {
-							type: "object",
-							properties: {
-								location: { type: "string", description: "The city, e.g. London" }
-							},
-							required: ["location"]
-						}
+						description: "Get current weather",
+						parameters: { type: "object", properties: { location: { type: "string" } }, required: ["location"] }
 					},
 					{
-						name: "security_scan_status",
-						description: "Check the status of the AI-SEC firewall and security gates",
+						name: "security_status",
+						description: "Check AI-SEC firewall status",
 						parameters: { type: "object", properties: {} }
 					}
 				];
 
-				// 5. PREPARE SYSTEM PROMPT
-				let systemPrompt = "You are Jolene, a helpful AI assistant. Use tools when necessary.";
-				if (contextText) systemPrompt += `\n\nInternal Knowledge: \n${contextText}`;
+				// 5. SYSTEM PROMPT
+				let sysPrompt = "You are Jolene. Use tools for weather or security status. Use Internal Knowledge for WiFi passwords.";
+				if (contextText) sysPrompt += `\n\nInternal Knowledge: ${contextText}`;
+				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
-				if (sysIdx !== -1) messages[sysIdx].content = systemPrompt;
-				else messages.unshift({ role: 'system', content: systemPrompt });
+				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
+				else messages.unshift({ role: 'system', content: sysPrompt });
 
-				// 6. INITIAL AI RUN (Check for Tool Intent)
-				console.log("Calling AI to check for tools...");
-				const response = await this.env.AI.run(DEFAULT_MODEL, { 
-					messages, 
-					tools,
-					stream: false 
-				});
+				// 6. AI EXECUTION
+				// We call the AI with stream: false to allow Tool Calling check
+				const response = await this.env.AI.run(DEFAULT_MODEL, { messages, tools, stream: false });
 
-				// 7. HANDLE TOOL CALLS
+				let finalContent = "";
+
+				// CHECK FOR TOOL CALLS
 				if (response.tool_calls && response.tool_calls.length > 0) {
-					const toolCall = response.tool_calls[0];
-					const args = JSON.parse(toolCall.arguments);
-					let toolResult = "";
+					const tc = response.tool_calls[0];
+					const args = JSON.parse(tc.arguments);
+					let toolOutput = "";
 
-					console.log(`Tool Triggered: ${toolCall.name}`, args);
+					if (tc.name === "get_weather") toolOutput = `Weather in ${args.location}: 72°F, Sunny.`;
+					else if (tc.name === "security_status") toolOutput = "AI-SEC: Systems active. No breaches.";
 
-					if (toolCall.name === "get_weather") {
-						toolResult = `The weather in ${args.location} is 22°C and sunny.`;
-					} else if (toolCall.name === "security_scan_status") {
-						toolResult = "AI-SEC Status: All systems green. Firewall active. No breaches detected.";
-					}
+					messages.push(response);
+					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
 
-					// Update conversation history with Tool interaction
-					messages.push(response); 
-					messages.push({
-						role: "tool",
-						name: toolCall.name,
-						content: toolResult,
-						tool_call_id: toolCall.id
-					});
+					const secondRun = await this.env.AI.run(DEFAULT_MODEL, { messages });
+					finalContent = secondRun.response;
+				} else {
+					// No tool called, just normal text
+					finalContent = response.response;
+				}
 
-					// Final run to get natural language response
-					const finalResponse = await this.env.AI.run(DEFAULT_MODEL, { messages });
-					const finalText = finalResponse.response || "I processed the tool call but couldn't generate text.";
-
-					console.log("Final Tool Response:", finalText);
-
-					// Save assistant response to D1
+				// 7. SAVE & RETURN (As SSE to satisfy chat.js)
+				if (finalContent) {
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", finalText).run();
-
-					// Return as SSE with required double-newlines \n\n
-					return new Response(`data: ${JSON.stringify({ response: finalText })}\n\ndata: [DONE]\n\n`, {
-						headers: { 
-							"Content-Type": "text/event-stream",
-							"Cache-Control": "no-cache"
-						}
+						.bind(sessionId, "assistant", finalContent).run();
+					
+					return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, {
+						headers: { "Content-Type": "text/event-stream" }
 					});
 				}
 
-				// 8. NORMAL STREAMING (No Tool Called)
-				console.log("No tool called, starting normal stream.");
-				const stream = await this.env.AI.run(DEFAULT_MODEL, { messages, stream: true });
-				const [outStream, saveStream] = stream.tee();
-
-				this.ctx.waitUntil((async () => {
-					const reader = saveStream.getReader();
-					const decoder = new TextDecoder();
-					let fullText = "";
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) break;
-						const chunk = decoder.decode(value);
-						const lines = chunk.split("\n");
-						for (const line of lines) {
-							if (line.startsWith("data: ")) {
-								const data = line.slice(6).trim();
-								if (data === "[DONE]") break;
-								try {
-									const json = JSON.parse(data);
-									fullText += json.response || json.choices?.[0]?.delta?.content || "";
-								} catch (e) {}
-							}
-						}
-					}
-					if (fullText) {
-						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-							.bind(sessionId, "assistant", fullText).run();
-					}
-				})());
-
-				return new Response(outStream, { headers: { "Content-Type": "text/event-stream" } });
+				throw new Error("AI returned empty content");
 
 			} catch (e: any) {
-				console.error("Chat Error:", e.message);
-				return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+				console.error("Worker Error:", e.message);
+				return new Response(`data: ${JSON.stringify({ response: "Sorry, I hit an error: " + e.message })}\n\ndata: [DONE]\n\n`, {
+					headers: { "Content-Type": "text/event-stream" }
+				});
 			}
 		}
 		return new Response("Not allowed", { status: 405 });
