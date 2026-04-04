@@ -17,10 +17,33 @@ themeToggleBtn.addEventListener("click", () => {
     localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
 });
 
-// Init
+// Init - FIXED GREETING LOGIC
 async function init() {
-    addMessageToChat('assistant', 'Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?');
+    try {
+        const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
+        if (res.ok) {
+            const data = await res.json();
+            // Clear any static placeholders
+            chatMessages.innerHTML = ''; 
+            
+            if (data.messages && data.messages.length > 0) {
+                chatHistory = data.messages;
+                chatHistory.forEach(msg => { 
+                    if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
+                });
+            } else {
+                // Only add greeting if history is empty
+                addMessageToChat('assistant', 'Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?');
+            }
+        }
+    } catch (e) {
+        // Fallback if API fails
+        if (chatMessages.children.length === 0) {
+            addMessageToChat('assistant', 'Hello! I am Jolene. Ready to assist.');
+        }
+    }
 }
+
 init();
 
 sendButton.addEventListener("click", sendMessage);
@@ -45,7 +68,6 @@ async function sendMessage() {
 
         const contentType = response.headers.get("Content-Type") || "";
 
-        // IMAGE HANDLER
         if (contentType.includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
@@ -55,9 +77,8 @@ async function sendMessage() {
             const msgEl = createMessageElement("assistant");
             msgEl.querySelector(".message-content").innerHTML = `<p><strong>Jolene's Vision:</strong> "${prompt}"</p><img src="${url}" style="width:100%; border-radius:12px; margin-top:10px; display:block;" />`;
             chatMessages.appendChild(msgEl);
-            chatHistory.push({ role: "assistant", content: "[Image]" });
+            chatHistory.push({ role: "assistant", content: "[Image Generated]" });
         } 
-        // TEXT HANDLER
         else {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -109,4 +130,7 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-newChatBtn.addEventListener("click", () => { localStorage.removeItem("chatSessionId"); location.reload(); });
+newChatBtn.addEventListener("click", () => { 
+    localStorage.removeItem("chatSessionId"); 
+    location.reload(); 
+});
