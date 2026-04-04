@@ -49,6 +49,7 @@ export default {
 			}
 		}
 
+		// ROUTE: Document Upload (PDF/Text)
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -92,6 +93,9 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
+// =====================================================================
+// 2. THE DURABLE OBJECT CLASS
+// =====================================================================
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
@@ -105,27 +109,32 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
-				const { messages = [], image } = (await request.json()) as { messages: ChatMessage[], image?: string };
+				const body = (await request.json()) as { messages: ChatMessage[], image?: string };
+				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// INTERCEPT: Art Generation
+				// --- INTERCEPT: Art Generation (/imagine) ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
-					const imageResponse = await this.env.AI.run("@cf/google/gemini-3-flash-image", { prompt });
-					const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageResponse)));
-					return new Response(JSON.stringify({ 
-						image: `data:image/png;base64,${base64Image}`,
-						description: `Generated image for: "${prompt}"` 
-					}), { headers: { "Content-Type": "application/json" } });
+					try {
+						// Using Flux-1-Schnell for high-speed, high-quality image generation
+						const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
+						const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageResponse)));
+						return new Response(JSON.stringify({ 
+							image: `data:image/png;base64,${base64Image}`,
+							description: `Jolene's Vision: "${prompt}"` 
+						}), { headers: { "Content-Type": "application/json" } });
+					} catch (genErr: any) {
+						return new Response(JSON.stringify({ error: "Image Gen Failed: " + genErr.message }), { status: 500 });
+					}
 				}
 
-				// LOGIC: System Prompt Retrieval
+				// --- STANDARD CHAT LOGIC ---
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
-				
-				// Here is where we pull the Sarcastic prompt you saved via the URL!
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
 
+				// RAG: Document context retrieval
 				if (!image) {
 					try {
 						const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -136,7 +145,6 @@ export class ChatSession extends DurableObject<Env> {
 					} catch (e) {}
 				}
 
-				// Inject the system prompt into the messages array
 				const sysIdx = messages.findIndex((msg) => msg.role === "system");
 				if (sysIdx === -1) messages.unshift({ role: "system", content: sysPrompt });
 				else messages[sysIdx].content = sysPrompt;
@@ -154,7 +162,7 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(stream, { headers: { "content-type": "text/event-stream" } });
 
 			} catch (error: any) {
-				return new Response(JSON.stringify({ error: "AI Error" }), { status: 500 });
+				return new Response(JSON.stringify({ error: "AI Error: " + error.message }), { status: 500 });
 			}
 		}
 		return new Response("Not allowed", { status: 405 });
