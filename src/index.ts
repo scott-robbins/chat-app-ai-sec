@@ -24,11 +24,9 @@ export class ChatSession extends DurableObject<Env> {
 				const messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// Log to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// RAG / Knowledge Search
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -43,11 +41,11 @@ export class ChatSession extends DurableObject<Env> {
 					{ name: "sec_status", description: "Check security", parameters: { type: "object", properties: {} } }
 				];
 
-				let sysPrompt = "You are Jolene. Give helpful, natural answers. ";
-				if (contextText) sysPrompt += `Use this Knowledge: ${contextText}`;
+				let sysPrompt = "You are Jolene. Give a natural, conversational response. If you use a tool, summarize the result for a human.";
+				if (contextText) sysPrompt += ` Knowledge: ${contextText}`;
 				messages.unshift({ role: "system", content: sysPrompt });
 
-				// IMPORTANT: Run with stream: false so we can handle the tool logic without a timeout
+				// Running without stream to ensure tool logic finishes
 				const response = await this.env.AI.run(DEFAULT_MODEL, { messages, tools, stream: false });
 
 				let finalContent = "";
@@ -63,14 +61,13 @@ export class ChatSession extends DurableObject<Env> {
 					const secondRun = await this.env.AI.run(DEFAULT_MODEL, { messages });
 					finalContent = secondRun.response;
 				} else {
-					finalContent = response.response;
+					// CRITICAL FIX: Ensure we get the string response
+					finalContent = typeof response.response === 'string' ? response.response : JSON.stringify(response.response);
 				}
 
-				// Save Response to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
-				// Return as SSE
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
