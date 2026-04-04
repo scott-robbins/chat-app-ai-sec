@@ -24,10 +24,11 @@ export class ChatSession extends DurableObject<Env> {
 				const messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
+				// Log to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// RAG / Vector Search
+				// RAG / Knowledge Search
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -42,42 +43,42 @@ export class ChatSession extends DurableObject<Env> {
 					{ name: "sec_status", description: "Check security", parameters: { type: "object", properties: {} } }
 				];
 
-				let sysPrompt = "You are Jolene. Be concise.";
-				if (contextText) sysPrompt += ` Knowledge: ${contextText}`;
+				let sysPrompt = "You are Jolene. Give helpful, natural answers. ";
+				if (contextText) sysPrompt += `Use this Knowledge: ${contextText}`;
 				messages.unshift({ role: "system", content: sysPrompt });
 
-				// Speed fix: Use stream: true by default for everything
-				const stream = await this.env.AI.run(DEFAULT_MODEL, { messages, tools, stream: true });
-				
-				// Standard stream handling
-				const [outStream, saveStream] = stream.tee();
-				this.ctx.waitUntil((async () => {
-					const reader = saveStream.getReader();
-					const decoder = new TextDecoder();
-					let fullText = "";
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) break;
-						const chunk = decoder.decode(value);
-						const lines = chunk.split("\n");
-						for (const line of lines) {
-							if (line.startsWith("data: ")) {
-								const data = line.slice(6).trim();
-								if (data === "[DONE]") break;
-								try {
-									const json = JSON.parse(data);
-									fullText += json.response || "";
-								} catch (e) {}
-							}
-						}
-					}
-					if (fullText) await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", fullText).run();
-				})());
+				// IMPORTANT: Run with stream: false so we can handle the tool logic without a timeout
+				const response = await this.env.AI.run(DEFAULT_MODEL, { messages, tools, stream: false });
 
-				return new Response(outStream, { headers: { "Content-Type": "text/event-stream" } });
+				let finalContent = "";
+
+				if (response.tool_calls && response.tool_calls.length > 0) {
+					const tc = response.tool_calls[0];
+					const args = JSON.parse(tc.arguments);
+					let toolOutput = (tc.name === "get_weather") ? `72°F in ${args.location}` : "AI-SEC Status: Systems Green.";
+					
+					messages.push(response);
+					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
+
+					const secondRun = await this.env.AI.run(DEFAULT_MODEL, { messages });
+					finalContent = secondRun.response;
+				} else {
+					finalContent = response.response;
+				}
+
+				// Save Response to D1
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", finalContent).run();
+
+				// Return as SSE
+				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, {
+					headers: { "Content-Type": "text/event-stream" }
+				});
+
 			} catch (e: any) {
-				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
+					headers: { "Content-Type": "text/event-stream" }
+				});
 			}
 		}
 		return new Response("Not allowed", { status: 405 });
