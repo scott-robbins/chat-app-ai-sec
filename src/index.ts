@@ -1,4 +1,4 @@
-import {  Env, ChatMessage } from "./types";
+import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 import { extractText } from "unpdf";
 
