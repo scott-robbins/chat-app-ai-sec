@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - UI Polish & Brain Swap Upgrades
+ * LLM Chat App Frontend - UI Polish, Vision & Art Generation Support
  */
 
 // DOM elements
@@ -23,12 +23,12 @@ if (!sessionId) {
 
 let chatHistory = [];
 let isProcessing = false;
+let pendingImageBase64 = null; // NEW: Holds the image until you hit send
 
 marked.setOptions({ breaks: true });
 
 // 2. Load History & Config on Page Load
 window.addEventListener('DOMContentLoaded', async () => {
-    // Load History
     try {
         const response = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (response.ok) {
@@ -43,7 +43,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) { console.error("Could not load history"); }
 
-    // Load Active Model from KV
     try {
         const configRes = await fetch('/api/config');
         if (configRes.ok) {
@@ -54,6 +53,21 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) { console.error("Could not load config"); }
 });
+
+// NEW: Listener to catch when a user picks an image file
+if (fileUpload) {
+    fileUpload.addEventListener("change", () => {
+        const file = fileUpload.files[0];
+        if (file && file.type.startsWith("image/")) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                pendingImageBase64 = e.target.result;
+                addMessageToChat('system', `**SYSTEM:** Attached \`${file.name}\`. Ready to analyze!`);
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+}
 
 userInput.addEventListener("input", function () {
 	this.style.height = "auto";
@@ -95,31 +109,28 @@ async function sendMessage() {
 		assistantTextEl = assistantMessageEl.querySelector(".message-content");
 		chatMessages.scrollTop = chatMessages.scrollHeight;
 
+        // UPDATED PAYLOAD: Include the image if it exists
 		const response = await fetch("/api/chat", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-			body: JSON.stringify({ messages: chatHistory }),
+			body: JSON.stringify({ 
+                messages: chatHistory,
+                image: pendingImageBase64 
+            }),
 		});
 
-		if (response.status === 403) {
-			let blockMessage = "Request blocked by Security Policy.";
-			try {
-				const rawResponse = await response.text();
-				const wafData = JSON.parse(rawResponse);
-				if (wafData && wafData.message) blockMessage = wafData.message;
-			} catch (e) {}
-			
-			assistantTextEl.innerHTML = marked.parse(blockMessage);
-			chatHistory.push({ role: "assistant", content: blockMessage });
-			
-            fetch("/api/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-                body: JSON.stringify({ messages: chatHistory })
-            });
-			chatMessages.scrollTop = chatMessages.scrollHeight;
-			return; 
-		}
+        // NEW: Check if the response is an image (Art Gen)
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            const data = await response.json();
+            if (data.image) {
+                typingIndicator.classList.remove("visible");
+                const html = `<p>${data.description}</p><img src="${data.image}" style="width:100%; border-radius:12px; margin-top:10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);" />`;
+                assistantTextEl.innerHTML = html;
+                chatHistory.push({ role: "assistant", content: html });
+                return;
+            }
+        }
 
 		if (!response.ok) throw new Error("Failed to get response");
 
@@ -148,10 +159,7 @@ async function sendMessage() {
 				if (data === "[DONE]") { sawDone = true; break; }
 				try {
 					const jsonData = JSON.parse(data);
-					let content = "";
-					if (typeof jsonData.response === "string") content = jsonData.response;
-					else if (jsonData.choices?.[0]?.delta?.content) content = jsonData.choices[0].delta.content;
-					
+					let content = jsonData.response || jsonData.choices?.[0]?.delta?.content || "";
 					if (content) {
 						responseText += content;
 						flushAssistantText();
@@ -163,11 +171,6 @@ async function sendMessage() {
 
 		if (responseText.length > 0) {
 			chatHistory.push({ role: "assistant", content: responseText });
-            fetch("/api/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-                body: JSON.stringify({ messages: chatHistory })
-            });
 		}
 
 	} catch (error) {
@@ -177,6 +180,8 @@ async function sendMessage() {
 		isProcessing = false;
 		userInput.disabled = false;
 		sendButton.disabled = false;
+        pendingImageBase64 = null; // Clear the image after sending
+        if (fileUpload) fileUpload.value = ""; // Reset the picker
 		userInput.focus();
 	}
 }
@@ -184,7 +189,6 @@ async function sendMessage() {
 function addMessageToChat(role, content) {
 	const messageEl = document.createElement("div");
 	messageEl.className = `message ${role}-message`;
-	
 	const contentEl = document.createElement("div");
 	contentEl.className = "message-content";
 	
@@ -202,7 +206,6 @@ function addMessageToChat(role, content) {
 			hljs.highlightElement(block);
 		});
 	}
-
 	chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -224,14 +227,11 @@ function consumeSseEvents(buffer) {
 	return { events, buffer: normalized };
 }
 
-// ==========================================
-// UI CONTROLS 
-// ==========================================
-
+// UI Controls & Theme
 if (clearScreenBtn) {
     clearScreenBtn.addEventListener("click", () => {
         chatMessages.innerHTML = '';
-        addMessageToChat('assistant', 'Screen cleared! But I still remember our conversation context. *(Refresh the page to bring the history back).*');
+        addMessageToChat('assistant', 'Screen cleared!');
     });
 }
 
@@ -241,77 +241,48 @@ if (newChatBtn) {
         localStorage.setItem("chatSessionId", sessionId);
         chatHistory = [];
         chatMessages.innerHTML = '';
-        addMessageToChat('assistant', 'Started a brand new chat session! The previous conversation was safely saved to the database. How can I help you?');
+        addMessageToChat('assistant', 'New session started.');
     });
 }
 
 if (uploadBtn && fileUpload) {
     uploadBtn.addEventListener("click", async () => {
         const file = fileUpload.files[0];
-        if (!file) { alert("Please select a text file first!"); return; }
+        if (!file || file.type.startsWith("image/")) return; // Image upload handled in chat flow
 
         uploadBtn.disabled = true;
-        uploadBtn.innerHTML = "<i class='ph ph-spinner-gap'></i> Uploading...";
-
+        uploadBtn.innerHTML = "Uploading...";
         const formData = new FormData();
         formData.append("file", file);
-
         try {
             const response = await fetch("/api/upload", { method: "POST", body: formData });
             const result = await response.json();
-            
             if (response.ok) {
                 addMessageToChat('system', `**SYSTEM:** ${result.message}`);
                 fileUpload.value = ""; 
-            } else { alert("Error: " + result.error); }
-        } catch (e) {
-            alert("Upload failed. Check console.");
-        } finally {
+            }
+        } catch (e) { alert("Upload failed."); } 
+        finally {
             uploadBtn.disabled = false;
             uploadBtn.innerHTML = "<i class='ph ph-paperclip'></i> Memorize File";
         }
     });
 }
 
-// ==========================================
-// AESTHETICS (Theme Toggle Logic)
-// ==========================================
 const savedTheme = localStorage.getItem("chatTheme");
-if (savedTheme === "fancy") {
-    document.body.classList.add("theme-fancy");
-}
+if (savedTheme === "fancy") document.body.classList.add("theme-fancy");
 
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", () => {
         document.body.classList.toggle("theme-fancy");
-        if (document.body.classList.contains("theme-fancy")) {
-            localStorage.setItem("chatTheme", "fancy");
-        } else {
-            localStorage.setItem("chatTheme", "plain");
-        }
+        localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
     });
 }
 
-// ==========================================
-// BRAIN SWAP (Model Selection Logic)
-// ==========================================
 if (modelSelector) {
     modelSelector.addEventListener("change", async (e) => {
         const newModel = e.target.value;
-        modelSelector.disabled = true; // Briefly disable while updating
-
-        try {
-            const res = await fetch(`/api/set-model?name=${encodeURIComponent(newModel)}`);
-            if (res.ok) {
-                // Show a clean system notification in the chat
-                addMessageToChat('system', `**SYSTEM:** Brain swap successful! Jolene is now running on \`${newModel}\`.`);
-            } else {
-                alert("Failed to swap brain.");
-            }
-        } catch (err) {
-            alert("Failed to swap brain. Check console.");
-        } finally {
-            modelSelector.disabled = false;
-        }
+        await fetch(`/api/set-model?name=${encodeURIComponent(newModel)}`);
+        addMessageToChat('system', `**SYSTEM:** Jolene is now running on \`${newModel}\`.`);
     });
 }
