@@ -34,7 +34,8 @@ async function init() {
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                addMessageToChat('assistant', "Hello! I am Jolene. I'm connected to your D1 database and Vectorize index. How can I help you today?");
+                // Warmer, non-technical greeting
+                addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?");
             }
         }
     } catch (e) {
@@ -68,7 +69,6 @@ async function sendMessage() {
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
             body: JSON.stringify({ 
                 messages: chatHistory,
-                // Updated fallback to Llama 3.2 Vision
                 model: modelSelector?.value || "@cf/meta/llama-3.2-11b-vision-instruct"
             }),
         });
@@ -161,5 +161,5 @@ newChatBtn?.addEventListener("click", () => {
 
 clearScreenBtn?.addEventListener("click", () => {
     chatMessages.innerHTML = '';
-    addMessageToChat('assistant', 'Screen cleared! How can I help?');
+    addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start. What's on your mind?");
 });
