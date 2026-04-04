@@ -31,6 +31,9 @@ async function init() {
                 chatHistory.forEach(msg => { 
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
+            } else {
+                // Default greeting if no history exists
+                addMessageToChat('assistant', "Hello! I am Jolene. I'm connected to your D1 database and Vectorize index. How can I help you today?");
             }
         }
     } catch (e) {
@@ -65,6 +68,8 @@ async function sendMessage() {
             }),
         });
 
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
+
         typingIndicator?.classList.remove("visible");
 
         if (response.headers.get("Content-Type")?.includes("image/png")) {
@@ -94,18 +99,25 @@ async function sendMessage() {
                         if (dataString === "[DONE]") break;
                         
                         try {
-                            // THE FIX: Robust JSON parsing
+                            // THE FIX: Check if the data is already an object or needs parsing
                             let json;
                             try {
                                 json = JSON.parse(dataString);
                             } catch(e) {
-                                // If already an object or weird format, skip parse
-                                json = dataString; 
+                                // If parsing fails, it might be raw text
+                                json = { response: dataString }; 
                             }
 
-                            const content = (typeof json === 'object') ? (json.response || json.choices?.[0]?.delta?.content || "") : "";
-                            text += content;
+                            // Extract content safely
+                            const content = json.response || json.choices?.[0]?.delta?.content || "";
                             
+                            // Prevent adding the string "[object Object]"
+                            if (typeof content === 'string') {
+                                text += content;
+                            } else if (typeof content === 'object') {
+                                text += JSON.stringify(content);
+                            }
+
                             if (text) contentEl.innerHTML = marked.parse(text);
                         } catch (e) {
                             console.warn("Stream parse hiccup:", e);
@@ -135,7 +147,9 @@ function createMessageElement(role) {
 
 function addMessageToChat(role, content) {
     const el = createMessageElement(role);
-    el.querySelector(".message-content").innerHTML = marked.parse(content);
+    // Ensure content is a string before passing to marked
+    const safeContent = typeof content === 'string' ? content : JSON.stringify(content);
+    el.querySelector(".message-content").innerHTML = marked.parse(safeContent);
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
