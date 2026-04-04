@@ -25,15 +25,18 @@ async function init() {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
             const data = await res.json();
-            chatMessages.innerHTML = ''; // Start clean
+            chatMessages.innerHTML = ''; 
             if (data.messages && data.messages.length > 0) {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { if (msg.role !== "system") addMessageToChat(msg.role, msg.content); });
             } else {
-                addMessageToChat('assistant', 'Hello! I am Jolene. How can I help you today?');
+                // RESTORED ORIGINAL GREETING
+                addMessageToChat('assistant', 'Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?');
             }
         }
-    } catch (e) { addMessageToChat('assistant', 'Hello! Ready to chat.'); }
+    } catch (e) { 
+        addMessageToChat('assistant', 'Hello! I am Jolene. How can I help you today?'); 
+    }
 }
 
 init();
