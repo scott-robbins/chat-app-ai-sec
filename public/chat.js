@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Polished Version
+ * LLM Chat App Frontend - Polished & Fast
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -20,27 +20,23 @@ let pendingImageBase64 = null;
 
 marked.setOptions({ breaks: true });
 
-// Load History & Greeting (One single source of truth)
-async function initChat() {
+async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
             const data = await res.json();
+            chatMessages.innerHTML = ''; // Start clean
             if (data.messages && data.messages.length > 0) {
-                chatMessages.innerHTML = '';
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { if (msg.role !== "system") addMessageToChat(msg.role, msg.content); });
             } else {
                 addMessageToChat('assistant', 'Hello! I am Jolene. How can I help you today?');
             }
         }
-    } catch (e) {
-        console.error("Init failed");
-    }
+    } catch (e) { addMessageToChat('assistant', 'Hello! Ready to chat.'); }
 }
 
-// Call init once
-initChat();
+init();
 
 if (fileUpload) {
     fileUpload.addEventListener("change", () => {
@@ -80,7 +76,6 @@ async function sendMessage() {
         assistantMessageEl.innerHTML = "<div class='message-content'></div>";
         chatMessages.appendChild(assistantMessageEl);
         assistantTextEl = assistantMessageEl.querySelector(".message-content");
-        chatMessages.scrollTop = chatMessages.scrollHeight;
 
         const response = await fetch("/api/chat", {
             method: "POST",
@@ -94,11 +89,9 @@ async function sendMessage() {
             const data = await response.json();
             if (data.image) {
                 typingIndicator.classList.remove("visible");
-                assistantTextEl.innerHTML = `
-                    <p style="margin-bottom:8px;"><strong>Jolene's Vision:</strong> "${data.prompt}"</p>
-                    <img src="${data.image}" style="width:100%; border-radius:8px; display:block; border: 1px solid rgba(255,255,255,0.1);" />
-                `;
+                assistantTextEl.innerHTML = `<p><strong>Jolene's Vision:</strong> "${data.prompt}"</p><img src="${data.image}" style="width:100%; border-radius:12px; display:block; margin-top:10px;" />`;
                 chatHistory.push({ role: "assistant", content: `Generated Image: ${data.prompt}` });
+                chatMessages.scrollTop = chatMessages.scrollHeight;
                 return;
             }
         }
