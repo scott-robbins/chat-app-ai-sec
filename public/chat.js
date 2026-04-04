@@ -1,7 +1,8 @@
 /**
- * LLM Chat App Frontend - Full Multimodal Upgrade & Maintenance Mode Support
+ * LLM Chat App Frontend - UI Polish & Brain Swap Upgrades
  */
 
+// DOM elements
 const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
@@ -13,6 +14,7 @@ const uploadBtn = document.getElementById("upload-btn");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const modelSelector = document.getElementById("model-selector");
 
+// 1. Session Management
 let sessionId = localStorage.getItem("chatSessionId");
 if (!sessionId) {
     sessionId = crypto.randomUUID();
@@ -21,11 +23,12 @@ if (!sessionId) {
 
 let chatHistory = [];
 let isProcessing = false;
-let pendingImageBase64 = null; 
 
 marked.setOptions({ breaks: true });
 
+// 2. Load History & Config on Page Load
 window.addEventListener('DOMContentLoaded', async () => {
+    // Load History
     try {
         const response = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (response.ok) {
@@ -40,11 +43,14 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) { console.error("Could not load history"); }
 
+    // Load Active Model from KV
     try {
         const configRes = await fetch('/api/config');
         if (configRes.ok) {
             const config = await configRes.json();
-            if (modelSelector && config.model) modelSelector.value = config.model;
+            if (modelSelector && config.model) {
+                modelSelector.value = config.model;
+            }
         }
     } catch (e) { console.error("Could not load config"); }
 });
@@ -62,22 +68,6 @@ userInput.addEventListener("keydown", function (e) {
 });
 
 sendButton.addEventListener("click", sendMessage);
-
-if (fileUpload) {
-    fileUpload.addEventListener("change", () => {
-        const file = fileUpload.files[0];
-        if (!file) return;
-        
-        if (file.type.startsWith("image/")) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                pendingImageBase64 = e.target.result;
-                addMessageToChat('system', `**SYSTEM:** Attached image \`${file.name}\`. Type your question about it and hit Send!`);
-            };
-            reader.readAsDataURL(file);
-        }
-    });
-}
 
 async function sendMessage() {
 	const message = userInput.value.trim();
@@ -105,30 +95,28 @@ async function sendMessage() {
 		assistantTextEl = assistantMessageEl.querySelector(".message-content");
 		chatMessages.scrollTop = chatMessages.scrollHeight;
 
-        const payload = { messages: chatHistory };
-        if (pendingImageBase64) {
-            payload.image = pendingImageBase64;
-        }
-
 		const response = await fetch("/api/chat", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-			body: JSON.stringify(payload),
+			body: JSON.stringify({ messages: chatHistory }),
 		});
 
 		if (response.status === 403) {
 			let blockMessage = "Request blocked by Security Policy.";
+			try {
+				const rawResponse = await response.text();
+				const wafData = JSON.parse(rawResponse);
+				if (wafData && wafData.message) blockMessage = wafData.message;
+			} catch (e) {}
+			
 			assistantTextEl.innerHTML = marked.parse(blockMessage);
 			chatHistory.push({ role: "assistant", content: blockMessage });
-			chatMessages.scrollTop = chatMessages.scrollHeight;
-			return; 
-		}
-
-		// NEW: Gracefully handle the Global Kill Switch (Maintenance Mode)
-		if (response.status === 503) {
-			const errorData = await response.json();
-			assistantTextEl.innerHTML = marked.parse(`**SYSTEM:** ${errorData.error}`);
-			chatHistory.push({ role: "assistant", content: errorData.error });
+			
+            fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+                body: JSON.stringify({ messages: chatHistory })
+            });
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 			return; 
 		}
@@ -142,7 +130,9 @@ async function sendMessage() {
 
 		const flushAssistantText = () => {
 			assistantTextEl.innerHTML = marked.parse(responseText);
-			assistantMessageEl.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+			assistantMessageEl.querySelectorAll('pre code').forEach((block) => {
+				hljs.highlightElement(block);
+			});
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 		};
 
@@ -187,10 +177,6 @@ async function sendMessage() {
 		isProcessing = false;
 		userInput.disabled = false;
 		sendButton.disabled = false;
-        
-        pendingImageBase64 = null;
-        if (fileUpload) fileUpload.value = "";
-        
 		userInput.focus();
 	}
 }
@@ -212,7 +198,9 @@ function addMessageToChat(role, content) {
 	chatMessages.appendChild(messageEl);
 
 	if (role === "assistant" || role === "system") {
-		messageEl.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+		messageEl.querySelectorAll('pre code').forEach((block) => {
+			hljs.highlightElement(block);
+		});
 	}
 
 	chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -236,6 +224,10 @@ function consumeSseEvents(buffer) {
 	return { events, buffer: normalized };
 }
 
+// ==========================================
+// UI CONTROLS 
+// ==========================================
+
 if (clearScreenBtn) {
     clearScreenBtn.addEventListener("click", () => {
         chatMessages.innerHTML = '';
@@ -256,12 +248,7 @@ if (newChatBtn) {
 if (uploadBtn && fileUpload) {
     uploadBtn.addEventListener("click", async () => {
         const file = fileUpload.files[0];
-        if (!file) { alert("Please select a text file or PDF first!"); return; }
-
-        if (file.type.startsWith("image/")) {
-            alert("Images are handled directly in the chat! Just type a question and click the 'Send' button instead.");
-            return;
-        }
+        if (!file) { alert("Please select a text file first!"); return; }
 
         uploadBtn.disabled = true;
         uploadBtn.innerHTML = "<i class='ph ph-spinner-gap'></i> Uploading...";
@@ -286,26 +273,41 @@ if (uploadBtn && fileUpload) {
     });
 }
 
+// ==========================================
+// AESTHETICS (Theme Toggle Logic)
+// ==========================================
 const savedTheme = localStorage.getItem("chatTheme");
-if (savedTheme === "fancy") document.body.classList.add("theme-fancy");
+if (savedTheme === "fancy") {
+    document.body.classList.add("theme-fancy");
+}
 
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", () => {
         document.body.classList.toggle("theme-fancy");
-        localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
+        if (document.body.classList.contains("theme-fancy")) {
+            localStorage.setItem("chatTheme", "fancy");
+        } else {
+            localStorage.setItem("chatTheme", "plain");
+        }
     });
 }
 
+// ==========================================
+// BRAIN SWAP (Model Selection Logic)
+// ==========================================
 if (modelSelector) {
     modelSelector.addEventListener("change", async (e) => {
         const newModel = e.target.value;
-        modelSelector.disabled = true; 
+        modelSelector.disabled = true; // Briefly disable while updating
 
         try {
             const res = await fetch(`/api/set-model?name=${encodeURIComponent(newModel)}`);
             if (res.ok) {
+                // Show a clean system notification in the chat
                 addMessageToChat('system', `**SYSTEM:** Brain swap successful! Jolene is now running on \`${newModel}\`.`);
-            } else { alert("Failed to swap brain."); }
+            } else {
+                alert("Failed to swap brain.");
+            }
         } catch (err) {
             alert("Failed to swap brain. Check console.");
         } finally {
