@@ -31,14 +31,13 @@ export class ChatSession extends DurableObject<Env> {
 				const messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 				
-				// Respect model choice from UI, fallback to 3.2 Vision
 				const selectedModel = body.model || DEFAULT_MODEL;
 
 				// 1. Persist User Message to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// 2. Vector Search (RAG) for WiFi Passwords & Internal Docs
+				// 2. Vector Search (RAG)
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -50,7 +49,7 @@ export class ChatSession extends DurableObject<Env> {
 					console.error("Vectorize retrieval failed:", e);
 				}
 
-				// 3. Tool Definitions (Modern API Syntax)
+				// 3. Tool Definitions
 				const tools = [
 					{
 						type: "function",
@@ -70,13 +69,13 @@ export class ChatSession extends DurableObject<Env> {
 						type: "function",
 						function: {
 							name: "sec_status",
-							description: "Check the status of the AI-SEC security systems",
+							description: "Check the live status of the AI-SEC security systems and recent alerts",
 							parameters: { type: "object", properties: {} }
 						}
 					}
 				];
 
-				// 4. System Prompt Construction
+				// 4. System Prompt
 				let sysPrompt = "You are Jolene. Give a natural, conversational response. If you use a tool, summarize the result for a human.";
 				if (contextText) sysPrompt += ` Use this Knowledge for context: ${contextText}`;
 				
@@ -84,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// 5. Initial Execution (Check for Tool Calling Intent)
+				// 5. Initial AI Call
 				const response = await this.env.AI.run(selectedModel, { messages, tools, stream: false });
 
 				let finalContent = "";
@@ -97,11 +96,25 @@ export class ChatSession extends DurableObject<Env> {
 					let toolOutput = "";
 					if (tc.name === "get_weather") {
 						toolOutput = `The current weather in ${args.location || 'the area'} is 72°F and sunny.`;
-					} else if (tc.name === "sec_status") {
-						toolOutput = "AI-SEC Status: Firewalls at 100%. Security gates locked. No active breaches.";
+					} 
+					
+					// --- LIVE SECURITY TOOL LOGIC ---
+					else if (tc.name === "sec_status") {
+						try {
+							const latestAlert = await this.env.jolene_db.prepare(
+								"SELECT status, details, created_at FROM alerts ORDER BY created_at DESC LIMIT 1"
+							).first() as any;
+
+							if (latestAlert) {
+								toolOutput = `LIVE STATUS: ${latestAlert.status}. DETAILS: ${latestAlert.details}. LAST UPDATED: ${latestAlert.created_at}.`;
+							} else {
+								toolOutput = "LIVE STATUS: Secure. No recent alerts found in the database. All systems nominal.";
+							}
+						} catch (dbError) {
+							toolOutput = "AI-SEC Status: Systems active, but unable to reach the live alert database. Defaulting to high-security mode.";
+						}
 					}
 					
-					// Add the tool sequence to message history
 					messages.push(response);
 					messages.push({ 
 						role: "tool", 
@@ -110,21 +123,18 @@ export class ChatSession extends DurableObject<Env> {
 						tool_call_id: tc.id 
 					});
 
-					// Re-run to generate human-readable text
 					const secondRun = await this.env.AI.run(selectedModel, { messages });
 					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
 				} else {
-					// Handle Standard Output
 					finalContent = response.response || response.choices?.[0]?.message?.content || "";
-					// Ensure we aren't sending an object back to the UI
 					if (typeof finalContent !== 'string') finalContent = JSON.stringify(finalContent);
 				}
 
-				// 7. Persist Assistant Response to D1
+				// 7. Persist Assistant Response
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
-				// 8. Stream output in SSE format to Frontend
+				// 8. Stream output
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
