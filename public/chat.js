@@ -13,10 +13,12 @@ let isProcessing = false;
 
 // Theme Logic
 if (localStorage.getItem("chatTheme") === "fancy") document.body.classList.add("theme-fancy");
-themeToggleBtn.addEventListener("click", () => {
-    document.body.classList.toggle("theme-fancy");
-    localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
-});
+if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+        document.body.classList.toggle("theme-fancy");
+        localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
+    });
+}
 
 // Init - Loads from D1
 async function init() {
@@ -31,53 +33,57 @@ async function init() {
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                addMessageToChat('assistant', 'Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?');
+                addMessageToChat('assistant', 'Hello! I am Jolene. How can I help you today?');
             }
         }
     } catch (e) {
-        chatMessages.innerHTML = ''; 
-        addMessageToChat('assistant', 'Hello! I am Jolene. Ready to assist.');
+        console.error("Init failed:", e);
     }
 }
 init();
 
-sendButton.addEventListener("click", sendMessage);
-userInput.addEventListener("keydown", (e) => { 
-    if (e.key === "Enter" && !e.shiftKey) { 
-        e.preventDefault(); 
-        sendMessage(); 
-    } 
-});
+if (sendButton) sendButton.addEventListener("click", sendMessage);
+if (userInput) {
+    userInput.addEventListener("keydown", (e) => { 
+        if (e.key === "Enter" && !e.shiftKey) { 
+            e.preventDefault(); 
+            sendMessage(); 
+        } 
+    });
+}
 
 async function sendMessage() {
     const message = userInput.value.trim();
     if (!message || isProcessing) return;
 
-    isProcessing = true;
-    addMessageToChat("user", message);
-    userInput.value = "";
-    
-    typingIndicator.classList.add("visible");
-    chatMessages.appendChild(typingIndicator); 
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    chatHistory.push({ role: "user", content: message });
-
     try {
+        isProcessing = true;
+        addMessageToChat("user", message);
+        userInput.value = "";
+        
+        if (typingIndicator) {
+            typingIndicator.classList.add("visible");
+            chatMessages.appendChild(typingIndicator); 
+        }
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        chatHistory.push({ role: "user", content: message });
+
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
             body: JSON.stringify({ messages: chatHistory }),
         });
 
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
+
         const contentType = response.headers.get("Content-Type") || "";
-        typingIndicator.classList.remove("visible");
+        if (typingIndicator) typingIndicator.classList.remove("visible");
 
         if (contentType.includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             const prompt = decodeURIComponent(response.headers.get("x-prompt") || "Image");
-            
             const msgEl = createMessageElement("assistant");
             msgEl.querySelector(".message-content").innerHTML = `<p><strong>Jolene's Vision:</strong> "${prompt}"</p><img src="${url}" style="width:100%; border-radius:12px; margin-top:10px; display:block;" />`;
             chatMessages.appendChild(msgEl);
@@ -100,21 +106,14 @@ async function sendMessage() {
                 
                 for (const line of lines) {
                     if (line.startsWith("data: ")) {
-                        const data = line.slice(6).trim();
-                        if (data === "[DONE]") break;
-                        
+                        const dataString = line.slice(6).trim();
+                        if (dataString === "[DONE]") break;
                         try {
-                            const json = JSON.parse(data);
-                            // Support both 'response' key (from our Tool emulation) and standard stream 'choices'
+                            const json = JSON.parse(dataString);
                             const chunkContent = json.response || json.choices?.[0]?.delta?.content || "";
                             text += chunkContent;
-                            
-                            if (text) {
-                                contentEl.innerHTML = marked.parse(text);
-                            }
-                        } catch (e) {
-                            console.error("Error parsing JSON chunk:", e);
-                        }
+                            if (text) contentEl.innerHTML = marked.parse(text);
+                        } catch (e) {}
                     }
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -122,7 +121,8 @@ async function sendMessage() {
             chatHistory.push({ role: "assistant", content: text });
         }
     } catch (err) {
-        typingIndicator.classList.remove("visible");
+        console.error("Critical Send Error:", err);
+        if (typingIndicator) typingIndicator.classList.remove("visible");
         addMessageToChat("assistant", "Error: " + err.message);
     } finally {
         isProcessing = false;
@@ -144,16 +144,16 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// --- BUTTON LOGIC ---
+if (newChatBtn) {
+    newChatBtn.addEventListener("click", () => { 
+        localStorage.removeItem("chatSessionId"); 
+        location.reload(); 
+    });
+}
 
-// New Chat: Resets sessionId and reloads for a fresh D1 session
-newChatBtn.addEventListener("click", () => { 
-    localStorage.removeItem("chatSessionId"); 
-    location.reload(); 
-});
-
-// Clear Screen: Clears the UI bubbles but preserves history in the background
-clearScreenBtn.addEventListener("click", () => {
-    chatMessages.innerHTML = '';
-    addMessageToChat('assistant', 'Screen cleared! I still remember our conversation, but the view is fresh. How can I help?');
-});
+if (clearScreenBtn) {
+    clearScreenBtn.addEventListener("click", () => {
+        chatMessages.innerHTML = '';
+        addMessageToChat('assistant', 'Screen cleared! I still remember our conversation. How can I help?');
+    });
+}
