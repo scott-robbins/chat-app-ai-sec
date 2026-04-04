@@ -21,18 +21,18 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: STABLE ENCODING ---
+				// --- ART GENERATION: STRIP NEWLINES ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
 					const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
 					
-					// Use a more robust binary-to-base64 method
 					const bytes = new Uint8Array(imageResponse);
 					let binary = "";
 					for (let i = 0; i < bytes.byteLength; i++) {
 						binary += String.fromCharCode(bytes[i]);
 					}
-					const base64Image = btoa(binary);
+					// CRITICAL FIX: Ensure no spaces or newlines exist in the Base64 string
+					const base64Image = btoa(binary).replace(/[\r\n\t\s]+/gm, "");
 					
 					return new Response(JSON.stringify({ 
 						image: `data:image/png;base64,${base64Image}`,
@@ -40,7 +40,6 @@ export class ChatSession extends DurableObject<Env> {
 					}), { headers: { "Content-Type": "application/json" } });
 				}
 
-				// --- STANDARD CHAT LOGIC ---
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
