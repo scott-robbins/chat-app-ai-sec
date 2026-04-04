@@ -21,54 +21,31 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: THE RELIABLE REDUCER ---
+				// --- ART GENERATION: DIRECT BINARY STREAM ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
-					
-					// We'll stick with SDXL for this test to be safe
+					// Stable Diffusion is very reliable for this direct stream method
 					const imageResponse = await this.env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt });
 					
-					// Use a reducer to build the string byte-by-byte. 
-					// This avoids the "Stack Size Exceeded" error that causes 0.2kB responses.
-					const base64Image = btoa(
-						new Uint8Array(imageResponse).reduce((data, byte) => data + String.fromCharCode(byte), '')
-					);
-					
-					return new Response(JSON.stringify({ 
-						image: `data:image/png;base64,${base64Image}`,
-						prompt: prompt
-					}), { 
-						headers: { "Content-Type": "application/json" } 
+					// We return the raw binary data. No btoa, no strings, no crashes.
+					return new Response(imageResponse, { 
+						headers: { 
+							"Content-Type": "image/png",
+							"x-jolene-prompt": encodeURIComponent(prompt) // Hide the prompt in a header
+						} 
 					});
 				}
 
-				// --- CHAT LOGIC ---
+				// --- STANDARD CHAT LOGIC ---
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
-
-				if (!image) {
-					try {
-						const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
-						const searchResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 1, returnMetadata: "all" });
-						if (searchResults.matches.length > 0 && searchResults.matches[0].score > 0.5) {
-							sysPrompt += `\n\nContext: ${searchResults.matches[0].metadata?.text}`;
-						}
-					} catch (e) {}
-				}
 
 				const sysIdx = messages.findIndex((msg) => msg.role === "system");
 				if (sysIdx === -1) messages.unshift({ role: "system", content: sysPrompt });
 				else messages[sysIdx].content = sysPrompt;
 
 				const aiPayload: any = { messages, max_tokens: 1024, stream: true };
-				if (image && image.includes(",")) {
-					activeModel = DEFAULT_MODEL;
-					const base64Data = image.split(",")[1];
-					const bytes = new Uint8Array(atob(base64Data).split("").map(c => c.charCodeAt(0)));
-					aiPayload.image = Array.from(bytes);
-				}
-
 				const stream = await this.env.AI.run(activeModel, aiPayload);
 				return new Response(stream, { headers: { "content-type": "text/event-stream" } });
 
@@ -85,28 +62,6 @@ export default {
 		const url = new URL(request.url);
 		if (url.pathname === "/" || !url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		
-		if (url.pathname === "/api/config" && request.method === "GET") {
-			const model = await env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
-			return new Response(JSON.stringify({ model }), { status: 200, headers: { "Content-Type": "application/json" } });
-		}
-
-		if (url.pathname === "/api/set-model") {
-			const name = url.searchParams.get("name");
-			if (name) await env.CHAT_CONFIG.put("active_model", name);
-			return new Response("Success", { status: 200 });
-		}
-
-		if (url.pathname === "/api/set-prompt") {
-			const text = url.searchParams.get("text");
-			if (text) await env.CHAT_CONFIG.put("system_prompt", text);
-			return new Response("Success", { status: 200 });
-		}
-
-		if (url.pathname === "/api/agree") {
-			await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", { prompt: "agree" });
-			return new Response("Agreed", { status: 200 });
-		}
-
 		if (url.pathname === "/api/chat" || url.pathname === "/api/history") {
 			const sessionId = request.headers.get("x-session-id");
 			if (!sessionId) return new Response("Missing Session ID", { status: 400 });
