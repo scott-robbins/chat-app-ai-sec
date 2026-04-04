@@ -32,7 +32,6 @@ async function init() {
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                // Default greeting if no history exists
                 addMessageToChat('assistant', "Hello! I am Jolene. I'm connected to your D1 database and Vectorize index. How can I help you today?");
             }
         }
@@ -84,7 +83,9 @@ async function sendMessage() {
         if (response.headers.get("Content-Type")?.includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
+            // Added consistent helper call
             addMessageToChat("assistant", `![Generated Image](${url})`);
+            // Fixed: Push to history so AI knows an image was created
             chatHistory.push({ role: "assistant", content: `[Image Generated]` });
         } 
         else {
