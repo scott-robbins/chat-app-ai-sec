@@ -88,6 +88,7 @@ async function sendMessage() {
 
         const contentType = response.headers.get("content-type") || "";
 
+        // HANDLE IMAGE GENERATION RESPONSE
         if (contentType.includes("application/json")) {
             const data = await response.json();
             if (data.image) {
@@ -118,6 +119,8 @@ async function sendMessage() {
             }
         }
 
+        if (!response.ok) throw new Error("Failed to get response");
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let responseText = "";
@@ -126,15 +129,19 @@ async function sendMessage() {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n\n");
             buffer = lines.pop();
+            
             for (const line of lines) {
                 const data = line.replace(/^data: /, "").trim();
                 if (data === "[DONE]") break;
                 try {
                     const json = JSON.parse(data);
-                    responseText += json.response || json.choices?.[0]?.delta?.content || "";
+                    const content = json.response || json.choices?.[0]?.delta?.content || "";
+                    responseText += content;
+                    // Only update if we aren't in image mode (prevents clearing the image)
                     assistantTextEl.innerHTML = marked.parse(responseText);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 } catch (e) {}
@@ -143,13 +150,14 @@ async function sendMessage() {
         chatHistory.push({ role: "assistant", content: responseText });
 
     } catch (error) {
-        if (assistantTextEl) assistantTextEl.innerHTML = "<p>Error processing request.</p>";
+        if (assistantTextEl) assistantTextEl.innerHTML = `<p>Error: ${error.message}</p>`;
     } finally {
         typingIndicator.classList.remove("visible");
         isProcessing = false;
         userInput.disabled = false;
         sendButton.disabled = false;
         pendingImageBase64 = null;
+        userInput.focus();
     }
 }
 
