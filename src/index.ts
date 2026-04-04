@@ -106,23 +106,14 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION LOGIC (ENHANCED ENCODING) ---
+				// --- ART GENERATION: DIRECT BYTE STREAM ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
-					// Using Flux-1-Schnell for high-fidelity images
 					const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
 					
-					// Convert binary image to a base64 string using a robust reduction method
-					const base64Image = btoa(
-						new Uint8Array(imageResponse)
-							.reduce((data, byte) => data + String.fromCharCode(byte), '')
-					);
-					
-					return new Response(JSON.stringify({ 
-						image: `data:image/png;base64,${base64Image}`,
-						description: `Generated image for: "${prompt}"` 
-					}), { 
-						headers: { "Content-Type": "application/json" } 
+					// Instead of JSON, we send the raw PNG bytes directly
+					return new Response(imageResponse, { 
+						headers: { "Content-Type": "image/png" } 
 					});
 				}
 
