@@ -21,16 +21,16 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: ROBUST ENCODING ---
+				// --- ART GENERATION: STABLE ENCODING ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
 					const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
 					
-					// Chunked conversion to prevent string corruption
+					// Use a more robust binary-to-base64 method
 					const bytes = new Uint8Array(imageResponse);
 					let binary = "";
-					for (let i = 0; i < bytes.byteLength; i += 1000) {
-						binary += String.fromCharCode.apply(null, Array.from(bytes.slice(i, i + 1000)));
+					for (let i = 0; i < bytes.byteLength; i++) {
+						binary += String.fromCharCode(bytes[i]);
 					}
 					const base64Image = btoa(binary);
 					
