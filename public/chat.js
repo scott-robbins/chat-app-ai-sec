@@ -4,7 +4,7 @@ const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const newChatBtn = document.getElementById("new-chat-btn");
-const clearScreenBtn = document.getElementById("clear-screen-btn"); // Ensure this ID matches your HTML
+const clearScreenBtn = document.getElementById("clear-screen-btn");
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
@@ -42,7 +42,12 @@ async function init() {
 init();
 
 sendButton.addEventListener("click", sendMessage);
-userInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+userInput.addEventListener("keydown", (e) => { 
+    if (e.key === "Enter" && !e.shiftKey) { 
+        e.preventDefault(); 
+        sendMessage(); 
+    } 
+});
 
 async function sendMessage() {
     const message = userInput.value.trim();
@@ -89,17 +94,27 @@ async function sendMessage() {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
+                
                 const chunk = decoder.decode(value);
                 const lines = chunk.split("\n");
+                
                 for (const line of lines) {
                     if (line.startsWith("data: ")) {
                         const data = line.slice(6).trim();
                         if (data === "[DONE]") break;
+                        
                         try {
                             const json = JSON.parse(data);
-                            text += json.response || json.choices?.[0]?.delta?.content || "";
-                            contentEl.innerHTML = marked.parse(text);
-                        } catch (e) {}
+                            // Support both 'response' key (from our Tool emulation) and standard stream 'choices'
+                            const chunkContent = json.response || json.choices?.[0]?.delta?.content || "";
+                            text += chunkContent;
+                            
+                            if (text) {
+                                contentEl.innerHTML = marked.parse(text);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing JSON chunk:", e);
+                        }
                     }
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -131,15 +146,14 @@ function addMessageToChat(role, content) {
 
 // --- BUTTON LOGIC ---
 
-// New Chat: Nukes the session so you get a truly fresh start in D1
+// New Chat: Resets sessionId and reloads for a fresh D1 session
 newChatBtn.addEventListener("click", () => { 
     localStorage.removeItem("chatSessionId"); 
     location.reload(); 
 });
 
-// Clear Screen: Just hides the current bubbles for a "fresh look"
+// Clear Screen: Clears the UI bubbles but preserves history in the background
 clearScreenBtn.addEventListener("click", () => {
     chatMessages.innerHTML = '';
-    // We keep the chatHistory array so the AI still has context if you keep typing
     addMessageToChat('assistant', 'Screen cleared! I still remember our conversation, but the view is fresh. How can I help?');
 });
