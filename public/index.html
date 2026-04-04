@@ -21,6 +21,7 @@
 				--app-bg: #ffffff;
 				--border-color: #e2e8f0;
 				--text-color: #1e293b;
+				--text-color-dark: #0f172a;
 				--text-light: #64748b;
 				--user-msg-bg: #f6821f;
 				--user-msg-text: #ffffff;
@@ -142,8 +143,11 @@
 			}
 
 			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			.btn-secondary { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
-			.btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+			.btn-secondary { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
+			
+            body.theme-fancy .btn-secondary { color: white; }
+
+            .btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 		</style>
 	</head>
 	<body class="theme-fancy">
@@ -159,8 +163,8 @@
 			
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary">
+					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
 					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (11B)</option>
 					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
 					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
 				</select>
