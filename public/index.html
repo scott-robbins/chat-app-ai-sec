@@ -1,258 +1,42 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>LLM Chat App</title>
-		
-		<script src="https://unpkg.com/@phosphor-icons/web"></script>
-		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-
-		<link rel="stylesheet" href="style.css">
-
-		<style>
-			:root {
-				--primary-color: #f6821f;
-				--primary-hover: #e67e22;
-				--primary-light: rgba(246, 130, 31, 0.1);
-				--light-bg: #f4f6f8;
-				--app-bg: #ffffff;
-				--border-color: #e2e8f0;
-				--text-color: #1e293b;
-				--text-light: #64748b;
-				--user-msg-bg: #f6821f;
-				--user-msg-text: #ffffff;
-				--assistant-msg-bg: #ffffff;
-				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
-			}
-
-			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.6);
-				--light-bg: rgba(15, 23, 42, 0.4);
-				--border-color: rgba(255, 255, 255, 0.1);
-				--text-color: #f8fafc;
-				--text-light: #cbd5e1;
-				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
-				--body-bg: #0f172a;
-			}
-
-			body.theme-fancy .chat-container {
-				backdrop-filter: blur(16px);
-				-webkit-backdrop-filter: blur(16px);
-				border: 1px solid rgba(255, 255, 255, 0.15);
-				box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
-			}
-
-			body.theme-fancy #user-input {
-				background-color: rgba(15, 23, 42, 0.5);
-				color: white;
-			}
-
-			body.theme-fancy header h1 {
-				color: #ffffff;
-				text-shadow: 0 2px 10px rgba(246, 130, 31, 0.5);
-			}
-
-			* {
-				box-sizing: border-box;
-				margin: 0;
-				padding: 0;
-			}
-
-			body {
-				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-				line-height: 1.6;
-				color: var(--text-color);
-				background: var(--body-bg);
-				min-height: 100vh;
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				padding: 2rem 1rem;
-				transition: background 0.5s ease, color 0.5s ease;
-			}
-
-			.lava-lamp-container {
-				position: fixed;
-				top: 0; left: 0; width: 100vw; height: 100vh;
-				z-index: -1; overflow: hidden; display: none;
-			}
-			body.theme-fancy .lava-lamp-container { display: block; }
-			.blob {
-				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
-				animation: float 15s infinite alternate ease-in-out;
-			}
-			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; animation-duration: 18s; }
-			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; animation-duration: 22s; animation-delay: 2s; }
-			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; animation-duration: 25s; animation-delay: 5s; }
-
-			@keyframes float {
-				0% { transform: translate(0, 0) scale(1); }
-				33% { transform: translate(150px, 100px) scale(1.1); }
-				66% { transform: translate(-50px, 200px) scale(0.9); }
-				100% { transform: translate(100px, -50px) scale(1.2); }
-			}
-
-			@keyframes slideUpFade {
-				from { opacity: 0; transform: translateY(15px); }
-				to { opacity: 1; transform: translateY(0); }
-			}
-
-			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-			h1 { font-size: 1.75rem; color: var(--primary-color); font-weight: 700; letter-spacing: -0.5px; transition: color 0.3s ease; }
-			header p { color: var(--text-light); font-size: 0.95rem; margin-top: 0.25rem; }
-
-			.chat-container {
-				display: flex; flex-direction: column; width: 100%; max-width: 800px;
-				height: calc(100vh - 220px); min-height: 500px; background-color: var(--app-bg);
-				border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
-				overflow: hidden; border: 1px solid var(--border-color); transition: all 0.5s ease;
-			}
-
-			#chat-messages {
-				flex: 1; overflow-y: auto; padding: 1.5rem; background-color: var(--light-bg);
-				display: flex; flex-direction: column; gap: 1rem; transition: background-color 0.5s ease;
-			}
-
-			.message {
-				padding: 0.85rem 1.2rem; max-width: 85%; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-				font-size: 0.95rem; line-height: 1.6;
-				animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
-			}
-
-			.message-content { width: 100%; overflow-x: auto; }
-			.user-message .message-content { white-space: pre-wrap; }
-			.message-content p { margin-bottom: 0.75rem; }
-			.message-content p:last-child { margin-bottom: 0; }
-			.message-content pre { background: #1a1b26; border-radius: 8px; padding: 1rem; margin: 0.5rem 0; overflow-x: auto; border: 1px solid rgba(255,255,255,0.1); }
-			.message-content code { font-family: 'Courier New', Courier, monospace; background: rgba(128,128,128,0.2); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.85em; }
-			.message-content pre code { background: transparent; padding: 0; font-size: 0.9em; }
-			.message-content ul, .message-content ol { margin-left: 1.5rem; margin-bottom: 0.75rem; }
-
-			.user-message {
-				background-color: var(--user-msg-bg); color: var(--user-msg-text);
-				align-self: flex-end; border-radius: 18px 18px 4px 18px;
-			}
-
-			.assistant-message {
-				background-color: var(--assistant-msg-bg); color: var(--text-color);
-				align-self: flex-start; border-radius: 18px 18px 18px 4px;
-				border: 1px solid var(--border-color); transition: all 0.5s ease;
-			}
-
-			.message-input {
-				display: flex; padding: 1rem; background-color: var(--app-bg);
-				border-top: 1px solid var(--border-color); align-items: flex-end; gap: 0.75rem;
-				transition: background-color 0.5s ease;
-			}
-
-			#user-input {
-				flex: 1; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
-				border-radius: 12px; font-family: inherit; font-size: 0.95rem; resize: none;
-				min-height: 50px; max-height: 150px; background-color: var(--app-bg); transition: all 0.2s ease;
-			}
-
-			#user-input:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 4px var(--primary-light); }
-
-			#send-button {
-				padding: 0 1.5rem; height: 50px; background-color: var(--primary-color); color: white;
-				border: none; border-radius: 12px; font-weight: 600; font-size: 1.25rem;
-				cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center;
-			}
-
-			#send-button:hover:not(:disabled) { background-color: var(--primary-hover); transform: translateY(-1px); }
-			#send-button:disabled { background-color: var(--border-color); color: var(--text-light); cursor: not-allowed; }
-
-			/* Corrected Typing Indicator CSS */
-			#typing-indicator {
-				display: none; align-self: flex-start; background-color: var(--assistant-msg-bg);
-				border: 1px solid var(--border-color); border-radius: 18px 18px 18px 4px; padding: 1rem 1.2rem;
-				margin-bottom: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-			}
-			#typing-indicator.visible { display: flex; gap: 4px; align-items: center; }
-			#typing-indicator span { width: 6px; height: 6px; background-color: var(--primary-color); border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
-			#typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
-			#typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
-			#typing-indicator span:nth-child(3) { animation-delay: 0s; }
-			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
-
-			footer { margin-top: 2rem; text-align: center; font-size: 0.85rem; color: var(--text-light); width: 100%; }
-			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			.btn-secondary {
-				padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); 
-				background: var(--app-bg); cursor: pointer; color: var(--text-color);
-				transition: all 0.3s ease; display: flex; align-items: center; gap: 6px;
-			}
-			.btn-primary {
-				padding: 6px 12px; border-radius: 6px; border: none; 
-				background: var(--primary-color); color: white; cursor: pointer;
-				display: flex; align-items: center; gap: 6px;
-			}
-			select.btn-secondary {
-				appearance: auto;
-				padding-right: 25px;
-			}
-			select.btn-secondary option {
-				background-color: var(--app-bg);
-				color: var(--text-color);
-			}
-		</style>
-	</head>
-	<body>
-		<div class="lava-lamp-container">
-			<div class="blob blob1"></div>
-			<div class="blob blob2"></div>
-			<div class="blob blob3"></div>
-		</div>
-
-		<header>
-			<h1>Jolene</h1>
-			<p>Powered by Cloudflare Workers AI</p>
-			
-			<div class="controls-row">
-				<select id="model-selector" class="btn-secondary" title="Change the AI Model">
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (11B)</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct-fp8">Llama 3.1 (8B)</option>
-					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
-					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
-					<option value="@cf/qwen/qwen1.5-14b-chat-awq">Qwen 1.5 (14B)</option>
-				</select>
-				
-				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
-			</div>
-		</header>
-
-		<div class="chat-container">
-			<div id="chat-messages">
-				<div class="message assistant-message">
-					<div class="message-content">
-						<p>Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?</p>
-					</div>
-				</div>
-
-				<div id="typing-indicator">
-					<span></span><span></span><span></span>
-				</div>
-			</div>
-
-			<div class="message-input" style="flex-wrap: wrap;">
-				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
-					<input type="file" id="file-upload" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" style="font-size: 0.85rem; color: var(--text-color);" />
-					<button id="upload-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
-				</div>
-				<textarea id="user-input" placeholder="Message AI Assistant..." rows="1" autofocus></textarea>
-				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
-			</div>
-		</div>
-
-		<footer>
-			<p>Cloudflare Workers AI Chat Template &copy; 2026</p>
-		</footer>
-
-		<script src="chat.js"></script>
-	</body>
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jolene AI</title>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        :root { --primary: #f6821f; --bg: #0f172a; --text: #f8fafc; --card: rgba(30, 41, 59, 0.7); }
+        body { font-family: sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .chat-container { width: 100%; max-width: 800px; height: 70vh; background: var(--card); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); }
+        #chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .message { padding: 12px 16px; border-radius: 12px; max-width: 80%; }
+        .user-message { background: var(--primary); align-self: flex-end; }
+        .assistant-message { background: rgba(255,255,255,0.05); align-self: flex-start; }
+        .input-area { display: flex; padding: 20px; gap: 10px; background: rgba(0,0,0,0.2); }
+        textarea { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 8px; resize: none; }
+        button { background: var(--primary); border: none; color: white; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        #typing-indicator { display: none; color: var(--primary); font-size: 0.8rem; margin-bottom: 10px; }
+        #typing-indicator.visible { display: block; }
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; }
+        .btn-sec { background: rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; color: white; cursor: pointer; border: none; }
+    </style>
+</head>
+<body>
+    <h1>Jolene</h1>
+    <div class="controls">
+        <button id="clear-screen-btn" class="btn-sec">Clear</button>
+        <button id="new-chat-btn" class="btn-sec" style="background: var(--primary);">New Chat</button>
+    </div>
+    <div class="chat-container">
+        <div id="chat-messages"></div>
+        <div id="typing-indicator">Jolene is thinking...</div>
+        <div class="input-area">
+            <textarea id="user-input" placeholder="Ask Jolene..."></textarea>
+            <button id="send-button">Send</button>
+        </div>
+    </div>
+    <script src="chat.js"></script>
+</body>
 </html>
