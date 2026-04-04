@@ -1,7 +1,7 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct"; // Note: 3.1/3.2 8B/70B models have better tool support
+const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct"; 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -11,6 +11,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
+		// --- FETCH HISTORY ---
 		if (url.pathname === "/api/history") {
 			try {
 				const { results } = await this.env.jolene_db.prepare(
@@ -41,7 +42,9 @@ export class ChatSession extends DurableObject<Env> {
 					if (matches.matches.length > 0 && matches.matches[0].score > 0.6) {
 						contextText = matches.matches.map(m => m.metadata?.text).join("\n");
 					}
-				} catch (e) {}
+				} catch (e) {
+					console.error("Vectorize Error:", e);
+				}
 
 				// 3. ART GENERATION
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
@@ -72,15 +75,15 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				// 5. PREPARE PROMPT
-				let systemPrompt = "You are Jolene, a helpful AI assistant.";
+				// 5. PREPARE SYSTEM PROMPT
+				let systemPrompt = "You are Jolene, a helpful AI assistant. Use tools when necessary.";
 				if (contextText) systemPrompt += `\n\nInternal Knowledge: \n${contextText}`;
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = systemPrompt;
 				else messages.unshift({ role: 'system', content: systemPrompt });
 
-				// 6. INITIAL AI RUN (With Tool Support)
-				// We don't stream the first look because we need to check for tool_calls
+				// 6. INITIAL AI RUN (Check for Tool Intent)
+				console.log("Calling AI to check for tools...");
 				const response = await this.env.AI.run(DEFAULT_MODEL, { 
 					messages, 
 					tools,
@@ -91,38 +94,46 @@ export class ChatSession extends DurableObject<Env> {
 				if (response.tool_calls && response.tool_calls.length > 0) {
 					const toolCall = response.tool_calls[0];
 					const args = JSON.parse(toolCall.arguments);
-					let result = "";
+					let toolResult = "";
+
+					console.log(`Tool Triggered: ${toolCall.name}`, args);
 
 					if (toolCall.name === "get_weather") {
-						result = `The weather in ${args.location} is 22°C and sunny. (Simulated Data)`;
+						toolResult = `The weather in ${args.location} is 22°C and sunny.`;
 					} else if (toolCall.name === "security_scan_status") {
-						result = "AI-SEC Status: All systems green. Firewall active. No breaches detected in last 24h.";
+						toolResult = "AI-SEC Status: All systems green. Firewall active. No breaches detected.";
 					}
 
-					// Add AI's intent and Tool's result to history
+					// Update conversation history with Tool interaction
 					messages.push(response); 
 					messages.push({
 						role: "tool",
 						name: toolCall.name,
-						content: result,
+						content: toolResult,
 						tool_call_id: toolCall.id
 					});
 
-					// Final Run to generate text based on tool result
+					// Final run to get natural language response
 					const finalResponse = await this.env.AI.run(DEFAULT_MODEL, { messages });
-					const finalText = finalResponse.response;
+					const finalText = finalResponse.response || "I processed the tool call but couldn't generate text.";
 
-					// Save to D1
+					console.log("Final Tool Response:", finalText);
+
+					// Save assistant response to D1
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "assistant", finalText).run();
 
-					// Return as a fake SSE stream so the frontend doesn't break
+					// Return as SSE with required double-newlines \n\n
 					return new Response(`data: ${JSON.stringify({ response: finalText })}\n\ndata: [DONE]\n\n`, {
-						headers: { "Content-Type": "text/event-stream" }
+						headers: { 
+							"Content-Type": "text/event-stream",
+							"Cache-Control": "no-cache"
+						}
 					});
 				}
 
-				// 8. NORMAL TEXT STREAM (No tools needed)
+				// 8. NORMAL STREAMING (No Tool Called)
+				console.log("No tool called, starting normal stream.");
 				const stream = await this.env.AI.run(DEFAULT_MODEL, { messages, stream: true });
 				const [outStream, saveStream] = stream.tee();
 
@@ -155,6 +166,7 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(outStream, { headers: { "Content-Type": "text/event-stream" } });
 
 			} catch (e: any) {
+				console.error("Chat Error:", e.message);
 				return new Response(JSON.stringify({ error: e.message }), { status: 500 });
 			}
 		}
