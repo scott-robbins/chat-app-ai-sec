@@ -1,5 +1,6 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
+import { extractText } from "unpdf";
 
 const DEFAULT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
@@ -11,44 +12,6 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
-		// ==========================================
-		// THE GLOBAL KILL SWITCH (Maintenance Mode)
-		// ==========================================
-		// 1. The hidden route to flip the switch
-		if (url.pathname === "/api/toggle-maintenance") {
-			const currentState = await env.CHAT_CONFIG.get("is_maintenance_mode");
-			const newState = currentState === "true" ? "false" : "true";
-			await env.CHAT_CONFIG.put("is_maintenance_mode", newState);
-			return new Response(`Success! Maintenance mode is now: ${newState.toUpperCase()}`, { status: 200 });
-		}
-
-		// 2. The Bouncer: Check if the switch is ON before allowing anyone in
-		const isMaintenance = await env.CHAT_CONFIG.get("is_maintenance_mode");
-		if (isMaintenance === "true") {
-			// If it's an API request, return a JSON error
-			if (url.pathname.startsWith("/api/")) {
-				return new Response(JSON.stringify({ error: "Jolene is currently getting an upgrade. Be right back! 🛠️" }), { 
-					status: 503, headers: { "Content-Type": "application/json" } 
-				});
-			}
-			// If it's a browser requesting the page, return a friendly HTML screen
-			return new Response(`
-				<!DOCTYPE html>
-				<html>
-				<head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-				<body style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; margin:0; padding:20px;">
-					<div>
-						<h1 style="color:#f6821f; font-size:2.5rem; margin-bottom:10px;">Jolene is Offline</h1>
-						<p style="font-size:1.2rem; color:#cbd5e1;">We are currently upgrading the system. Please check back in a few minutes! 🛠️</p>
-					</div>
-				</body>
-				</html>
-			`, { status: 503, headers: { "Content-Type": "text/html" } });
-		}
-
-		// ==========================================
-		// NORMAL APP ROUTING
-		// ==========================================
 		if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
 			return env.ASSETS.fetch(request);
 		}
@@ -193,6 +156,7 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
+				// NEW: Extract image from the payload
 				const { messages = [], image } = (await request.json()) as { messages: ChatMessage[], image?: string };
 				await this.ctx.storage.put("messages", messages);
 
@@ -204,6 +168,7 @@ export class ChatSession extends DurableObject<Env> {
 					baseSystemPrompt = "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 				}
 
+				// Only perform RAG search if NO image was provided (saves resources)
 				let dynamicSystemPrompt = baseSystemPrompt;
 				if (!image) {
 					const latestMessage = messages[messages.length - 1]?.content || "";
@@ -226,12 +191,14 @@ export class ChatSession extends DurableObject<Env> {
 					messages[sysIdx].content = dynamicSystemPrompt;
 				}
 
+				// NEW: Prepare the payload for the AI
 				const aiPayload: any = {
 					messages, 
 					max_tokens: 1024, 
 					stream: true
 				};
 
+				// NEW: If an image was passed, convert Base64 string to a Uint8 byte array
 				if (image) {
 					const base64Data = image.split(",")[1];
 					const binaryString = atob(base64Data);
