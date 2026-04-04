@@ -21,6 +21,13 @@
 			"index_name": "chat-knowledge"
 		}
 	],
+	"d1_databases": [
+		{
+			"binding": "jolene_db",
+			"database_name": "jolene-db",
+			"database_id": "dfc7e855-ca8b-4785-b0ed-85003bb3b6a6"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{
