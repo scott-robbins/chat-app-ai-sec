@@ -2,27 +2,43 @@ const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
+const themeToggleBtn = document.getElementById("theme-toggle-btn");
+const newChatBtn = document.getElementById("new-chat-btn");
+const clearScreenBtn = document.getElementById("clear-screen-btn");
+const modelSelector = document.getElementById("model-selector");
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
-// 1. Basic Init
+// Theme Logic
+if (localStorage.getItem("chatTheme") === "fancy") document.body.classList.add("theme-fancy");
+themeToggleBtn?.addEventListener("click", () => {
+    document.body.classList.toggle("theme-fancy");
+    localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
+});
+
+// Init - Hydrate from D1
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-        const data = await res.json();
-        if (data.messages && data.messages.length > 0) {
-            chatMessages.innerHTML = '';
-            chatHistory = data.messages;
-            chatHistory.forEach(msg => { if (msg.role !== "system") addMessageToChat(msg.role, msg.content); });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.messages && data.messages.length > 0) {
+                chatMessages.innerHTML = ''; 
+                chatHistory = data.messages;
+                chatHistory.forEach(msg => { 
+                    if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
+                });
+            }
         }
-    } catch (e) { console.log("No history found."); }
+    } catch (e) {
+        console.error("History failed to load:", e);
+    }
 }
 init();
 
-// 2. Simple Message Handler
 async function sendMessage() {
     const message = userInput.value.trim();
     if (!message || isProcessing) return;
@@ -31,24 +47,33 @@ async function sendMessage() {
     addMessageToChat("user", message);
     userInput.value = "";
     
-    if (typingIndicator) typingIndicator.classList.add("visible");
+    typingIndicator?.classList.add("visible");
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
     chatHistory.push({ role: "user", content: message });
 
     try {
         const response = await fetch("/api/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-            body: JSON.stringify({ messages: chatHistory }),
+            headers: { 
+                "Content-Type": "application/json", 
+                "x-session-id": sessionId 
+            },
+            body: JSON.stringify({ 
+                messages: chatHistory,
+                model: modelSelector?.value || "@cf/meta/llama-3.1-8b-instruct"
+            }),
         });
 
-        if (typingIndicator) typingIndicator.classList.remove("visible");
+        typingIndicator?.classList.remove("visible");
 
-        if (response.headers.get("Content-Type").includes("image/png")) {
+        if (response.headers.get("Content-Type")?.includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
-            addMessageToChat("assistant", `![Vision](${url})`);
-            chatHistory.push({ role: "assistant", content: "[Image Generated]" });
-        } else {
+            addMessageToChat("assistant", `![Generated Image](${url})`);
+            chatHistory.push({ role: "assistant", content: `[Image Generated]` });
+        } 
+        else {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             const msgEl = createMessageElement("assistant");
@@ -56,7 +81,6 @@ async function sendMessage() {
             const contentEl = msgEl.querySelector(".message-content");
             
             let text = "";
-            // FAIL-SAFE LOOP
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -66,13 +90,26 @@ async function sendMessage() {
                 
                 for (const line of lines) {
                     if (line.startsWith("data: ")) {
-                        const data = line.slice(6).trim();
-                        if (data === "[DONE]") break;
+                        const dataString = line.slice(6).trim();
+                        if (dataString === "[DONE]") break;
+                        
                         try {
-                            const json = JSON.parse(data);
-                            text += (json.response || json.choices?.[0]?.delta?.content || "");
-                            contentEl.innerHTML = marked.parse(text);
-                        } catch (e) {}
+                            // THE FIX: Robust JSON parsing
+                            let json;
+                            try {
+                                json = JSON.parse(dataString);
+                            } catch(e) {
+                                // If already an object or weird format, skip parse
+                                json = dataString; 
+                            }
+
+                            const content = (typeof json === 'object') ? (json.response || json.choices?.[0]?.delta?.content || "") : "";
+                            text += content;
+                            
+                            if (text) contentEl.innerHTML = marked.parse(text);
+                        } catch (e) {
+                            console.warn("Stream parse hiccup:", e);
+                        }
                     }
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -80,13 +117,15 @@ async function sendMessage() {
             chatHistory.push({ role: "assistant", content: text });
         }
     } catch (err) {
-        addMessageToChat("assistant", "Error: " + err.message);
+        typingIndicator?.classList.remove("visible");
+        addMessageToChat("assistant", "System Error: " + err.message);
     } finally {
         isProcessing = false;
-        if (typingIndicator) typingIndicator.classList.remove("visible");
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 }
 
+// Helpers
 function createMessageElement(role) {
     const div = document.createElement("div");
     div.className = `message ${role}-message`;
@@ -101,10 +140,21 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-sendButton.addEventListener("click", sendMessage);
-userInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+// Event Listeners
+sendButton?.addEventListener("click", sendMessage);
+userInput?.addEventListener("keydown", (e) => { 
+    if (e.key === "Enter" && !e.shiftKey) { 
+        e.preventDefault(); 
+        sendMessage(); 
+    } 
+});
 
-// Theme/Clear/New Chat
-document.getElementById("theme-toggle-btn")?.addEventListener("click", () => document.body.classList.toggle("theme-fancy"));
-document.getElementById("new-chat-btn")?.addEventListener("click", () => { localStorage.removeItem("chatSessionId"); location.reload(); });
-document.getElementById("clear-screen-btn")?.addEventListener("click", () => { chatMessages.innerHTML = ''; });
+newChatBtn?.addEventListener("click", () => {
+    localStorage.removeItem("chatSessionId");
+    location.reload(); 
+});
+
+clearScreenBtn?.addEventListener("click", () => {
+    chatMessages.innerHTML = '';
+    addMessageToChat('assistant', 'Screen cleared! Your history is still saved in D1, but the view is fresh. How can I help?');
+});
