@@ -15,8 +15,11 @@ const themeToggleBtn = document.getElementById("theme-toggle-btn");
 const modelSelector = document.getElementById("model-selector");
 
 // 1. Session Management
-let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
-localStorage.setItem("chatSessionId", sessionId);
+let sessionId = localStorage.getItem("chatSessionId");
+if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    localStorage.setItem("chatSessionId", sessionId);
+}
 
 let chatHistory = [];
 let isProcessing = false;
@@ -24,13 +27,13 @@ let pendingImageBase64 = null;
 
 marked.setOptions({ breaks: true });
 
-// 2. Load History & Config on Page Load
+// 2. Load History & Config
 window.addEventListener('DOMContentLoaded', async () => {
     try {
         const response = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (response.ok) {
             const data = await response.json();
-            if (data.messages) {
+            if (data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => {
@@ -38,7 +41,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 });
             }
         }
-    } catch (e) {}
+    } catch (e) { console.error("History load failed"); }
 
     try {
         const configRes = await fetch('/api/config');
@@ -46,9 +49,10 @@ window.addEventListener('DOMContentLoaded', async () => {
             const config = await configRes.json();
             if (modelSelector && config.model) modelSelector.value = config.model;
         }
-    } catch (e) {}
+    } catch (e) { console.error("Config load failed"); }
 });
 
+// 3. Image Input Listener
 if (fileUpload) {
     fileUpload.addEventListener("change", () => {
         const file = fileUpload.files[0];
@@ -56,7 +60,7 @@ if (fileUpload) {
             const reader = new FileReader();
             reader.onload = (e) => {
                 pendingImageBase64 = e.target.result;
-                addMessageToChat('system', `**SYSTEM:** Attached image \`${file.name}\`.`);
+                addMessageToChat('system', `**SYSTEM:** Attached \`${file.name}\`.`);
             };
             reader.readAsDataURL(file);
         }
@@ -64,114 +68,119 @@ if (fileUpload) {
 }
 
 userInput.addEventListener("input", function () {
-	this.style.height = "auto";
-	this.style.height = this.scrollHeight + "px";
+    this.style.height = "auto";
+    this.style.height = this.scrollHeight + "px";
 });
 
-userInput.addEventListener("keydown", (e) => {
-	if (e.key === "Enter" && !e.shiftKey) {
-		e.preventDefault();
-		sendMessage();
-	}
+userInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
 });
 
 sendButton.addEventListener("click", sendMessage);
 
 async function sendMessage() {
-	const message = userInput.value.trim();
-	if (message === "" || isProcessing) return;
+    const message = userInput.value.trim();
+    if (message === "" || isProcessing) return;
 
-	isProcessing = true;
-	userInput.disabled = true;
-	sendButton.disabled = true;
-	addMessageToChat("user", message);
-	userInput.value = "";
-	typingIndicator.classList.add("visible");
-	chatHistory.push({ role: "user", content: message });
+    isProcessing = true;
+    userInput.disabled = true;
+    sendButton.disabled = true;
+    addMessageToChat("user", message);
+    userInput.value = "";
+    userInput.style.height = "auto";
+    typingIndicator.classList.add("visible");
+    chatHistory.push({ role: "user", content: message });
 
-	let assistantTextEl;
-	let assistantMessageEl;
+    let assistantTextEl;
+    let assistantMessageEl;
 
-	try {
-		assistantMessageEl = document.createElement("div");
-		assistantMessageEl.className = "message assistant-message";
-		assistantMessageEl.innerHTML = "<div class='message-content'></div>";
-		chatMessages.appendChild(assistantMessageEl);
-		assistantTextEl = assistantMessageEl.querySelector(".message-content");
-		chatMessages.scrollTop = chatMessages.scrollHeight;
+    try {
+        assistantMessageEl = document.createElement("div");
+        assistantMessageEl.className = "message assistant-message";
+        assistantMessageEl.innerHTML = "<div class='message-content'></div>";
+        chatMessages.appendChild(assistantMessageEl);
+        assistantTextEl = assistantMessageEl.querySelector(".message-content");
+        chatMessages.scrollTop = chatMessages.scrollHeight;
 
-		const response = await fetch("/api/chat", {
-			method: "POST",
-			headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-			body: JSON.stringify({ messages: chatHistory, image: pendingImageBase64 }),
-		});
+        const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+            body: JSON.stringify({ messages: chatHistory, image: pendingImageBase64 }),
+        });
 
-        // HANDLE IMAGE GENERATION RESPONSE (JSON)
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
+        // --- ART GEN CHECK ---
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
             const data = await response.json();
             if (data.image) {
                 typingIndicator.classList.remove("visible");
-                // The fix: Ensuring the image tag is clean and the base64 is passed correctly
-                const html = `<p>${data.description}</p><img src="${data.image}" style="width:100%; border-radius:12px; margin-top:10px; display:block;" />`;
-                assistantTextEl.innerHTML = html;
-                chatHistory.push({ role: "assistant", content: html });
+                const imgHtml = `<p>${data.description || ""}</p><img src="${data.image}" style="width:100%; border-radius:12px; margin-top:10px;" />`;
+                assistantTextEl.innerHTML = imgHtml;
+                chatHistory.push({ role: "assistant", content: imgHtml });
                 return;
             }
-            if (data.error) throw new Error(data.error);
         }
 
-		if (!response.ok) throw new Error("Failed to get response");
+        if (!response.ok) throw new Error("Failed response");
 
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let responseText = "";
-		let buffer = "";
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let responseText = "";
+        let buffer = "";
 
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			const lines = buffer.split("\n\n");
-			buffer = lines.pop();
-			for (const line of lines) {
-				const data = line.replace(/^data: /, "").trim();
-				if (data === "[DONE]") break;
-				try {
-					const json = JSON.parse(data);
-					responseText += json.response || json.choices?.[0]?.delta?.content || "";
-					assistantTextEl.innerHTML = marked.parse(responseText);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop();
+            for (const line of lines) {
+                const data = line.replace(/^data: /, "").trim();
+                if (data === "[DONE]") break;
+                try {
+                    const json = JSON.parse(data);
+                    responseText += json.response || json.choices?.[0]?.delta?.content || "";
+                    assistantTextEl.innerHTML = marked.parse(responseText);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
-				} catch (e) {}
-			}
-		}
-		chatHistory.push({ role: "assistant", content: responseText });
+                } catch (e) {}
+            }
+        }
+        chatHistory.push({ role: "assistant", content: responseText });
 
-	} catch (error) {
-		if (assistantTextEl) assistantTextEl.innerHTML = `<p>Error: ${error.message}</p>`;
-	} finally {
-		typingIndicator.classList.remove("visible");
-		isProcessing = false;
-		userInput.disabled = false;
-		sendButton.disabled = false;
+    } catch (error) {
+        if (assistantTextEl) assistantTextEl.innerHTML = "<p>Error processing request.</p>";
+    } finally {
+        typingIndicator.classList.remove("visible");
+        isProcessing = false;
+        userInput.disabled = false;
+        sendButton.disabled = false;
         pendingImageBase64 = null;
-		userInput.focus();
-	}
+        if (fileUpload) fileUpload.value = "";
+        userInput.focus();
+    }
 }
 
 function addMessageToChat(role, content) {
-	const messageEl = document.createElement("div");
-	messageEl.className = `message ${role}-message`;
-	const contentEl = document.createElement("div");
-	contentEl.className = "message-content";
-	contentEl.innerHTML = (role === "user") ? content : marked.parse(content);
-	messageEl.appendChild(contentEl);
-	chatMessages.appendChild(messageEl);
-	chatMessages.scrollTop = chatMessages.scrollHeight;
+    const messageEl = document.createElement("div");
+    messageEl.className = `message ${role}-message`;
+    const contentEl = document.createElement("div");
+    contentEl.className = "message-content";
+    if (role === "user") contentEl.textContent = content;
+    else contentEl.innerHTML = marked.parse(content);
+    messageEl.appendChild(contentEl);
+    chatMessages.appendChild(messageEl);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 if (clearScreenBtn) clearScreenBtn.addEventListener("click", () => { chatMessages.innerHTML = ''; });
-if (newChatBtn) newChatBtn.addEventListener("click", () => { sessionId = crypto.randomUUID(); localStorage.setItem("chatSessionId", sessionId); location.reload(); });
+if (newChatBtn) newChatBtn.addEventListener("click", () => { 
+    sessionId = crypto.randomUUID(); 
+    localStorage.setItem("chatSessionId", sessionId); 
+    location.reload(); 
+});
 
 if (uploadBtn && fileUpload) {
     uploadBtn.addEventListener("click", async () => {
@@ -183,10 +192,13 @@ if (uploadBtn && fileUpload) {
         try {
             const res = await fetch("/api/upload", { method: "POST", body: formData });
             const result = await res.json();
-            addMessageToChat('system', `**SYSTEM:** ${result.message || result.error}`);
+            addMessageToChat('system', `**SYSTEM:** ${result.message || "Done"}`);
         } catch (e) {} finally { uploadBtn.innerText = "Memorize File"; }
     });
 }
+
+const savedTheme = localStorage.getItem("chatTheme");
+if (savedTheme === "fancy") document.body.classList.add("theme-fancy");
 
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", () => {
@@ -198,6 +210,6 @@ if (themeToggleBtn) {
 if (modelSelector) {
     modelSelector.addEventListener("change", async (e) => {
         await fetch(`/api/set-model?name=${encodeURIComponent(e.target.value)}`);
-        addMessageToChat('system', `**SYSTEM:** Swapped brain to ${e.target.value}`);
+        addMessageToChat('system', `**SYSTEM:** Swapped to ${e.target.value}`);
     });
 }
