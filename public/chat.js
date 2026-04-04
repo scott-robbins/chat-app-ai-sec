@@ -17,33 +17,27 @@ themeToggleBtn.addEventListener("click", () => {
     localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
 });
 
-// Init - FIXED GREETING LOGIC
+// Init
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
             const data = await res.json();
-            // Clear any static placeholders
             chatMessages.innerHTML = ''; 
-            
             if (data.messages && data.messages.length > 0) {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { 
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                // Only add greeting if history is empty
                 addMessageToChat('assistant', 'Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?');
             }
         }
     } catch (e) {
-        // Fallback if API fails
-        if (chatMessages.children.length === 0) {
-            addMessageToChat('assistant', 'Hello! I am Jolene. Ready to assist.');
-        }
+        chatMessages.innerHTML = ''; 
+        addMessageToChat('assistant', 'Hello! I am Jolene. Ready to assist.');
     }
 }
-
 init();
 
 sendButton.addEventListener("click", sendMessage);
@@ -56,7 +50,12 @@ async function sendMessage() {
     isProcessing = true;
     addMessageToChat("user", message);
     userInput.value = "";
+    
+    // SHOW THINKING DOTS
     typingIndicator.classList.add("visible");
+    chatMessages.appendChild(typingIndicator); // Move dots to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
     chatHistory.push({ role: "user", content: message });
 
     try {
@@ -68,11 +67,13 @@ async function sendMessage() {
 
         const contentType = response.headers.get("Content-Type") || "";
 
+        // HIDE THINKING DOTS before rendering response
+        typingIndicator.classList.remove("visible");
+
         if (contentType.includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             const prompt = decodeURIComponent(response.headers.get("x-prompt") || "Image");
-            typingIndicator.classList.remove("visible");
             
             const msgEl = createMessageElement("assistant");
             msgEl.querySelector(".message-content").innerHTML = `<p><strong>Jolene's Vision:</strong> "${prompt}"</p><img src="${url}" style="width:100%; border-radius:12px; margin-top:10px; display:block;" />`;
@@ -108,9 +109,9 @@ async function sendMessage() {
             chatHistory.push({ role: "assistant", content: text });
         }
     } catch (err) {
+        typingIndicator.classList.remove("visible");
         addMessageToChat("assistant", "Error: " + err.message);
     } finally {
-        typingIndicator.classList.remove("visible");
         isProcessing = false;
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
