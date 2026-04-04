@@ -2,94 +2,53 @@ const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
-const themeToggleBtn = document.getElementById("theme-toggle-btn");
-const newChatBtn = document.getElementById("new-chat-btn");
-const clearScreenBtn = document.getElementById("clear-screen-btn");
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
-// Theme Logic
-if (localStorage.getItem("chatTheme") === "fancy") document.body.classList.add("theme-fancy");
-if (themeToggleBtn) {
-    themeToggleBtn.addEventListener("click", () => {
-        document.body.classList.toggle("theme-fancy");
-        localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
-    });
-}
-
-// Init - Loads from D1
+// 1. Basic Init
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-        if (res.ok) {
-            const data = await res.json();
-            chatMessages.innerHTML = ''; 
-            if (data.messages && data.messages.length > 0) {
-                chatHistory = data.messages;
-                chatHistory.forEach(msg => { 
-                    if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
-                });
-            } else {
-                addMessageToChat('assistant', 'Hello! I am Jolene. How can I help you today?');
-            }
+        const data = await res.json();
+        if (data.messages && data.messages.length > 0) {
+            chatMessages.innerHTML = '';
+            chatHistory = data.messages;
+            chatHistory.forEach(msg => { if (msg.role !== "system") addMessageToChat(msg.role, msg.content); });
         }
-    } catch (e) {
-        console.error("Init failed:", e);
-    }
+    } catch (e) { console.log("No history found."); }
 }
 init();
 
-if (sendButton) sendButton.addEventListener("click", sendMessage);
-if (userInput) {
-    userInput.addEventListener("keydown", (e) => { 
-        if (e.key === "Enter" && !e.shiftKey) { 
-            e.preventDefault(); 
-            sendMessage(); 
-        } 
-    });
-}
-
+// 2. Simple Message Handler
 async function sendMessage() {
     const message = userInput.value.trim();
     if (!message || isProcessing) return;
 
+    isProcessing = true;
+    addMessageToChat("user", message);
+    userInput.value = "";
+    
+    if (typingIndicator) typingIndicator.classList.add("visible");
+    chatHistory.push({ role: "user", content: message });
+
     try {
-        isProcessing = true;
-        addMessageToChat("user", message);
-        userInput.value = "";
-        
-        if (typingIndicator) {
-            typingIndicator.classList.add("visible");
-            chatMessages.appendChild(typingIndicator); 
-        }
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-
-        chatHistory.push({ role: "user", content: message });
-
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
             body: JSON.stringify({ messages: chatHistory }),
         });
 
-        if (!response.ok) throw new Error(`Server returned ${response.status}`);
-
-        const contentType = response.headers.get("Content-Type") || "";
         if (typingIndicator) typingIndicator.classList.remove("visible");
 
-        if (contentType.includes("image/png")) {
+        if (response.headers.get("Content-Type").includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
-            const prompt = decodeURIComponent(response.headers.get("x-prompt") || "Image");
-            const msgEl = createMessageElement("assistant");
-            msgEl.querySelector(".message-content").innerHTML = `<p><strong>Jolene's Vision:</strong> "${prompt}"</p><img src="${url}" style="width:100%; border-radius:12px; margin-top:10px; display:block;" />`;
-            chatMessages.appendChild(msgEl);
-            chatHistory.push({ role: "assistant", content: `[Generated Image: ${prompt}]` });
-        } 
-        else {
+            addMessageToChat("assistant", `![Vision](${url})`);
+            chatHistory.push({ role: "assistant", content: "[Image Generated]" });
+        } else {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             const msgEl = createMessageElement("assistant");
@@ -97,6 +56,7 @@ async function sendMessage() {
             const contentEl = msgEl.querySelector(".message-content");
             
             let text = "";
+            // FAIL-SAFE LOOP
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -106,13 +66,12 @@ async function sendMessage() {
                 
                 for (const line of lines) {
                     if (line.startsWith("data: ")) {
-                        const dataString = line.slice(6).trim();
-                        if (dataString === "[DONE]") break;
+                        const data = line.slice(6).trim();
+                        if (data === "[DONE]") break;
                         try {
-                            const json = JSON.parse(dataString);
-                            const chunkContent = json.response || json.choices?.[0]?.delta?.content || "";
-                            text += chunkContent;
-                            if (text) contentEl.innerHTML = marked.parse(text);
+                            const json = JSON.parse(data);
+                            text += (json.response || json.choices?.[0]?.delta?.content || "");
+                            contentEl.innerHTML = marked.parse(text);
                         } catch (e) {}
                     }
                 }
@@ -121,12 +80,10 @@ async function sendMessage() {
             chatHistory.push({ role: "assistant", content: text });
         }
     } catch (err) {
-        console.error("Critical Send Error:", err);
-        if (typingIndicator) typingIndicator.classList.remove("visible");
         addMessageToChat("assistant", "Error: " + err.message);
     } finally {
         isProcessing = false;
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (typingIndicator) typingIndicator.classList.remove("visible");
     }
 }
 
@@ -139,21 +96,15 @@ function createMessageElement(role) {
 
 function addMessageToChat(role, content) {
     const el = createMessageElement(role);
-    el.querySelector(".message-content").innerHTML = role === "user" ? content : marked.parse(content);
+    el.querySelector(".message-content").innerHTML = marked.parse(content);
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-if (newChatBtn) {
-    newChatBtn.addEventListener("click", () => { 
-        localStorage.removeItem("chatSessionId"); 
-        location.reload(); 
-    });
-}
+sendButton.addEventListener("click", sendMessage);
+userInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 
-if (clearScreenBtn) {
-    clearScreenBtn.addEventListener("click", () => {
-        chatMessages.innerHTML = '';
-        addMessageToChat('assistant', 'Screen cleared! I still remember our conversation. How can I help?');
-    });
-}
+// Theme/Clear/New Chat
+document.getElementById("theme-toggle-btn")?.addEventListener("click", () => document.body.classList.toggle("theme-fancy"));
+document.getElementById("new-chat-btn")?.addEventListener("click", () => { localStorage.removeItem("chatSessionId"); location.reload(); });
+document.getElementById("clear-screen-btn")?.addEventListener("click", () => { chatMessages.innerHTML = ''; });
