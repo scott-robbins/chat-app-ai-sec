@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Final Stable Image Support
+ * LLM Chat App Frontend - Polished Version
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -20,8 +20,8 @@ let pendingImageBase64 = null;
 
 marked.setOptions({ breaks: true });
 
-// Load Config & History
-async function init() {
+// Load History & Greeting (One single source of truth)
+async function initChat() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
@@ -35,10 +35,12 @@ async function init() {
             }
         }
     } catch (e) {
-        addMessageToChat('assistant', 'Hello! Session started.');
+        console.error("Init failed");
     }
 }
-init();
+
+// Call init once
+initChat();
 
 if (fileUpload) {
     fileUpload.addEventListener("change", () => {
@@ -92,7 +94,10 @@ async function sendMessage() {
             const data = await response.json();
             if (data.image) {
                 typingIndicator.classList.remove("visible");
-                assistantTextEl.innerHTML = `<p>Jolene's Vision: "${data.prompt}"</p><img src="${data.image}" style="width:100%; border-radius:12px; display:block; margin-top:10px;" />`;
+                assistantTextEl.innerHTML = `
+                    <p style="margin-bottom:8px;"><strong>Jolene's Vision:</strong> "${data.prompt}"</p>
+                    <img src="${data.image}" style="width:100%; border-radius:8px; display:block; border: 1px solid rgba(255,255,255,0.1);" />
+                `;
                 chatHistory.push({ role: "assistant", content: `Generated Image: ${data.prompt}` });
                 return;
             }
@@ -151,5 +156,4 @@ if (themeToggleBtn) {
         localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
     });
 }
-const savedTheme = localStorage.getItem("chatTheme");
-if (savedTheme === "fancy") document.body.classList.add("theme-fancy");
+if (localStorage.getItem("chatTheme") === "fancy") document.body.classList.add("theme-fancy");
