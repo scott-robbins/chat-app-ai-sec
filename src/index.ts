@@ -19,7 +19,6 @@ export default {
 			});
 		}
 
-		// ROUTE: Swap the AI Brain
 		if (url.pathname === "/api/set-model") {
 			const newModel = url.searchParams.get("name");
 			if (newModel) {
@@ -29,7 +28,6 @@ export default {
 			return new Response("Please provide a model name.", { status: 400 });
 		}
 
-		// ROUTE: Change the Personality (System Prompt)
 		if (url.pathname === "/api/set-prompt") {
 			const newPrompt = url.searchParams.get("text");
 			if (newPrompt) {
@@ -39,7 +37,6 @@ export default {
 			return new Response("Please provide a prompt text.", { status: 400 });
 		}
 
-		// ROUTE: Meta License Handshake
 		if (url.pathname === "/api/agree") {
 			try {
 				const response = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", { prompt: "agree" });
@@ -49,7 +46,6 @@ export default {
 			}
 		}
 
-		// ROUTE: Document Upload (PDF/Text)
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -93,9 +89,6 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
-// =====================================================================
-// 2. THE DURABLE OBJECT CLASS
-// =====================================================================
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
@@ -113,20 +106,26 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- INTERCEPT: Art Generation (/imagine) ---
+				// --- ART GENERATION LOGIC ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
-					try {
-						// Using Flux-1-Schnell for high-speed, high-quality image generation
-						const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
-						const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageResponse)));
-						return new Response(JSON.stringify({ 
-							image: `data:image/png;base64,${base64Image}`,
-							description: `Jolene's Vision: "${prompt}"` 
-						}), { headers: { "Content-Type": "application/json" } });
-					} catch (genErr: any) {
-						return new Response(JSON.stringify({ error: "Image Gen Failed: " + genErr.message }), { status: 500 });
+					// Using Flux-1-Schnell
+					const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
+					
+					// IMPROVED BINARY TO BASE64 CONVERSION
+					const bytes = new Uint8Array(imageResponse);
+					let binary = '';
+					for (let i = 0; i < bytes.byteLength; i++) {
+						binary += String.fromCharCode(bytes[i]);
 					}
+					const base64Image = btoa(binary);
+					
+					return new Response(JSON.stringify({ 
+						image: `data:image/png;base64,${base64Image}`,
+						description: `Generated image for: "${prompt}"` 
+					}), { 
+						headers: { "Content-Type": "application/json" } 
+					});
 				}
 
 				// --- STANDARD CHAT LOGIC ---
@@ -134,7 +133,6 @@ export class ChatSession extends DurableObject<Env> {
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
 
-				// RAG: Document context retrieval
 				if (!image) {
 					try {
 						const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
