@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Jolene AI-SEC</title>
+		<title>Jolene AI</title>
 		
 		<script src="https://unpkg.com/@phosphor-icons/web"></script>
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -145,9 +145,9 @@
 			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 			.btn-secondary { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
 			
-            body.theme-fancy .btn-secondary { color: white; }
+			body.theme-fancy .btn-secondary { color: white; }
 
-            .btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+			.btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 		</style>
 	</head>
 	<body class="theme-fancy">
@@ -159,7 +159,7 @@
 
 		<header>
 			<h1>Jolene</h1>
-			<p>Powered by Cloudflare Workers AI</p>
+			<p>Your Personal AI Agent</p>
 			
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary">
@@ -175,7 +175,13 @@
 		</header>
 
 		<div class="chat-container">
-			<div id="chat-messages" class="chat-messages"></div>
+			<div id="chat-messages" class="chat-messages">
+				<div class="message assistant-message">
+					<div class="message-content">
+						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
+					</div>
+				</div>
+			</div>
 			
 			<div id="typing-indicator" class="message assistant-message">
 				<div class="message-content">
@@ -190,13 +196,13 @@
 					<input type="file" id="file-upload" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" />
 					<button id="upload-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
 				</div>
-				<textarea id="user-input" placeholder="Message AI Assistant..." rows="1"></textarea>
+				<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
 				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
 			</div>
 		</div>
 
 		<footer>
-			<p>Cloudflare Workers AI Chat Template &copy; 2026</p>
+			<p>Jolene AI &copy; 2026</p>
 		</footer>
 
 		<script src="chat.js"></script>
