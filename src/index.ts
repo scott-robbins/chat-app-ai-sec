@@ -76,8 +76,12 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				// Prepare System Prompt
-				let sysPrompt = "You are Jolene, a warm and helpful AI Agent. Give natural responses. If you use the generate_image tool, tell the user you are working on their creation.";
+				// Prepare System Prompt - STRENGTHENED FOR IMAGE GENERATION
+				let sysPrompt = "You are Jolene, a warm and helpful AI Agent. " +
+					"If you use the generate_image tool, the tool will return a data URL. " +
+					"You MUST display the image in your response using Markdown: ![Generated Image](PASTE_DATA_URL_HERE). " +
+					"Do not just describe the image; show it. Keep your text brief and enthusiastic.";
+
 				if (contextText) sysPrompt += ` Context: ${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
@@ -99,7 +103,7 @@ export class ChatSession extends DurableObject<Env> {
 						// 1. Generate the image
 						const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
 						
-						// 2. Save binary to R2 (Using DOCUMENTS binding from your config)
+						// 2. Save binary to R2
 						const fileName = `generated/${crypto.randomUUID()}.png`;
 						await this.env.DOCUMENTS.put(fileName, imgBlob, {
 							httpMetadata: { contentType: "image/png" }
@@ -108,7 +112,7 @@ export class ChatSession extends DurableObject<Env> {
 						// 3. Return the base64 to the UI for immediate display
 						const binary = await new Response(imgBlob).arrayBuffer();
 						const base64 = btoa(String.fromCharCode(...new Uint8Array(binary)));
-						toolOutput = `IMAGE_RESULT:data:image/png;base64,${base64}`;
+						toolOutput = `data:image/png;base64,${base64}`;
 					} 
 					else if (tc.name === "get_weather") {
 						toolOutput = `72°F in ${args.location}`;
@@ -122,7 +126,7 @@ export class ChatSession extends DurableObject<Env> {
 
 					// Second AI pass for natural language summary
 					const secondRun = await this.env.AI.run(selectedModel, { messages });
-					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "I've created that image for you!";
+					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
 				} else {
 					finalContent = response.response || response.choices?.[0]?.message?.content || "";
 				}
