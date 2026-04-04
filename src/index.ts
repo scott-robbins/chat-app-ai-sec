@@ -21,26 +21,33 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: STABLE DIFFUSION SWAP ---
+				// --- ART GENERATION: STABLE & CHUNKED ENCODING ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
-					// Swapping to SDXL for a baseline test
+					
+					// We use SDXL for stability while we confirm the pipeline is fixed
 					const imageResponse = await this.env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt });
 					
+					// Convert binary image to base64 using a chunked approach to prevent 0.1kB "Empty" responses
 					const bytes = new Uint8Array(imageResponse);
 					let binary = "";
-					for (let i = 0; i < bytes.byteLength; i++) {
-						binary += String.fromCharCode(bytes[i]);
+					const chunkSize = 8192; // Process 8KB at a time
+					
+					for (let i = 0; i < bytes.length; i += chunkSize) {
+						binary += String.fromCharCode.apply(null, Array.from(bytes.slice(i, i + chunkSize)));
 					}
-					// Double-cleaning the string
-					const base64Image = btoa(binary).replace(/[\r\n\x0B\x0C\u0085\u2028\u2029]+/g, "");
+					
+					const base64Image = btoa(binary);
 					
 					return new Response(JSON.stringify({ 
 						image: `data:image/png;base64,${base64Image}`,
 						prompt: prompt
-					}), { headers: { "Content-Type": "application/json" } });
+					}), { 
+						headers: { "Content-Type": "application/json" } 
+					});
 				}
 
+				// --- STANDARD CHAT LOGIC ---
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
