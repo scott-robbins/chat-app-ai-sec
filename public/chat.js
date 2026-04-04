@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Final Stable Release
+ * LLM Chat App Frontend - Final Stable Release with Image Fix
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -92,19 +92,28 @@ async function sendMessage() {
             const data = await response.json();
             if (data.image) {
                 typingIndicator.classList.remove("visible");
-                // Cleanest possible injection to avoid parsing issues
-                const img = document.createElement("img");
-                img.src = data.image;
+                
+                // SURGICAL DOM INJECTION
+                const wrapper = document.createElement("div");
+                const label = document.createElement("p");
+                label.innerHTML = `<strong>Jolene's Vision:</strong> "${data.prompt}"`;
+                
+                const img = new Image();
                 img.style.width = "100%";
                 img.style.borderRadius = "12px";
                 img.style.marginTop = "10px";
                 img.style.display = "block";
                 
-                assistantTextEl.innerHTML = `<p><strong>Jolene's Vision:</strong> "${data.prompt}"</p>`;
-                assistantTextEl.appendChild(img);
+                // Scroll when the image actually renders
+                img.onload = () => chatMessages.scrollTop = chatMessages.scrollHeight;
+                img.onerror = () => label.innerHTML += " <span style='color:red;'>(Display Error)</span>";
+                img.src = data.image;
+
+                wrapper.appendChild(label);
+                wrapper.appendChild(img);
+                assistantTextEl.appendChild(wrapper);
                 
                 chatHistory.push({ role: "assistant", content: `Generated Image: ${data.prompt}` });
-                chatMessages.scrollTop = chatMessages.scrollHeight;
                 return;
             }
         }
@@ -155,7 +164,12 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-if (newChatBtn) newChatBtn.addEventListener("click", () => { sessionId = crypto.randomUUID(); localStorage.setItem("chatSessionId", sessionId); location.reload(); });
+if (newChatBtn) newChatBtn.addEventListener("click", () => { 
+    sessionId = crypto.randomUUID(); 
+    localStorage.setItem("chatSessionId", sessionId); 
+    location.reload(); 
+});
+
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", () => {
         document.body.classList.toggle("theme-fancy");
