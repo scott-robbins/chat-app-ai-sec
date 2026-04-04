@@ -39,7 +39,7 @@ export default {
 
 		if (url.pathname === "/api/agree") {
 			try {
-				const response = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", { prompt: "agree" });
+				await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", { prompt: "agree" });
 				return new Response("Successfully agreed to Meta License!", { status: 200 });
 			} catch (error: any) {
 				return new Response("Error: " + error.message, { status: 500 });
@@ -106,18 +106,26 @@ export class ChatSession extends DurableObject<Env> {
 				const { messages = [], image } = body;
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- ART GENERATION: DIRECT BYTE STREAM ---
+				// --- ART GENERATION: BASE64 JSON RESPONSE ---
 				if (latestUserMessage.toLowerCase().startsWith("/imagine ")) {
 					const prompt = latestUserMessage.slice(9);
 					const imageResponse = await this.env.AI.run("@cf/black-forest-labs/flux-1-schnell", { prompt });
 					
-					// Instead of JSON, we send the raw PNG bytes directly
-					return new Response(imageResponse, { 
-						headers: { "Content-Type": "image/png" } 
-					});
+					// Robust binary to base64
+					const bytes = new Uint8Array(imageResponse);
+					let binary = "";
+					for (let i = 0; i < bytes.byteLength; i++) {
+						binary += String.fromCharCode(bytes[i]);
+					}
+					const base64Image = btoa(binary);
+					
+					return new Response(JSON.stringify({ 
+						image: `data:image/png;base64,${base64Image}`,
+						prompt: prompt
+					}), { headers: { "Content-Type": "application/json" } });
 				}
 
-				// --- STANDARD CHAT LOGIC ---
+				// --- CHAT LOGIC ---
 				await this.ctx.storage.put("messages", messages);
 				let activeModel = await this.env.CHAT_CONFIG.get("active_model") || DEFAULT_MODEL;
 				let sysPrompt = await this.env.CHAT_CONFIG.get("system_prompt") || "You are a helpful assistant.";
@@ -137,7 +145,6 @@ export class ChatSession extends DurableObject<Env> {
 				else messages[sysIdx].content = sysPrompt;
 
 				const aiPayload: any = { messages, max_tokens: 1024, stream: true };
-
 				if (image && image.includes(",")) {
 					activeModel = DEFAULT_MODEL;
 					const base64Data = image.split(",")[1];
@@ -149,7 +156,7 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(stream, { headers: { "content-type": "text/event-stream" } });
 
 			} catch (error: any) {
-				return new Response(JSON.stringify({ error: "AI Error: " + error.message }), { status: 500 });
+				return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 			}
 		}
 		return new Response("Not allowed", { status: 405 });
