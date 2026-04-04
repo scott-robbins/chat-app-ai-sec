@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend - Polished & Fast
+ * LLM Chat App Frontend - Final Stable Release
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -30,12 +30,11 @@ async function init() {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { if (msg.role !== "system") addMessageToChat(msg.role, msg.content); });
             } else {
-                // RESTORED ORIGINAL GREETING
                 addMessageToChat('assistant', 'Hello! I am Jolene, an LLM chat app powered by Cloudflare Workers AI. How can I help you today?');
             }
         }
     } catch (e) { 
-        addMessageToChat('assistant', 'Hello! I am Jolene. How can I help you today?'); 
+        addMessageToChat('assistant', 'Hello! I am Jolene. Ready to assist.'); 
     }
 }
 
@@ -79,6 +78,7 @@ async function sendMessage() {
         assistantMessageEl.innerHTML = "<div class='message-content'></div>";
         chatMessages.appendChild(assistantMessageEl);
         assistantTextEl = assistantMessageEl.querySelector(".message-content");
+        chatMessages.scrollTop = chatMessages.scrollHeight;
 
         const response = await fetch("/api/chat", {
             method: "POST",
@@ -92,7 +92,17 @@ async function sendMessage() {
             const data = await response.json();
             if (data.image) {
                 typingIndicator.classList.remove("visible");
-                assistantTextEl.innerHTML = `<p><strong>Jolene's Vision:</strong> "${data.prompt}"</p><img src="${data.image}" style="width:100%; border-radius:12px; display:block; margin-top:10px;" />`;
+                // Cleanest possible injection to avoid parsing issues
+                const img = document.createElement("img");
+                img.src = data.image;
+                img.style.width = "100%";
+                img.style.borderRadius = "12px";
+                img.style.marginTop = "10px";
+                img.style.display = "block";
+                
+                assistantTextEl.innerHTML = `<p><strong>Jolene's Vision:</strong> "${data.prompt}"</p>`;
+                assistantTextEl.appendChild(img);
+                
                 chatHistory.push({ role: "assistant", content: `Generated Image: ${data.prompt}` });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
                 return;
