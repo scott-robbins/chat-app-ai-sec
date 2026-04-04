@@ -25,8 +25,10 @@ async function init() {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
             const data = await res.json();
+            // CLEAR first to prevent double greetings
+            chatMessages.innerHTML = ''; 
+            
             if (data.messages && data.messages.length > 0) {
-                chatMessages.innerHTML = ''; 
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { 
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
@@ -41,10 +43,9 @@ async function init() {
 }
 init();
 
-// Visual Feedback when Model is Switched
 modelSelector?.addEventListener("change", () => {
     const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
-    addMessageToChat('assistant', `*Switched brain to **${selectedModelName}**. Our conversation continues!*`);
+    addMessageToChat('assistant', `*Switched brain to **${selectedModelName}**.*`);
 });
 
 async function sendMessage() {
@@ -63,29 +64,20 @@ async function sendMessage() {
     try {
         const response = await fetch("/api/chat", {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json", 
-                "x-session-id": sessionId 
-            },
+            headers: { "Content-Type": "application/json", "x-session-id": sessionId },
             body: JSON.stringify({ 
                 messages: chatHistory,
                 model: modelSelector?.value || "@cf/meta/llama-3.1-8b-instruct"
             }),
         });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Server returned ${response.status}`);
-        }
-
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
         typingIndicator?.classList.remove("visible");
 
         if (response.headers.get("Content-Type")?.includes("image/png")) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
-            // Added consistent helper call
             addMessageToChat("assistant", `![Generated Image](${url})`);
-            // Fixed: Push to history so AI knows an image was created
             chatHistory.push({ role: "assistant", content: `[Image Generated]` });
         } 
         else {
@@ -109,25 +101,25 @@ async function sendMessage() {
                         if (dataString === "[DONE]") break;
                         
                         try {
-                            let json;
+                            // IMPROVED PARSING:
+                            let content = "";
                             try {
-                                json = JSON.parse(dataString);
+                                const json = JSON.parse(dataString);
+                                content = json.response || json.choices?.[0]?.delta?.content || "";
                             } catch(e) {
-                                json = { response: dataString }; 
+                                // If it wasn't JSON, it's raw text
+                                content = dataString; 
                             }
 
-                            const content = json.response || json.choices?.[0]?.delta?.content || "";
-                            
-                            if (typeof content === 'string') {
-                                text += content;
-                            } else if (typeof content === 'object' && content !== null) {
+                            // If content is STILL somehow an object (the [object Object] bug)
+                            if (typeof content === 'object' && content !== null) {
                                 text += JSON.stringify(content);
+                            } else {
+                                text += content;
                             }
 
                             if (text) contentEl.innerHTML = marked.parse(text);
-                        } catch (e) {
-                            console.warn("Stream parse hiccup:", e);
-                        }
+                        } catch (e) {}
                     }
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -136,14 +128,13 @@ async function sendMessage() {
         }
     } catch (err) {
         typingIndicator?.classList.remove("visible");
-        addMessageToChat("assistant", "**System Error:** " + err.message);
+        addMessageToChat("assistant", "**Error:** " + err.message);
     } finally {
         isProcessing = false;
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 }
 
-// Helpers
 function createMessageElement(role) {
     const div = document.createElement("div");
     div.className = `message ${role}-message`;
@@ -159,13 +150,9 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Event Listeners
 sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { 
-    if (e.key === "Enter" && !e.shiftKey) { 
-        e.preventDefault(); 
-        sendMessage(); 
-    } 
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } 
 });
 
 newChatBtn?.addEventListener("click", () => {
@@ -175,5 +162,5 @@ newChatBtn?.addEventListener("click", () => {
 
 clearScreenBtn?.addEventListener("click", () => {
     chatMessages.innerHTML = '';
-    addMessageToChat('assistant', 'Screen cleared! Your history is still saved in D1, but the view is fresh. How can I help?');
+    addMessageToChat('assistant', 'Screen cleared! How can I help?');
 });
