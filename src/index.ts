@@ -109,9 +109,13 @@ export class ChatSession extends DurableObject<Env> {
 							httpMetadata: { contentType: "image/png" }
 						});
 
-						// 3. Return the base64 to the UI for immediate display
+						// 3. Robust Base64 Conversion
 						const binary = await new Response(imgBlob).arrayBuffer();
-						const base64 = btoa(String.fromCharCode(...new Uint8Array(binary)));
+						const base64 = btoa(
+							new Uint8Array(binary)
+								.reduce((data, byte) => data + String.fromCharCode(byte), '')
+						);
+						
 						toolOutput = `data:image/png;base64,${base64}`;
 					} 
 					else if (tc.name === "get_weather") {
