@@ -76,55 +76,49 @@ async function sendMessage() {
         if (!response.ok) throw new Error(`Server returned ${response.status}`);
         typingIndicator?.classList.remove("visible");
 
-        if (response.headers.get("Content-Type")?.includes("image/png")) {
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            addMessageToChat("assistant", `![Generated Image](${url})`);
-            chatHistory.push({ role: "assistant", content: `[Image Generated]` });
-        } 
-        else {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            const msgEl = createMessageElement("assistant");
-            chatMessages.appendChild(msgEl);
-            const contentEl = msgEl.querySelector(".message-content");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const msgEl = createMessageElement("assistant");
+        chatMessages.appendChild(msgEl);
+        const contentEl = msgEl.querySelector(".message-content");
+        
+        let text = "";
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
             
-            let text = "";
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                const chunk = decoder.decode(value);
-                const lines = chunk.split("\n");
-                
-                for (const line of lines) {
-                    if (line.startsWith("data: ")) {
-                        const dataString = line.slice(6).trim();
-                        if (dataString === "[DONE]") break;
-                        
+            const chunk = decoder.decode(value);
+            const lines = chunk.split("\n");
+            
+            for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                    const dataString = line.slice(6).trim();
+                    if (dataString === "[DONE]") break;
+                    
+                    try {
+                        let content = "";
                         try {
-                            let content = "";
-                            try {
-                                const json = JSON.parse(dataString);
-                                content = json.response || json.choices?.[0]?.delta?.content || "";
-                            } catch(e) {
-                                content = dataString; 
-                            }
+                            const json = JSON.parse(dataString);
+                            content = json.response || json.choices?.[0]?.delta?.content || "";
+                        } catch(e) {
+                            content = dataString; 
+                        }
 
-                            if (typeof content === 'object' && content !== null) {
-                                text += JSON.stringify(content);
-                            } else {
-                                text += content;
-                            }
+                        if (typeof content === 'object' && content !== null) {
+                            text += JSON.stringify(content);
+                        } else {
+                            text += content;
+                        }
 
-                            if (text) contentEl.innerHTML = marked.parse(text);
-                        } catch (e) {}
-                    }
+                        // Update the UI with rendered content
+                        renderContent(contentEl, text);
+                    } catch (e) {}
                 }
-                chatMessages.scrollTop = chatMessages.scrollHeight;
             }
-            chatHistory.push({ role: "assistant", content: text });
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+        chatHistory.push({ role: "assistant", content: text });
+
     } catch (err) {
         typingIndicator?.classList.remove("visible");
         addMessageToChat("assistant", "**Error:** " + err.message);
@@ -141,10 +135,29 @@ function createMessageElement(role) {
     return div;
 }
 
+// Reusable rendering logic that handles both Markdown and Base64 Images
+function renderContent(element, content) {
+    const dataUrlRegex = /!\[.*?\]\((data:image\/.*?;base64,.*?)\)/g;
+    
+    if (dataUrlRegex.test(content)) {
+        // Intercept Base64 images and convert to HTML tags
+        const htmlContent = content.replace(dataUrlRegex, (match, dataUrl) => {
+            return `<img src="${dataUrl}" style="max-width: 100%; border-radius: 12px; margin-top: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: block;" alt="Generated Image" />`;
+        });
+        element.innerHTML = marked.parse(htmlContent);
+    } else {
+        // Standard Markdown
+        element.innerHTML = marked.parse(content);
+    }
+}
+
 function addMessageToChat(role, content) {
     const el = createMessageElement(role);
+    const contentEl = el.querySelector(".message-content");
     const safeContent = typeof content === 'string' ? content : JSON.stringify(content);
-    el.querySelector(".message-content").innerHTML = marked.parse(safeContent);
+    
+    renderContent(contentEl, safeContent);
+    
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
