@@ -51,24 +51,24 @@ modelSelector?.addEventListener("change", () => {
 
 // Reusable rendering logic that handles both Markdown and Base64 Images
 function renderContent(element, content) {
-    // This Regex is robust: it looks for the Base64 data URL pattern directly
+    // Robust Regex: specifically targets the data URL and avoids trailing Markdown symbols
     const base64Regex = /data:image\/.*?;base64,[A-Za-z0-9+/=]+/g;
     const foundBase64 = content.match(base64Regex);
 
     if (foundBase64) {
-        // 1. Remove the raw Markdown syntax and the giant Base64 strings from the text content
-        // This prevents the "wall of text" from showing up
+        // 1. Clean the text: remove the raw markdown and the long base64 strings
         let cleanText = content.replace(/!\[.*?\]\(.*?\)/g, "").replace(base64Regex, "");
         
-        // 2. Create actual HTML image tags for each found image
-        let imageTags = foundBase64.map(url => 
-            `<img src="${url}" style="max-width: 100%; border-radius: 12px; margin-top: 10px; box-shadow: 0 8px 25px rgba(0,0,0,0.4); display: block;" alt="Generated Image" />`
-        ).join("");
+        // 2. Map found URLs to clean HTML tags
+        let imageTags = foundBase64.map(url => {
+            // Trim and ensure no trailing ')' from Markdown remains in the src
+            const cleanUrl = url.trim().replace(/[)]+$/, ""); 
+            return `<img src="${cleanUrl}" style="max-width: 100%; border-radius: 12px; margin-top: 10px; box-shadow: 0 8px 25px rgba(0,0,0,0.4); display: block;" alt="Generated Image" />`;
+        }).join("");
         
-        // 3. Render the remaining text as Markdown and append the images
+        // 3. Render final output
         element.innerHTML = marked.parse(cleanText) + imageTags;
     } else {
-        // Standard Markdown rendering
         element.innerHTML = marked.parse(content);
     }
 }
@@ -123,7 +123,6 @@ async function sendMessage() {
                         const content = json.response || json.choices?.[0]?.delta?.content || "";
                         text += content;
 
-                        // LIVE RENDER: Handled by our robust renderContent function
                         renderContent(contentEl, text);
                     } catch (e) {}
                 }
