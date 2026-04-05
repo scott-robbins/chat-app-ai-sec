@@ -1,7 +1,8 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const DEFAULT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
+const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
+const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct"; // <--- UPGRADED FOR TOOLS
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
@@ -13,7 +14,6 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
-		// --- API: FETCH HISTORY ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare(
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
@@ -21,29 +21,16 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ messages: results }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- API: CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
-				const selectedModel = body.model || DEFAULT_MODEL;
+				const selectedModel = body.model || CONVERSATION_MODEL;
 
-				// Log user message to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// RAG: Vectorize search
-				let contextText = "";
-				try {
-					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 1, returnMetadata: "all" });
-					if (matches.matches.length > 0 && matches.matches[0].score > 0.6) {
-						contextText = matches.matches[0].metadata?.text;
-					}
-				} catch (e) {}
-
-				// Define available tools
 				const tools = [
 					{
 						type: "function",
@@ -61,21 +48,17 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				// STRICTOR System Prompt - Forced Image Mode
-				let sysPrompt = "You are Jolene. You are currently in IMAGE GENERATION MODE. " +
-					"If the user asks for a picture, city, or visual, you MUST use the generate_image tool. " +
-					"The tool returns a real URL from R2. " +
-					"YOU MUST display this URL exactly as provided in Markdown: ![Image](URL). " +
-					"DO NOT invent links. DO NOT use imgur. DO NOT describe the image unless it fails.";
+				// HIGH-AUTHORITY System Prompt
+				let sysPrompt = "You are Jolene. When a user asks for an image, you MUST call the generate_image tool. " +
+					"After calling the tool, use the returned R2 URL to show the image as ![Image](URL). " +
+					"DO NOT use Imgur. DO NOT describe the image unless it fails.";
 
-				if (contextText) sysPrompt += ` Context: ${contextText}`;
-				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// Initial AI Pass - Explicitly setting tool_choice to "auto"
-				const response = await this.env.AI.run(selectedModel, { 
+				// FIRST PASS: Using 70B for better tool reasoning
+				const response = await this.env.AI.run(REASONING_MODEL, { 
 					messages, 
 					tools, 
 					tool_choice: "auto", 
@@ -84,48 +67,42 @@ export class ChatSession extends DurableObject<Env> {
 
 				let finalContent = "";
 
-				// Handle Tool Calls
 				if (response.tool_calls && response.tool_calls.length > 0) {
 					const tc = response.tool_calls[0];
 					const args = JSON.parse(tc.arguments);
-					
 					let toolOutput = "";
 					
 					if (tc.name === "generate_image") {
 						try {
+							console.log("TOOL_CALL: Generating image for prompt:", args.prompt);
 							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
 							const fileName = `generated/${crypto.randomUUID()}.png`;
 							
-							// Put image into R2
 							await this.env.DOCUMENTS.put(fileName, imgBlob, {
 								httpMetadata: { contentType: "image/png" }
 							});
 
-							// Return the specific R2 Public URL
 							toolOutput = `${PUBLIC_R2_URL}/${fileName}`;
-							console.log("Jolene generated asset at:", toolOutput);
+							console.log("SUCCESS: Asset created at", toolOutput);
 						} catch (e) {
-							console.error("Image tool error:", e);
-							toolOutput = "Error: Image generation failed or model timed out.";
+							console.error("TOOL_ERROR:", e);
+							toolOutput = "Error: Image generation failed.";
 						}
 					}
 					
-					// Feed tool result back to the model
 					messages.push(response);
 					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
 
-					// Second AI pass for final response
-					const secondRun = await this.env.AI.run(selectedModel, { messages });
+					// FINAL PASS: Use conversation model for the summary
+					const secondRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
 				} else {
-					finalContent = response.response || response.choices?.[0]?.message?.content || "";
+					finalContent = response.response || response.choices?.[0]?.message?.content || "I didn't call the tool. Please try asking again specifically.";
 				}
 
-				// Log assistant response to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
-				// Stream result to frontend
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
