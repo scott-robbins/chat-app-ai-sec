@@ -13,6 +13,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
+		// --- API: FETCH HISTORY ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare(
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
@@ -20,6 +21,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ messages: results }), { headers: { "Content-Type": "application/json" } });
 		}
 
+		// --- API: CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -27,9 +29,11 @@ export class ChatSession extends DurableObject<Env> {
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 				const selectedModel = body.model || DEFAULT_MODEL;
 
+				// Log user message to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
+				// RAG: Vectorize search
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -39,6 +43,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				} catch (e) {}
 
+				// Define available tools
 				const tools = [
 					{
 						type: "function",
@@ -56,17 +61,24 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				let sysPrompt = "You are Jolene, a warm AI Agent. If you use generate_image, the tool returns a URL. You MUST display it as ![Image](URL).";
+				// STRICTOR System Prompt to prevent Imgur/hallucinations
+				let sysPrompt = "You are Jolene. You have a generate_image tool. " +
+					"When you use it, the tool returns a real URL from R2. " +
+					"YOU MUST display this URL exactly as provided in Markdown: ![Image](URL). " +
+					"DO NOT invent links. DO NOT use imgur. DO NOT describe the image unless it fails.";
+
 				if (contextText) sysPrompt += ` Context: ${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
+				// Initial AI Pass
 				const response = await this.env.AI.run(selectedModel, { messages, tools, stream: false });
 
 				let finalContent = "";
 
+				// Handle Tool Calls
 				if (response.tool_calls && response.tool_calls.length > 0) {
 					const tc = response.tool_calls[0];
 					const args = JSON.parse(tc.arguments);
@@ -78,29 +90,36 @@ export class ChatSession extends DurableObject<Env> {
 							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
 							const fileName = `generated/${crypto.randomUUID()}.png`;
 							
+							// Put image into R2
 							await this.env.DOCUMENTS.put(fileName, imgBlob, {
 								httpMetadata: { contentType: "image/png" }
 							});
 
-							// Return the public URL for the frontend
+							// Return the specific R2 Public URL
 							toolOutput = `${PUBLIC_R2_URL}/${fileName}`;
+							console.log("Jolene generated asset at:", toolOutput);
 						} catch (e) {
-							toolOutput = "Error generating image.";
+							console.error("Image tool error:", e);
+							toolOutput = "Error: Image generation failed or model timed out.";
 						}
 					}
 					
+					// Feed tool result back to the model
 					messages.push(response);
 					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
 
+					// Second AI pass for final response
 					const secondRun = await this.env.AI.run(selectedModel, { messages });
 					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
 				} else {
 					finalContent = response.response || response.choices?.[0]?.message?.content || "";
 				}
 
+				// Log assistant response to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
+				// Stream result to frontend
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
