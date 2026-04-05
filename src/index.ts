@@ -43,12 +43,11 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				let sysPrompt = "You are Jolene. Always use the generate_image tool for visual requests.";
+				let sysPrompt = "You are Jolene. Use the generate_image tool. Return ![Image](URL).";
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// PASS 1: FORCE the tool call
 				const response = await this.env.AI.run(REASONING_MODEL, { 
 					messages, 
 					tools, 
@@ -60,15 +59,12 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (response.tool_calls && response.tool_calls.length > 0) {
 					const tc = response.tool_calls[0];
-					
-					// FIXED ARGUMENT HANDLING
 					let args = tc.arguments;
 					if (typeof args === 'string') {
 						args = JSON.parse(args);
 					}
 					
 					let toolOutput = "";
-					
 					if (tc.name === "generate_image") {
 						try {
 							console.log("TOOL_CALL: Generating image for:", args.prompt);
@@ -87,8 +83,14 @@ export class ChatSession extends DurableObject<Env> {
 						}
 					}
 					
+					// THE FIX: Explicitly ensure we send string content for Pass 2.
 					messages.push(response);
-					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
+					messages.push({ 
+						role: "tool", 
+						name: tc.name, 
+						content: String(toolOutput), 
+						tool_call_id: tc.id 
+					});
 
 					const secondRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
