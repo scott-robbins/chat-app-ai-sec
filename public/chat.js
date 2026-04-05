@@ -34,7 +34,6 @@ async function init() {
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                // Warmer, non-technical greeting
                 addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?");
             }
         }
@@ -49,6 +48,30 @@ modelSelector?.addEventListener("change", () => {
     const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
     addMessageToChat('assistant', `*Switched brain to **${selectedModelName}**. Our conversation continues!*`);
 });
+
+// Reusable rendering logic that handles both Markdown and Base64 Images
+function renderContent(element, content) {
+    // This Regex is robust: it looks for the Base64 data URL pattern directly
+    const base64Regex = /data:image\/.*?;base64,[A-Za-z0-9+/=]+/g;
+    const foundBase64 = content.match(base64Regex);
+
+    if (foundBase64) {
+        // 1. Remove the raw Markdown syntax and the giant Base64 strings from the text content
+        // This prevents the "wall of text" from showing up
+        let cleanText = content.replace(/!\[.*?\]\(.*?\)/g, "").replace(base64Regex, "");
+        
+        // 2. Create actual HTML image tags for each found image
+        let imageTags = foundBase64.map(url => 
+            `<img src="${url}" style="max-width: 100%; border-radius: 12px; margin-top: 10px; box-shadow: 0 8px 25px rgba(0,0,0,0.4); display: block;" alt="Generated Image" />`
+        ).join("");
+        
+        // 3. Render the remaining text as Markdown and append the images
+        element.innerHTML = marked.parse(cleanText) + imageTags;
+    } else {
+        // Standard Markdown rendering
+        element.innerHTML = marked.parse(content);
+    }
+}
 
 async function sendMessage() {
     const message = userInput.value.trim();
@@ -96,21 +119,11 @@ async function sendMessage() {
                     if (dataString === "[DONE]") break;
                     
                     try {
-                        let content = "";
-                        try {
-                            const json = JSON.parse(dataString);
-                            content = json.response || json.choices?.[0]?.delta?.content || "";
-                        } catch(e) {
-                            content = dataString; 
-                        }
+                        const json = JSON.parse(dataString);
+                        const content = json.response || json.choices?.[0]?.delta?.content || "";
+                        text += content;
 
-                        if (typeof content === 'object' && content !== null) {
-                            text += JSON.stringify(content);
-                        } else {
-                            text += content;
-                        }
-
-                        // Update the UI with rendered content
+                        // LIVE RENDER: Handled by our robust renderContent function
                         renderContent(contentEl, text);
                     } catch (e) {}
                 }
@@ -133,22 +146,6 @@ function createMessageElement(role) {
     div.className = `message ${role}-message`;
     div.innerHTML = `<div class="message-content"></div>`;
     return div;
-}
-
-// Reusable rendering logic that handles both Markdown and Base64 Images
-function renderContent(element, content) {
-    const dataUrlRegex = /!\[.*?\]\((data:image\/.*?;base64,.*?)\)/g;
-    
-    if (dataUrlRegex.test(content)) {
-        // Intercept Base64 images and convert to HTML tags
-        const htmlContent = content.replace(dataUrlRegex, (match, dataUrl) => {
-            return `<img src="${dataUrl}" style="max-width: 100%; border-radius: 12px; margin-top: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: block;" alt="Generated Image" />`;
-        });
-        element.innerHTML = marked.parse(htmlContent);
-    } else {
-        // Standard Markdown
-        element.innerHTML = marked.parse(content);
-    }
 }
 
 function addMessageToChat(role, content) {
