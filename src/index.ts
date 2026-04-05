@@ -61,9 +61,10 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				// STRICTOR System Prompt to prevent Imgur/hallucinations
-				let sysPrompt = "You are Jolene. You have a generate_image tool. " +
-					"When you use it, the tool returns a real URL from R2. " +
+				// STRICTOR System Prompt - Forced Image Mode
+				let sysPrompt = "You are Jolene. You are currently in IMAGE GENERATION MODE. " +
+					"If the user asks for a picture, city, or visual, you MUST use the generate_image tool. " +
+					"The tool returns a real URL from R2. " +
 					"YOU MUST display this URL exactly as provided in Markdown: ![Image](URL). " +
 					"DO NOT invent links. DO NOT use imgur. DO NOT describe the image unless it fails.";
 
@@ -73,8 +74,13 @@ export class ChatSession extends DurableObject<Env> {
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// Initial AI Pass
-				const response = await this.env.AI.run(selectedModel, { messages, tools, stream: false });
+				// Initial AI Pass - Explicitly setting tool_choice to "auto"
+				const response = await this.env.AI.run(selectedModel, { 
+					messages, 
+					tools, 
+					tool_choice: "auto", 
+					stream: false 
+				});
 
 				let finalContent = "";
 
