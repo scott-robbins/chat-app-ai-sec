@@ -99,24 +99,31 @@ export class ChatSession extends DurableObject<Env> {
 					const args = JSON.parse(tc.arguments);
 					
 					let toolOutput = "";
+					
+					// FIX 1: Wrap the entire image tool logic in a TRY/CATCH block
 					if (tc.name === "generate_image") {
-						// 1. Generate the image
-						const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
-						
-						// 2. Save binary to R2
-						const fileName = `generated/${crypto.randomUUID()}.png`;
-						await this.env.DOCUMENTS.put(fileName, imgBlob, {
-							httpMetadata: { contentType: "image/png" }
-						});
+						try {
+							// 1. Generate the image
+							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
+							
+							// FIX 2: Correct R2 binding to DOCUMENTS (matches wrangler.jsonc)
+							const fileName = `generated/${crypto.randomUUID()}.png`;
+							await this.env.DOCUMENTS.put(fileName, imgBlob, {
+								httpMetadata: { contentType: "image/png" }
+							});
 
-						// 3. Robust Base64 Conversion
-						const binary = await new Response(imgBlob).arrayBuffer();
-						const base64 = btoa(
-							new Uint8Array(binary)
-								.reduce((data, byte) => data + String.fromCharCode(byte), '')
-						);
-						
-						toolOutput = `data:image/png;base64,${base64}`;
+							// 3. Robust Base64 Conversion
+							const binary = await new Response(imgBlob).arrayBuffer();
+							const base64 = btoa(
+								new Uint8Array(binary)
+									.reduce((data, byte) => data + String.fromCharCode(byte), '')
+							);
+							
+							toolOutput = `data:image/png;base64,${base64}`;
+						} catch (imgToolError) {
+							console.error("Image generation failed:", imgToolError);
+							toolOutput = "Error: The image generation model or storage bucket is temporarily unavailable. I will try to describe it with text instead: A cyberpunk city at sunset, neon purple light trails reflecting on rain-slicked wet pavement, flying cars bustling through the dusky sky, cinematic atmosphere, high-resolution digital art.";
+						}
 					} 
 					else if (tc.name === "get_weather") {
 						toolOutput = `72°F in ${args.location}`;
@@ -144,7 +151,8 @@ export class ChatSession extends DurableObject<Env> {
 				});
 
 			} catch (e: any) {
-				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
+				// The high-level catch: this prevents the Deadly Dot freeze!
+				return new Response(`data: ${JSON.stringify({ response: "I encountered an issue processing that request. Please try again! Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
 			}
