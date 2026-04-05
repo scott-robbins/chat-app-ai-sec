@@ -12,33 +12,43 @@ localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
+// Theme Logic
 if (localStorage.getItem("chatTheme") === "fancy") document.body.classList.add("theme-fancy");
 themeToggleBtn?.addEventListener("click", () => {
     document.body.classList.toggle("theme-fancy");
     localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
 });
 
+// Initialization - Load history or show greeting
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
+        // Clear the screen immediately to prepare for the session
+        chatMessages.innerHTML = ''; 
+        
         if (res.ok) {
             const data = await res.json();
-            chatMessages.innerHTML = ''; 
+            
             if (data.messages && data.messages.length > 0) {
+                // Restore history
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { 
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                addMessageToChat('assistant', "Hi there! I'm Jolene. What's on your mind today?");
+                // BRAND NEW session: Show the warm greeting
+                addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or even generate some art. What's on your mind today?");
             }
         }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("History failed to load:", e);
+        addMessageToChat('assistant', "Hi! I'm Jolene. Ready to start a new session.");
+    }
 }
 init();
 
 function renderContent(element, content) {
-    // Simple and robust: Let 'marked' handle the R2 URL links
+    // Standard Markdown parsing (Handles R2 URLs and formatting)
     element.innerHTML = marked.parse(content);
 }
 
@@ -57,7 +67,10 @@ async function sendMessage() {
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-            body: JSON.stringify({ messages: chatHistory, model: modelSelector?.value || "@cf/meta/llama-3.2-11b-vision-instruct" }),
+            body: JSON.stringify({ 
+                messages: chatHistory, 
+                model: modelSelector?.value || "@cf/meta/llama-3.2-11b-vision-instruct" 
+            }),
         });
 
         typingIndicator?.classList.remove("visible");
@@ -92,6 +105,7 @@ async function sendMessage() {
     } finally {
         isProcessing = false;
         typingIndicator?.classList.remove("visible");
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 }
 
@@ -109,7 +123,5 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+// Event Listeners
 sendButton?.addEventListener("click", sendMessage);
-userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
-newChatBtn?.addEventListener("click", () => { localStorage.removeItem("chatSessionId"); location.reload(); });
-clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; addMessageToChat('assistant', "Cleared! What next?"); });
