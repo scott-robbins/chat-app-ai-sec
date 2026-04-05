@@ -76,7 +76,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				// Prepare System Prompt - STRENGTHENED FOR IMAGE GENERATION
+				// Prepare System Prompt
 				let sysPrompt = "You are Jolene, a warm and helpful AI Agent. " +
 					"If you use the generate_image tool, the tool will return a data URL. " +
 					"You MUST display the image in your response using Markdown: ![Generated Image](PASTE_DATA_URL_HERE). " +
@@ -100,29 +100,30 @@ export class ChatSession extends DurableObject<Env> {
 					
 					let toolOutput = "";
 					
-					// FIX 1: Wrap the entire image tool logic in a TRY/CATCH block
 					if (tc.name === "generate_image") {
 						try {
 							// 1. Generate the image
 							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
 							
-							// FIX 2: Correct R2 binding to DOCUMENTS (matches wrangler.jsonc)
+							// 2. Save binary to R2
 							const fileName = `generated/${crypto.randomUUID()}.png`;
 							await this.env.DOCUMENTS.put(fileName, imgBlob, {
 								httpMetadata: { contentType: "image/png" }
 							});
 
-							// 3. Robust Base64 Conversion
-							const binary = await new Response(imgBlob).arrayBuffer();
-							const base64 = btoa(
-								new Uint8Array(binary)
-									.reduce((data, byte) => data + String.fromCharCode(byte), '')
-							);
+							// 3. Robust Base64 Conversion for Pro-tier account payloads
+							const arrayBuffer = await new Response(imgBlob).arrayBuffer();
+							const bytes = new Uint8Array(arrayBuffer);
+							let binary = "";
+							for (let i = 0; i < bytes.byteLength; i++) {
+								binary += String.fromCharCode(bytes[i]);
+							}
+							const base64 = btoa(binary);
 							
-							toolOutput = `data:image/png;base64,${base64}`;
+							toolOutput = `data:image/png;base64,${base64.trim()}`;
 						} catch (imgToolError) {
 							console.error("Image generation failed:", imgToolError);
-							toolOutput = "Error: The image generation model or storage bucket is temporarily unavailable. I will try to describe it with text instead: A cyberpunk city at sunset, neon purple light trails reflecting on rain-slicked wet pavement, flying cars bustling through the dusky sky, cinematic atmosphere, high-resolution digital art.";
+							toolOutput = "Error: The image generation model or storage bucket is temporarily unavailable.";
 						}
 					} 
 					else if (tc.name === "get_weather") {
@@ -151,8 +152,7 @@ export class ChatSession extends DurableObject<Env> {
 				});
 
 			} catch (e: any) {
-				// The high-level catch: this prevents the Deadly Dot freeze!
-				return new Response(`data: ${JSON.stringify({ response: "I encountered an issue processing that request. Please try again! Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
+				return new Response(`data: ${JSON.stringify({ response: "I encountered an issue. Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
 			}
