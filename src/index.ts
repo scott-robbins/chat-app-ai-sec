@@ -4,6 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
+const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -12,7 +13,6 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
-		// --- API: FETCH HISTORY ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare(
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
@@ -20,7 +20,6 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ messages: results }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- API: CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -28,11 +27,9 @@ export class ChatSession extends DurableObject<Env> {
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 				const selectedModel = body.model || DEFAULT_MODEL;
 
-				// Log user message
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// RAG: Vector search
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -42,24 +39,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				} catch (e) {}
 
-				// Tool definitions
 				const tools = [
-					{
-						type: "function",
-						function: {
-							name: "get_weather",
-							description: "Get current weather for a specific location",
-							parameters: { type: "object", properties: { location: { type: "string" } }, required: ["location"] }
-						}
-					},
-					{
-						type: "function",
-						function: {
-							name: "sec_status",
-							description: "Check the status of the security systems",
-							parameters: { type: "object", properties: {} }
-						}
-					},
 					{
 						type: "function",
 						function: {
@@ -76,24 +56,17 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				];
 
-				// Prepare System Prompt
-				let sysPrompt = "You are Jolene, a warm and helpful AI Agent. " +
-					"If you use the generate_image tool, the tool will return a data URL. " +
-					"You MUST display the image in your response using Markdown: ![Generated Image](PASTE_DATA_URL_HERE). " +
-					"Do not just describe the image; show it. Keep your text brief and enthusiastic.";
-
+				let sysPrompt = "You are Jolene, a warm AI Agent. If you use generate_image, the tool returns a URL. You MUST display it as ![Image](URL).";
 				if (contextText) sysPrompt += ` Context: ${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// First AI pass
 				const response = await this.env.AI.run(selectedModel, { messages, tools, stream: false });
 
 				let finalContent = "";
 
-				// Handle Tool Calls
 				if (response.tool_calls && response.tool_calls.length > 0) {
 					const tc = response.tool_calls[0];
 					const args = JSON.parse(tc.arguments);
@@ -102,48 +75,29 @@ export class ChatSession extends DurableObject<Env> {
 					
 					if (tc.name === "generate_image") {
 						try {
-							// 1. Generate the image
 							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
-							
-							// 2. Save binary to R2
 							const fileName = `generated/${crypto.randomUUID()}.png`;
+							
 							await this.env.DOCUMENTS.put(fileName, imgBlob, {
 								httpMetadata: { contentType: "image/png" }
 							});
 
-							// 3. Robust Base64 Conversion for Pro-tier account payloads
-							const arrayBuffer = await new Response(imgBlob).arrayBuffer();
-							const bytes = new Uint8Array(arrayBuffer);
-							let binary = "";
-							for (let i = 0; i < bytes.byteLength; i++) {
-								binary += String.fromCharCode(bytes[i]);
-							}
-							const base64 = btoa(binary);
-							
-							toolOutput = `data:image/png;base64,${base64.trim()}`;
-						} catch (imgToolError) {
-							console.error("Image generation failed:", imgToolError);
-							toolOutput = "Error: The image generation model or storage bucket is temporarily unavailable.";
+							// Return the public URL for the frontend
+							toolOutput = `${PUBLIC_R2_URL}/${fileName}`;
+						} catch (e) {
+							toolOutput = "Error generating image.";
 						}
-					} 
-					else if (tc.name === "get_weather") {
-						toolOutput = `72°F in ${args.location}`;
-					} 
-					else if (tc.name === "sec_status") {
-						toolOutput = "Systems Green.";
 					}
 					
 					messages.push(response);
 					messages.push({ role: "tool", name: tc.name, content: toolOutput, tool_call_id: tc.id });
 
-					// Second AI pass for natural language summary
 					const secondRun = await this.env.AI.run(selectedModel, { messages });
 					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
 				} else {
 					finalContent = response.response || response.choices?.[0]?.message?.content || "";
 				}
 
-				// Log assistant response
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
@@ -152,7 +106,7 @@ export class ChatSession extends DurableObject<Env> {
 				});
 
 			} catch (e: any) {
-				return new Response(`data: ${JSON.stringify({ response: "I encountered an issue. Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
+				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream" }
 				});
 			}
