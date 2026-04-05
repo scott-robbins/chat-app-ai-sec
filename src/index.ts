@@ -29,24 +29,17 @@ export class ChatSession extends DurableObject<Env> {
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				const tools = [
-					{
-						name: "generate_image",
-						description: "Call this to create an image.",
-						parameters: {
-							type: "object",
-							properties: { prompt: { type: "string" } },
-							required: ["prompt"]
-						}
+				const tools = [{
+					name: "generate_image",
+					description: "Create an image",
+					parameters: {
+						type: "object",
+						properties: { prompt: { type: "string" } },
+						required: ["prompt"]
 					}
-				];
+				}];
 
-				let sysPrompt = "You are Jolene. Use generate_image for visuals. Return ![Image](URL).";
-				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
-				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
-				else messages.unshift({ role: "system", content: sysPrompt });
-
-				// PASS 1
+				// Pass 1: Reason if we need an image
 				const response = await this.env.AI.run(REASONING_MODEL, { 
 					messages, 
 					tools, 
@@ -60,40 +53,22 @@ export class ChatSession extends DurableObject<Env> {
 					const tc = response.tool_calls[0];
 					let args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : tc.arguments;
 					
-					let toolOutput = "";
-					try {
-						const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
-						const fileName = `generated/${crypto.randomUUID()}.png`;
-						await this.env.DOCUMENTS.put(fileName, imgBlob, { httpMetadata: { contentType: "image/png" } });
-						toolOutput = `${PUBLIC_R2_URL}/${fileName}`;
-						console.log("SUCCESS: URL Created ->", toolOutput);
-					} catch (e) {
-						toolOutput = "Error: Generation failed.";
-					}
+					// 1. Generate the image
+					const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
+					const fileName = `generated/${crypto.randomUUID()}.png`;
+					await this.env.DOCUMENTS.put(fileName, imgBlob, { httpMetadata: { contentType: "image/png" } });
 					
-					// SCHEMA FIX: Clean the history of metadata before Pass 2
-					const cleanHistory = messages.map(m => ({ role: m.role, content: m.content }));
-					cleanHistory.push({
-						role: "assistant",
-						tool_calls: [{
-							id: tc.id,
-							type: "function",
-							function: { name: tc.name, arguments: JSON.stringify(args) }
-						}]
-					});
-					cleanHistory.push({ 
-						role: "tool", 
-						name: tc.name, 
-						content: toolOutput, 
-						tool_call_id: tc.id 
-					});
+					const imageUrl = `${PUBLIC_R2_URL}/${fileName}`;
 
-					const secondRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: cleanHistory });
-					finalContent = secondRun.response || secondRun.choices?.[0]?.message?.content || "";
+					// 2. SHORTCUT: Don't ask the AI again. Just return the result!
+					finalContent = `I've generated that image for you!\n\n![Generated Image](${imageUrl})`;
 				} else {
-					finalContent = response.response || "No image generated.";
+					// Fallback to normal chat if no tool was called
+					const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
+					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm here to help!";
 				}
 
+				// Log to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
