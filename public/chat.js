@@ -123,5 +123,30 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Event Listeners
+// --- Event Listeners ---
+
 sendButton?.addEventListener("click", sendMessage);
+
+userInput?.addEventListener("keydown", (e) => { 
+    if (e.key === "Enter" && !e.shiftKey) { 
+        e.preventDefault(); 
+        sendMessage(); 
+    } 
+});
+
+newChatBtn?.addEventListener("click", () => {
+    // Clear local storage and reset session variables
+    localStorage.removeItem("chatSessionId");
+    sessionId = crypto.randomUUID();
+    localStorage.setItem("chatSessionId", sessionId);
+    chatHistory = [];
+    isProcessing = false;
+    // Reload page to trigger a clean init()
+    location.reload(); 
+});
+
+clearScreenBtn?.addEventListener("click", () => {
+    chatMessages.innerHTML = '';
+    isProcessing = false; // Safety reset
+    addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start. What's on your mind?");
+});
