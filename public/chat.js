@@ -7,16 +7,24 @@ const newChatBtn = document.getElementById("new-chat-btn");
 const clearScreenBtn = document.getElementById("clear-screen-btn");
 const modelSelector = document.getElementById("model-selector");
 
-// File Upload Elements (Matching your new HTML IDs)
+// File Upload Elements
 const fileInput = document.getElementById("file-input");
 const memorizeBtn = document.getElementById("memorize-file-btn");
+
+// Sidebar Elements
+const sidebar = document.getElementById("memory-sidebar");
+const toggleSidebarBtn = document.getElementById("toggle-sidebar-btn");
+const closeSidebarBtn = document.getElementById("close-sidebar-btn");
+const clearVectorBtn = document.getElementById("clear-vector-btn");
+const kvDisplay = document.getElementById("kv-profile-display");
+const fileListDisplay = document.getElementById("file-list-display");
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
-// Initial Theme Logic (Quick check before API loads)
+// Initial Theme Logic
 if (localStorage.getItem("chatTheme") === "fancy") {
     document.body.classList.add("theme-fancy");
 }
@@ -35,8 +43,6 @@ async function init() {
         
         if (res.ok) {
             const data = await res.json();
-            
-            // --- SYNC THEME FROM KV ---
             const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
             
             if (activeTheme === "fancy") {
@@ -66,12 +72,63 @@ function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
 }
 
-// --- NEW: MEMORIZE FILE LOGIC (Missing from your previous version) ---
+// --- SIDEBAR MANAGEMENT ---
+
+async function updateSidebarContent() {
+    try {
+        // Fetch Profile
+        const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
+        const profileData = await profileRes.json();
+        kvDisplay.innerText = profileData.profile || "No profile saved yet. Try 'Save to my profile: [details]'";
+
+        // Fetch Files
+        const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
+        const filesData = await filesRes.json();
+        
+        if (filesData.files && filesData.files.length > 0) {
+            fileListDisplay.innerHTML = filesData.files
+                .map(f => `<li><i class="ph ph-file-text"></i> ${f}</li>`)
+                .join("");
+        } else {
+            fileListDisplay.innerHTML = "<li>No files memorized yet.</li>";
+        }
+    } catch (e) {
+        console.error("Sidebar update failed:", e);
+    }
+}
+
+toggleSidebarBtn?.addEventListener("click", () => {
+    sidebar.classList.add("open");
+    updateSidebarContent();
+});
+
+closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
+
+clearVectorBtn?.addEventListener("click", async () => {
+    if (!confirm("Are you sure you want to wipe Jolene's file memory for this session? This cannot be undone.")) return;
+    
+    clearVectorBtn.innerText = "Wiping...";
+    try {
+        const res = await fetch("/api/clear-memory", { 
+            method: "POST", 
+            headers: { 'x-session-id': sessionId } 
+        });
+        if (res.ok) {
+            alert("Memory cleared! Jolene has forgotten your uploaded files.");
+            updateSidebarContent();
+        }
+    } catch (e) {
+        alert("Failed to clear memory.");
+    } finally {
+        clearVectorBtn.innerHTML = `<i class="ph ph-warning"></i> Wipe All Knowledge`;
+    }
+});
+
+// --- MEMORIZE FILE LOGIC ---
 memorizeBtn?.addEventListener("click", async () => {
     const file = fileInput.files[0];
     if (!file) return alert("Please choose a file first!");
 
-    // UI Feedback
     memorizeBtn.disabled = true;
     memorizeBtn.innerText = "Memorizing...";
     typingIndicator?.classList.add("visible");
@@ -88,13 +145,15 @@ memorizeBtn?.addEventListener("click", async () => {
 
         if (res.ok) {
             addMessageToChat("assistant", `I've successfully memorized **${file.name}**! You can now ask me questions about its content.`);
-            fileInput.value = ""; // Clear the input
+            fileInput.value = ""; 
+            // Update sidebar if it's open
+            if (sidebar.classList.contains("open")) updateSidebarContent();
         } else {
             const errorText = await res.text();
             addMessageToChat("assistant", "Sorry, I had trouble memorizing that file: " + errorText);
         }
     } catch (e) {
-        addMessageToChat("assistant", "Network error. I couldn't reach the server to memorize the file.");
+        addMessageToChat("assistant", "Network error. I couldn't reach the server.");
     } finally {
         memorizeBtn.disabled = false;
         memorizeBtn.innerText = "Memorize File";
@@ -195,7 +254,7 @@ newChatBtn?.addEventListener("click", () => {
 clearScreenBtn?.addEventListener("click", () => {
     chatMessages.innerHTML = '';
     isProcessing = false;
-    addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start. What's on your mind?");
+    addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start.");
 });
 
 modelSelector?.addEventListener("change", () => {
