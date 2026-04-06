@@ -27,7 +27,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- NEW: MEMORIZE FILE (The missing piece!) ---
+		// --- API: MEMORIZE FILE (Vectorize + R2 Storage) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -35,21 +35,26 @@ export class ChatSession extends DurableObject<Env> {
 				if (!file) return new Response("No file uploaded", { status: 400 });
 
 				const text = await file.text();
-				// Split into paragraphs to create distinct chunks for the AI to find
-				const chunks = text.split(/\n\s*\n/).filter(c => c.trim().length > 0);
+				// Split into chunks based on single newlines to capture each fact individually
+				const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
 
 				for (const chunk of chunks) {
-					// 1. Convert text chunk into math (Vector Embedding)
+					// 1. Convert text fact into math (Vector Embedding)
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					const vector = embeddingResponse.data[0];
 
-					// 2. Insert into Vectorize index
+					// 2. Insert into Vectorize index with sessionId for filtering
 					await this.env.VECTORIZE.insert([{
 						id: crypto.randomUUID(),
 						values: vector,
 						metadata: { text: chunk, fileName: file.name, sessionId }
 					}]);
 				}
+
+				// 3. Save raw file to R2 for dashboard verification
+				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
+					httpMetadata: { contentType: file.type || "text/plain" }
+				});
 
 				return new Response("OK", { status: 200 });
 			} catch (e: any) {
@@ -119,24 +124,30 @@ export class ChatSession extends DurableObject<Env> {
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// 1. RAG: Search Vectorize
+				// 1. RAG: Search Vectorize (REINFORCED)
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
-					if (matches.matches.length > 0) {
-						contextText = matches.matches.map(m => m.metadata?.text).join("\n");
+					// Increased topK to 5 for better fact discovery
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
+					
+					if (matches.matches && matches.matches.length > 0) {
+						contextText = matches.matches
+							.filter(m => m.metadata && m.metadata.text)
+							.map(m => m.metadata.text)
+							.join("\n\n");
 					}
 				} catch (e) { console.error("RAG Error:", e); }
 
-				// 2. SYSTEM PROMPT: Invisible RAG
+				// 2. SYSTEM PROMPT: Enhanced RAG Awareness
 				let sysPrompt = "You are Jolene, a helpful and witty AI. " +
-					"You have access to specific context data provided below. " +
-					"1. If a question is answered by the Context, use it. " +
-					"2. If not, use your general knowledge. " +
-					"CRITICAL: Just answer directly without mentioning 'context'.";
+					"You have access to the user's uploaded personal files and family information (Context). " +
+					"1. Check the Context first for names, dates, and relationships. " +
+					"2. If the answer is there, answer directly and naturally. " +
+					"3. If not in Context, use your general knowledge. " +
+					"CRITICAL: Do not mention 'the provided context' or 'records'. Just be helpful.";
 				
-				if (contextText) sysPrompt += `\n\nContext:\n${contextText}`;
+				if (contextText) sysPrompt += `\n\nUser's Personal Context:\n${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
