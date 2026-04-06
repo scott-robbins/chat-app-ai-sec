@@ -6,11 +6,14 @@ export interface Env {
 	VECTORIZE: VectorizeIndex;
 	CHAT_SESSION: DurableObjectNamespace;
 	
-	// Add our new KV Namespace binding!
-	CHAT_CONFIG: KVNamespace;
+	// Changed from CHAT_CONFIG to SETTINGS to match wrangler.jsonc and index.ts
+	SETTINGS: KVNamespace; 
 
-	// Add our new R2 Bucket binding!
+	// R2 Bucket binding
 	DOCUMENTS: R2Bucket;
+
+	// Added the D1 binding so TypeScript doesn't complain
+	jolene_db: D1Database; 
 }
 
 export interface ChatMessage {
