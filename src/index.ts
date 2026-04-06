@@ -14,6 +14,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
+		// --- D1: FETCH HISTORY ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare(
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
@@ -21,6 +22,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ messages: results }), { headers: { "Content-Type": "application/json" } });
 		}
 
+		// --- API: CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -38,26 +40,27 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					if (matches.matches.length > 0) {
 						contextText = matches.matches.map(m => m.metadata?.text).join("\n");
-						console.log("RAG Context found.");
+						console.log("RAG Match found.");
 					}
 				} catch (e) { console.error("Vectorize RAG Error:", e); }
 
-				// 2. SYSTEM PROMPT: Strict instructions but adds fallback Internet knowledge
-				let sysPrompt = "You are Jolene, a knowledgeable AI. You must prioritize the 'Context from R2 files' provided below. " +
-					"Check the Context first for questions about codes, rooms, data, or files. " +
-					"Only use the generate_image tool if specifically asked for art or visuals. " +
-					"If you do not find an answer in the context, use your general knowledge to respond.";
+				// 2. SYSTEM PROMPT: Invisible RAG & Natural Fallback
+				let sysPrompt = "You are Jolene, a helpful and witty AI. " +
+					"You have access to specific R2 file data (Context) and broad general knowledge. " +
+					"1. If a question is answered by the Context, use it. " +
+					"2. If not, use your general knowledge to answer naturally. " +
+					"CRITICAL: DO NOT mention 'the provided context' or 'my records' in your response. " +
+					"Just answer the question directly as if you simply know the information.";
 				
-				if (contextText) sysPrompt += `\n\nContext from R2 files:\n${contextText}`;
+				if (contextText) sysPrompt += `\n\nContext:\n${contextText}`;
 				
-				// Standard prompt-update logic
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
 				const tools = [{
 					name: "generate_image",
-					description: "Create visual artwork or photos. Only use if asked.",
+					description: "Create visual artwork or photos. Only use if explicitly asked.",
 					parameters: {
 						type: "object",
 						properties: { prompt: { type: "string" } },
@@ -65,7 +68,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}];
 
-				// 3. PASS 1: Reasoning Pass (auto) using 70B
+				// 3. PASS 1: Reasoning Pass (70B)
 				const response = await this.env.AI.run(REASONING_MODEL, { 
 					messages, 
 					tools, 
@@ -75,7 +78,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				let finalContent = "";
 
-				// 4. LOGIC GUARDRAIL: Verify if the visual keywords are present.
+				// 4. LOGIC GUARDRAIL: Verify visual intent
 				const visualKeywords = /draw|paint|generate|create|image|picture|photo|visual/i;
 				const isVisualRequest = visualKeywords.test(latestUserMessage);
 
@@ -85,7 +88,6 @@ export class ChatSession extends DurableObject<Env> {
 					
 					if (tc.name === "generate_image") {
 						try {
-							// R2: Generate and save image
 							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
 							const fileName = `generated/${crypto.randomUUID()}.png`;
 							await this.env.DOCUMENTS.put(fileName, imgBlob, { httpMetadata: { contentType: "image/png" } });
@@ -95,9 +97,9 @@ export class ChatSession extends DurableObject<Env> {
 						}
 					}
 				} else {
-					// 5. PASS 2: Conversation/Factual Pass (Failsafes to general knowledge if context is empty)
+					// 5. PASS 2: Conversation Pass (Using Invisible RAG instructions)
 					const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I couldn't find an answer in my records.";
+					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure how to answer that.";
 				}
 
 				// D1: Log assistant response
