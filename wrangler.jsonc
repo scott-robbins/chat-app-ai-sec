@@ -44,7 +44,7 @@
 	],
 	"kv_namespaces": [
 		{
-			"binding": "CHAT_CONFIG",
+			"binding": "SETTINGS", 
 			"id": "726f5ce7227c42a997fa509fc947f139"
 		}
 	],
