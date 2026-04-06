@@ -27,37 +27,40 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- NEW: FETCH KV PROFILE ---
+		// --- UPDATED: FETCH KV PROFILE + D1 STATS ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`profile_${sessionId}`);
-			return new Response(JSON.stringify({ profile }), { 
+			
+			// Get message count from D1 for this session
+			const stats = await this.env.jolene_db.prepare(
+				"SELECT COUNT(*) as count FROM messages WHERE session_id = ?"
+			).bind(sessionId).first();
+
+			return new Response(JSON.stringify({ 
+				profile: profile || "No profile saved yet.",
+				messageCount: stats?.count || 0 
+			}), { 
 				headers: { "Content-Type": "application/json" } 
 			});
 		}
 
-		// --- NEW: LIST R2 FILES ---
+		// --- UPDATED: LIST ALL R2 FILES (GLOBAL) ---
 		if (url.pathname === "/api/files") {
-			const objects = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
-			const files = objects.objects.map(o => o.key.split('/').pop());
+			// List all objects in the bucket without a prefix filter
+			const objects = await this.env.DOCUMENTS.list();
+			const files = objects.objects.map(o => o.key);
 			return new Response(JSON.stringify({ files }), { 
 				headers: { "Content-Type": "application/json" } 
 			});
 		}
 
-		// --- NEW: CLEAR ALL KNOWLEDGE (Vectorize + R2) ---
+		// --- API: CLEAR ALL KNOWLEDGE ---
 		if (url.pathname === "/api/clear-memory" && request.method === "POST") {
 			try {
-				// 1. Wipe Vectorize (Note: This clears the whole index)
-				// For a production app, you'd delete by metadata filter, but for testing, we clear the index.
-				// Cloudflare API doesn't allow 'clear' via worker easily, so we usually delete by ID 
-				// or let the user know we're clearing the R2 reference.
-				
-				// 2. Clear R2 files for this session
-				const list = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
+				const list = await this.env.DOCUMENTS.list();
 				for (const obj of list.objects) {
 					await this.env.DOCUMENTS.delete(obj.key);
 				}
-
 				return new Response("Memory Cleared", { status: 200 });
 			} catch (e: any) {
 				return new Response(e.message, { status: 500 });
@@ -85,6 +88,7 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 
+				// Upload to R2 (using the path structure Jolene expects)
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
 					httpMetadata: { contentType: file.type || "text/plain" }
 				});
@@ -102,119 +106,42 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- KV: SAVE PROFILE LOGIC ---
+				// Log standard user message to D1
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "user", latestUserMessage).run();
+
+				// KV: SAVE PROFILE LOGIC
 				if (latestUserMessage.toLowerCase().startsWith("save to my profile:")) {
 					const profileData = latestUserMessage.replace(/save to my profile:/i, "").trim();
 					await this.env.SETTINGS.put(`profile_${sessionId}`, profileData);
-					
-					const successMsg = `Done! I've saved "${profileData}" to your KV profile.`;
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "user", latestUserMessage).run();
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", successMsg).run();
-
+					const successMsg = `Done! I've saved that to your profile.`;
 					return new Response(`data: ${JSON.stringify({ response: successMsg })}\n\ndata: [DONE]\n\n`, {
 						headers: { "Content-Type": "text/event-stream" }
 					});
 				}
 
-				// --- KV: SAVE THEME LOGIC ---
-				if (latestUserMessage.toLowerCase().startsWith("set my theme to:")) {
-					const themeChoice = latestUserMessage.replace(/set my theme to:/i, "").trim().toLowerCase();
-					const validTheme = themeChoice.includes("plain") ? "plain" : "fancy";
-					await this.env.SETTINGS.put(`theme_${sessionId}`, validTheme);
-					
-					const themeMsg = `I've updated your global preference to the ${validTheme} theme!`;
-					
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "user", latestUserMessage).run();
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", themeMsg).run();
-
-					return new Response(`data: ${JSON.stringify({ response: themeMsg })}\n\ndata: [DONE]\n\n`, {
-						headers: { "Content-Type": "text/event-stream" }
-					});
-				}
-
-				// --- KV: LOAD PROFILE LOGIC ---
-				if (latestUserMessage.toLowerCase() === "what is in my profile?") {
-					const storedProfile = await this.env.SETTINGS.get(`profile_${sessionId}`);
-					const reply = storedProfile 
-						? `Your KV profile contains: "${storedProfile}"`
-						: "Your profile is currently empty.";
-						
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "user", latestUserMessage).run();
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", reply).run();
-
-					return new Response(`data: ${JSON.stringify({ response: reply })}\n\ndata: [DONE]\n\n`, {
-						headers: { "Content-Type": "text/event-stream" }
-					});
-				}
-
-				// D1: Log standard user message
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMessage).run();
-
-				// 1. RAG: Search Vectorize 
+				// RAG: Search Vectorize
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
-					
 					if (matches.matches && matches.matches.length > 0) {
-						contextText = matches.matches
-							.filter(m => m.metadata && m.metadata.text)
-							.map(m => m.metadata.text)
-							.join("\n\n");
+						contextText = matches.matches.filter(m => m.metadata?.text).map(m => m.metadata.text).join("\n\n");
 					}
 				} catch (e) { console.error("RAG Error:", e); }
 
-				// 2. SYSTEM PROMPT
-				let sysPrompt = "You are Jolene, a helpful and witty AI. " +
-					"You have access to context provided below. " +
-					"Check Context first for facts. If not found, use general knowledge. " +
-					"Just answer directly.";
-				
+				// SYSTEM PROMPT
+				let sysPrompt = "You are Jolene, a helpful AI. Use context if available.";
 				if (contextText) sysPrompt += `\n\nContext:\n${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				const tools = [{
-					name: "generate_image",
-					description: "Create visual artwork. Only use if explicitly asked.",
-					parameters: {
-						type: "object", properties: { prompt: { type: "string" } }, required: ["prompt"]
-					}
-				}];
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
+				const finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure.";
 
-				const response = await this.env.AI.run(REASONING_MODEL, { 
-					messages, tools, tool_choice: "auto", stream: false 
-				});
-
-				let finalContent = "";
-				const visualKeywords = /draw|paint|generate|create|image|picture|photo|visual/i;
-				const isVisualRequest = visualKeywords.test(latestUserMessage);
-
-				if (response.tool_calls && response.tool_calls.length > 0 && isVisualRequest) {
-					const tc = response.tool_calls[0];
-					let args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : tc.arguments;
-					if (tc.name === "generate_image") {
-						try {
-							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
-							const fileName = `generated/${crypto.randomUUID()}.png`;
-							await this.env.DOCUMENTS.put(fileName, imgBlob, { httpMetadata: { contentType: "image/png" } });
-							finalContent = `I've generated that image for you!\n\n![Generated Image](${PUBLIC_R2_URL}/${fileName})`;
-						} catch (e) { finalContent = "Image generation failed."; }
-					}
-				} else {
-					const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure.";
-				}
-
+				// Log assistant response to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
