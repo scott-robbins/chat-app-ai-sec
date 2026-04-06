@@ -7,6 +7,10 @@ const newChatBtn = document.getElementById("new-chat-btn");
 const clearScreenBtn = document.getElementById("clear-screen-btn");
 const modelSelector = document.getElementById("model-selector");
 
+// File Upload Elements (Matching your new HTML IDs)
+const fileInput = document.getElementById("file-input");
+const memorizeBtn = document.getElementById("memorize-file-btn");
+
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
@@ -33,7 +37,6 @@ async function init() {
             const data = await res.json();
             
             // --- SYNC THEME FROM KV ---
-            // Priority: KV Data -> LocalStorage -> Default (fancy)
             const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
             
             if (activeTheme === "fancy") {
@@ -41,7 +44,6 @@ async function init() {
             } else {
                 document.body.classList.remove("theme-fancy");
             }
-            // Keep local storage updated with the server's truth
             localStorage.setItem("chatTheme", activeTheme);
 
             if (data.messages && data.messages.length > 0) {
@@ -63,6 +65,42 @@ init();
 function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
 }
+
+// --- NEW: MEMORIZE FILE LOGIC (Missing from your previous version) ---
+memorizeBtn?.addEventListener("click", async () => {
+    const file = fileInput.files[0];
+    if (!file) return alert("Please choose a file first!");
+
+    // UI Feedback
+    memorizeBtn.disabled = true;
+    memorizeBtn.innerText = "Memorizing...";
+    typingIndicator?.classList.add("visible");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/api/memorize", {
+            method: "POST",
+            headers: { "x-session-id": sessionId },
+            body: formData
+        });
+
+        if (res.ok) {
+            addMessageToChat("assistant", `I've successfully memorized **${file.name}**! You can now ask me questions about its content.`);
+            fileInput.value = ""; // Clear the input
+        } else {
+            const errorText = await res.text();
+            addMessageToChat("assistant", "Sorry, I had trouble memorizing that file: " + errorText);
+        }
+    } catch (e) {
+        addMessageToChat("assistant", "Network error. I couldn't reach the server to memorize the file.");
+    } finally {
+        memorizeBtn.disabled = false;
+        memorizeBtn.innerText = "Memorize File";
+        typingIndicator?.classList.remove("visible");
+    }
+});
 
 async function sendMessage() {
     const message = userInput.value.trim();
@@ -136,7 +174,6 @@ function addMessageToChat(role, content) {
 }
 
 // --- Event Listeners ---
-
 sendButton?.addEventListener("click", sendMessage);
 
 userInput?.addEventListener("keydown", (e) => { 
@@ -161,7 +198,6 @@ clearScreenBtn?.addEventListener("click", () => {
     addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start. What's on your mind?");
 });
 
-// Model switch notification
 modelSelector?.addEventListener("change", () => {
     const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
     const notification = document.createElement("div");
