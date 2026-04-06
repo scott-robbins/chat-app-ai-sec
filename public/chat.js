@@ -12,14 +12,18 @@ localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
-// Theme Logic
-if (localStorage.getItem("chatTheme") === "fancy") document.body.classList.add("theme-fancy");
+// Initial Theme Logic (Quick check before API loads)
+if (localStorage.getItem("chatTheme") === "fancy") {
+    document.body.classList.add("theme-fancy");
+}
+
 themeToggleBtn?.addEventListener("click", () => {
     document.body.classList.toggle("theme-fancy");
-    localStorage.setItem("chatTheme", document.body.classList.contains("theme-fancy") ? "fancy" : "plain");
+    const currentTheme = document.body.classList.contains("theme-fancy") ? "fancy" : "plain";
+    localStorage.setItem("chatTheme", currentTheme);
 });
 
-// Initialization - Load history or show greeting
+// Initialization - Load history and sync KV preferences
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
@@ -28,6 +32,18 @@ async function init() {
         if (res.ok) {
             const data = await res.json();
             
+            // --- SYNC THEME FROM KV ---
+            // Priority: KV Data -> LocalStorage -> Default (fancy)
+            const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
+            
+            if (activeTheme === "fancy") {
+                document.body.classList.add("theme-fancy");
+            } else {
+                document.body.classList.remove("theme-fancy");
+            }
+            // Keep local storage updated with the server's truth
+            localStorage.setItem("chatTheme", activeTheme);
+
             if (data.messages && data.messages.length > 0) {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { 
@@ -145,7 +161,7 @@ clearScreenBtn?.addEventListener("click", () => {
     addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start. What's on your mind?");
 });
 
-// NEW: Model switch notification
+// Model switch notification
 modelSelector?.addEventListener("change", () => {
     const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
     const notification = document.createElement("div");
