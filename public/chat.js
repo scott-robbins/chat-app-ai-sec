@@ -23,20 +23,17 @@ themeToggleBtn?.addEventListener("click", () => {
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-        // Clear the screen immediately to prepare for the session
         chatMessages.innerHTML = ''; 
         
         if (res.ok) {
             const data = await res.json();
             
             if (data.messages && data.messages.length > 0) {
-                // Restore history
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { 
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                // BRAND NEW session: Show the warm greeting
                 addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or even generate some art. What's on your mind today?");
             }
         }
@@ -48,7 +45,6 @@ async function init() {
 init();
 
 function renderContent(element, content) {
-    // Standard Markdown parsing (Handles R2 URLs and formatting)
     element.innerHTML = marked.parse(content);
 }
 
@@ -135,18 +131,30 @@ userInput?.addEventListener("keydown", (e) => {
 });
 
 newChatBtn?.addEventListener("click", () => {
-    // Clear local storage and reset session variables
     localStorage.removeItem("chatSessionId");
     sessionId = crypto.randomUUID();
     localStorage.setItem("chatSessionId", sessionId);
     chatHistory = [];
     isProcessing = false;
-    // Reload page to trigger a clean init()
     location.reload(); 
 });
 
 clearScreenBtn?.addEventListener("click", () => {
     chatMessages.innerHTML = '';
-    isProcessing = false; // Safety reset
+    isProcessing = false;
     addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start. What's on your mind?");
+});
+
+// NEW: Model switch notification
+modelSelector?.addEventListener("change", () => {
+    const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
+    const notification = document.createElement("div");
+    notification.style.textAlign = "center";
+    notification.style.fontSize = "0.75rem";
+    notification.style.margin = "15px 0";
+    notification.style.color = "var(--text-color)";
+    notification.style.opacity = "0.6";
+    notification.innerHTML = `— Model switched to <strong>${selectedModelName}</strong> —`;
+    chatMessages.appendChild(notification);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 });
