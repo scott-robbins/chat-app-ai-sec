@@ -14,12 +14,18 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "default";
 
-		// --- D1: FETCH HISTORY ---
+		// --- D1 & KV: FETCH HISTORY & PREFERENCES ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare(
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
 			).bind(sessionId).all();
-			return new Response(JSON.stringify({ messages: results }), { headers: { "Content-Type": "application/json" } });
+			
+			// We can also pull the global theme from KV to send to the UI
+			const theme = await this.env.SETTINGS.get(`theme_${sessionId}`) || "fancy";
+			
+			return new Response(JSON.stringify({ messages: results, theme }), { 
+				headers: { "Content-Type": "application/json" } 
+			});
 		}
 
 		// --- API: CHAT ---
@@ -41,6 +47,26 @@ export class ChatSession extends DurableObject<Env> {
 						.bind(sessionId, "assistant", successMsg).run();
 
 					return new Response(`data: ${JSON.stringify({ response: successMsg })}\n\ndata: [DONE]\n\n`, {
+						headers: { "Content-Type": "text/event-stream" }
+					});
+				}
+
+				// --- KV: SAVE THEME LOGIC ---
+				if (latestUserMessage.toLowerCase().startsWith("set my theme to:")) {
+					const themeChoice = latestUserMessage.replace(/set my theme to:/i, "").trim().toLowerCase();
+					// Validates only 'fancy' or 'plain'
+					const validTheme = themeChoice.includes("plain") ? "plain" : "fancy";
+					
+					await this.env.SETTINGS.put(`theme_${sessionId}`, validTheme);
+					
+					const themeMsg = `I've updated your global preference to the ${validTheme} theme! Refresh the page to see it sync across devices.`;
+					
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "user", latestUserMessage).run();
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "assistant", themeMsg).run();
+
+					return new Response(`data: ${JSON.stringify({ response: themeMsg })}\n\ndata: [DONE]\n\n`, {
 						headers: { "Content-Type": "text/event-stream" }
 					});
 				}
