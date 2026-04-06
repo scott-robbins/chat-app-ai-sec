@@ -76,12 +76,19 @@ function renderContent(element, content) {
 
 async function updateSidebarContent() {
     try {
-        // Fetch Profile
+        // Fetch Profile and D1 Stats
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
-        kvDisplay.innerText = profileData.profile || "No profile saved yet. Try 'Save to my profile: [details]'";
+        
+        // Display Profile and Message Count
+        kvDisplay.innerHTML = `
+            <p><strong>Profile:</strong> ${profileData.profile}</p>
+            <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.8;">
+                <i class="ph ph-chat-centered-text"></i> Total Messages: ${profileData.messageCount}
+            </p>
+        `;
 
-        // Fetch Files
+        // Fetch Files (Global List)
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
         
@@ -94,6 +101,7 @@ async function updateSidebarContent() {
         }
     } catch (e) {
         console.error("Sidebar update failed:", e);
+        kvDisplay.innerText = "Error loading memory data.";
     }
 }
 
@@ -105,7 +113,7 @@ toggleSidebarBtn?.addEventListener("click", () => {
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
 
 clearVectorBtn?.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to wipe Jolene's file memory for this session? This cannot be undone.")) return;
+    if (!confirm("Are you sure you want to wipe Jolene's file memory? This will delete all files in R2.")) return;
     
     clearVectorBtn.innerText = "Wiping...";
     try {
@@ -146,7 +154,6 @@ memorizeBtn?.addEventListener("click", async () => {
         if (res.ok) {
             addMessageToChat("assistant", `I've successfully memorized **${file.name}**! You can now ask me questions about its content.`);
             fileInput.value = ""; 
-            // Update sidebar if it's open
             if (sidebar.classList.contains("open")) updateSidebarContent();
         } else {
             const errorText = await res.text();
@@ -209,6 +216,10 @@ async function sendMessage() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         chatHistory.push({ role: "assistant", content: text });
+        
+        // Refresh sidebar stats in the background if it's open
+        if (sidebar.classList.contains("open")) updateSidebarContent();
+        
     } catch (err) {
         addMessageToChat("assistant", "Error: " + err.message);
     } finally {
