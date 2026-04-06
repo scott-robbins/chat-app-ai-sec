@@ -27,10 +27,11 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
+				// Log user message to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// RAG: Search Vectorize for context (the door codes, etc.)
+				// 1. RAG: Search Vectorize for context
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -40,9 +41,20 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				} catch (e) { console.error("RAG Error:", e); }
 
+				// 2. STRICTOR System Prompt logic
+				let sysPrompt = "You are Jolene. You have access to a generate_image tool. " +
+					"CRITICAL: Only use generate_image if the user explicitly asks to 'generate', 'create', 'draw', or 'paint' an image. " +
+					"If the user is asking a question about codes, data, or facts, DO NOT use the tool. Answer using the provided context.";
+				
+				if (contextText) sysPrompt += `\n\nContext for this session:\n${contextText}`;
+				
+				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
+				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
+				else messages.unshift({ role: "system", content: sysPrompt });
+
 				const tools = [{
 					name: "generate_image",
-					description: "ONLY call this if the user explicitly asks for a picture, drawing, or visual.",
+					description: "Generate a visual image based on a prompt.",
 					parameters: {
 						type: "object",
 						properties: { prompt: { type: "string" } },
@@ -50,16 +62,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}];
 
-				let sysPrompt = "You are Jolene, a helpful AI. Use the provided context to answer questions accurately. ";
-				sysPrompt += "ONLY use generate_image if specifically asked for an image. ";
-				if (contextText) sysPrompt += `\nContext for this session: ${contextText}`;
-				
-				// Update or add system prompt
-				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
-				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
-				else messages.unshift({ role: "system", content: sysPrompt });
-
-				// PASS 1: Let the AI decide (auto)
+				// 3. PASS 1: Using 70B with 'auto' so it can choose NOT to draw
 				const response = await this.env.AI.run(REASONING_MODEL, { 
 					messages, 
 					tools, 
@@ -69,25 +72,28 @@ export class ChatSession extends DurableObject<Env> {
 
 				let finalContent = "";
 
-				// Check if a tool was actually called
 				if (response.tool_calls && response.tool_calls.length > 0) {
 					const tc = response.tool_calls[0];
 					let args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : tc.arguments;
 					
 					if (tc.name === "generate_image") {
-						const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
-						const fileName = `generated/${crypto.randomUUID()}.png`;
-						await this.env.DOCUMENTS.put(fileName, imgBlob, { httpMetadata: { contentType: "image/png" } });
-						const imageUrl = `${PUBLIC_R2_URL}/${fileName}`;
-						finalContent = `I've generated that image for you!\n\n![Generated Image](${imageUrl})`;
+						try {
+							const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: args.prompt });
+							const fileName = `generated/${crypto.randomUUID()}.png`;
+							await this.env.DOCUMENTS.put(fileName, imgBlob, { httpMetadata: { contentType: "image/png" } });
+							const imageUrl = `${PUBLIC_R2_URL}/${fileName}`;
+							finalContent = `I've generated that image for you!\n\n![Generated Image](${imageUrl})`;
+						} catch (e) {
+							finalContent = "I tried to generate that image but something went wrong.";
+						}
 					}
 				} else {
-					// No tool called? Just answer the question normally using the 11B model
-					// We include the context again to be safe
+					// 4. PASS 2: If no tool was called, answer using context
 					const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure how to answer that.";
+					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I couldn't find an answer for that.";
 				}
 
+				// Log assistant response to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
