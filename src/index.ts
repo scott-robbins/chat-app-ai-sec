@@ -20,12 +20,41 @@ export class ChatSession extends DurableObject<Env> {
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
 			).bind(sessionId).all();
 			
-			// We can also pull the global theme from KV to send to the UI
 			const theme = await this.env.SETTINGS.get(`theme_${sessionId}`) || "fancy";
 			
 			return new Response(JSON.stringify({ messages: results, theme }), { 
 				headers: { "Content-Type": "application/json" } 
 			});
+		}
+
+		// --- NEW: MEMORIZE FILE (The missing piece!) ---
+		if (url.pathname === "/api/memorize" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				if (!file) return new Response("No file uploaded", { status: 400 });
+
+				const text = await file.text();
+				// Split into paragraphs to create distinct chunks for the AI to find
+				const chunks = text.split(/\n\s*\n/).filter(c => c.trim().length > 0);
+
+				for (const chunk of chunks) {
+					// 1. Convert text chunk into math (Vector Embedding)
+					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					const vector = embeddingResponse.data[0];
+
+					// 2. Insert into Vectorize index
+					await this.env.VECTORIZE.insert([{
+						id: crypto.randomUUID(),
+						values: vector,
+						metadata: { text: chunk, fileName: file.name, sessionId }
+					}]);
+				}
+
+				return new Response("OK", { status: 200 });
+			} catch (e: any) {
+				return new Response("Memorization Error: " + e.message, { status: 500 });
+			}
 		}
 
 		// --- API: CHAT ---
@@ -54,12 +83,10 @@ export class ChatSession extends DurableObject<Env> {
 				// --- KV: SAVE THEME LOGIC ---
 				if (latestUserMessage.toLowerCase().startsWith("set my theme to:")) {
 					const themeChoice = latestUserMessage.replace(/set my theme to:/i, "").trim().toLowerCase();
-					// Validates only 'fancy' or 'plain'
 					const validTheme = themeChoice.includes("plain") ? "plain" : "fancy";
-					
 					await this.env.SETTINGS.put(`theme_${sessionId}`, validTheme);
 					
-					const themeMsg = `I've updated your global preference to the ${validTheme} theme! Refresh the page to see it sync across devices.`;
+					const themeMsg = `I've updated your global preference to the ${validTheme} theme!`;
 					
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "user", latestUserMessage).run();
@@ -104,11 +131,10 @@ export class ChatSession extends DurableObject<Env> {
 
 				// 2. SYSTEM PROMPT: Invisible RAG
 				let sysPrompt = "You are Jolene, a helpful and witty AI. " +
-					"You have access to specific R2 file data (Context) and broad general knowledge. " +
+					"You have access to specific context data provided below. " +
 					"1. If a question is answered by the Context, use it. " +
-					"2. If not, use your general knowledge to answer naturally. " +
-					"CRITICAL: DO NOT mention 'the provided context' or 'my records'. " +
-					"Just answer directly.";
+					"2. If not, use your general knowledge. " +
+					"CRITICAL: Just answer directly without mentioning 'context'.";
 				
 				if (contextText) sysPrompt += `\n\nContext:\n${contextText}`;
 				
@@ -130,8 +156,6 @@ export class ChatSession extends DurableObject<Env> {
 				});
 
 				let finalContent = "";
-
-				// 4. LOGIC GUARDRAIL
 				const visualKeywords = /draw|paint|generate|create|image|picture|photo|visual/i;
 				const isVisualRequest = visualKeywords.test(latestUserMessage);
 
