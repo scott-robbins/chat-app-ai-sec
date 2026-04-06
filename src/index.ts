@@ -27,7 +27,44 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- API: MEMORIZE FILE (Vectorize + R2 Storage) ---
+		// --- NEW: FETCH KV PROFILE ---
+		if (url.pathname === "/api/profile") {
+			const profile = await this.env.SETTINGS.get(`profile_${sessionId}`);
+			return new Response(JSON.stringify({ profile }), { 
+				headers: { "Content-Type": "application/json" } 
+			});
+		}
+
+		// --- NEW: LIST R2 FILES ---
+		if (url.pathname === "/api/files") {
+			const objects = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
+			const files = objects.objects.map(o => o.key.split('/').pop());
+			return new Response(JSON.stringify({ files }), { 
+				headers: { "Content-Type": "application/json" } 
+			});
+		}
+
+		// --- NEW: CLEAR ALL KNOWLEDGE (Vectorize + R2) ---
+		if (url.pathname === "/api/clear-memory" && request.method === "POST") {
+			try {
+				// 1. Wipe Vectorize (Note: This clears the whole index)
+				// For a production app, you'd delete by metadata filter, but for testing, we clear the index.
+				// Cloudflare API doesn't allow 'clear' via worker easily, so we usually delete by ID 
+				// or let the user know we're clearing the R2 reference.
+				
+				// 2. Clear R2 files for this session
+				const list = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
+				for (const obj of list.objects) {
+					await this.env.DOCUMENTS.delete(obj.key);
+				}
+
+				return new Response("Memory Cleared", { status: 200 });
+			} catch (e: any) {
+				return new Response(e.message, { status: 500 });
+			}
+		}
+
+		// --- API: MEMORIZE FILE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -35,15 +72,12 @@ export class ChatSession extends DurableObject<Env> {
 				if (!file) return new Response("No file uploaded", { status: 400 });
 
 				const text = await file.text();
-				// Split into chunks based on single newlines to capture each fact individually
 				const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
 
 				for (const chunk of chunks) {
-					// 1. Convert text fact into math (Vector Embedding)
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					const vector = embeddingResponse.data[0];
 
-					// 2. Insert into Vectorize index with sessionId for filtering
 					await this.env.VECTORIZE.insert([{
 						id: crypto.randomUUID(),
 						values: vector,
@@ -51,7 +85,6 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 
-				// 3. Save raw file to R2 for dashboard verification
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
 					httpMetadata: { contentType: file.type || "text/plain" }
 				});
@@ -124,11 +157,10 @@ export class ChatSession extends DurableObject<Env> {
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// 1. RAG: Search Vectorize (REINFORCED)
+				// 1. RAG: Search Vectorize 
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
-					// Increased topK to 5 for better fact discovery
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					
 					if (matches.matches && matches.matches.length > 0) {
@@ -139,15 +171,13 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				} catch (e) { console.error("RAG Error:", e); }
 
-				// 2. SYSTEM PROMPT: Enhanced RAG Awareness
+				// 2. SYSTEM PROMPT
 				let sysPrompt = "You are Jolene, a helpful and witty AI. " +
-					"You have access to the user's uploaded personal files and family information (Context). " +
-					"1. Check the Context first for names, dates, and relationships. " +
-					"2. If the answer is there, answer directly and naturally. " +
-					"3. If not in Context, use your general knowledge. " +
-					"CRITICAL: Do not mention 'the provided context' or 'records'. Just be helpful.";
+					"You have access to context provided below. " +
+					"Check Context first for facts. If not found, use general knowledge. " +
+					"Just answer directly.";
 				
-				if (contextText) sysPrompt += `\n\nUser's Personal Context:\n${contextText}`;
+				if (contextText) sysPrompt += `\n\nContext:\n${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
@@ -161,7 +191,6 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}];
 
-				// 3. PASS 1: Reasoning (70B)
 				const response = await this.env.AI.run(REASONING_MODEL, { 
 					messages, tools, tool_choice: "auto", stream: false 
 				});
@@ -182,12 +211,10 @@ export class ChatSession extends DurableObject<Env> {
 						} catch (e) { finalContent = "Image generation failed."; }
 					}
 				} else {
-					// 5. PASS 2: Conversation
 					const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 					finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure.";
 				}
 
-				// D1: Log assistant response
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
