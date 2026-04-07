@@ -1,152 +1,127 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Jolene AI</title>
-		
-		<script src="https://unpkg.com/@phosphor-icons/web"></script>
-		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jolene AI</title>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <style>
+        :root {
+            --primary: #f6821f;
+            --glass-bg: rgba(30, 41, 59, 0.5); /* Semi-transparent dark */
+            --glass-border: rgba(255, 255, 255, 0.12);
+            --text-color: #f8fafc;
+        }
 
-		<style>
-			:root {
-				--primary-color: #f6821f;
-				--app-bg: #ffffff;
-				--text-color: #1e293b;
-				--border-color: #e2e8f0;
-				--body-bg: #f4f6f8;
-			}
+        body.theme-plain {
+            --glass-bg: rgba(255, 255, 255, 0.8);
+            --text-color: #1e293b;
+            --glass-border: #e2e8f0;
+        }
 
-			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.6); /* THE TRANSPARENCY FIX */
-				--text-color: #f8fafc;
-				--border-color: rgba(255, 255, 255, 0.15);
-				--body-bg: #0f172a;
-			}
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
-			* { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            background: #0f172a; /* Deep dark base */
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
 
-			body {
-				font-family: -apple-system, system-ui, sans-serif;
-				color: var(--text-color);
-				background: var(--body-bg);
-				min-height: 100vh;
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				padding: 2rem 1rem;
-				transition: background 0.5s ease;
-			}
+        /* --- LAVA LAMP (Z-Index -1 keeps it behind everything) --- */
+        .lava-lamp-container {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: -1; pointer-events: none;
+        }
+        .blob {
+            position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
+            animation: float 15s infinite alternate ease-in-out;
+        }
+        .blob1 { width: 450px; height: 450px; background: var(--primary); top: -100px; left: -100px; }
+        .blob2 { width: 550px; height: 550px; background: #d95d14; bottom: -150px; right: -100px; }
+        @keyframes float { 100% { transform: translate(120px, -60px) scale(1.1); } }
 
-			/* Lava Lamp Restored */
-			.lava-lamp-container {
-				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-				z-index: -1; overflow: hidden; display: none;
-			}
-			body.theme-fancy .lava-lamp-container { display: block; }
-			
-			.blob {
-				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
-				animation: float 15s infinite alternate ease-in-out;
-			}
-			.blob1 { width: 450px; height: 450px; background: #f6821f; top: -100px; left: -100px; }
-			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
+        header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
+        h1 { font-size: 3rem; color: #fff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.6); }
 
-			@keyframes float { 100% { transform: translate(120px, -60px) scale(1.1); } }
+        .controls-row { display: flex; justify-content: center; gap: 10px; margin-top: 1.5rem; flex-wrap: wrap; }
+        
+        button, select {
+            padding: 10px 18px; border-radius: 12px; border: 1px solid var(--glass-border);
+            background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer;
+            font-weight: 600; display: flex; align-items: center; gap: 8px;
+            backdrop-filter: blur(10px);
+        }
+        .btn-primary { background: var(--primary); border: none; }
 
-			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-			h1 { font-size: 3rem; color: #fff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.6); }
+        /* --- THE CHAT GLASS BOX --- */
+        .chat-container {
+            width: 100%; max-width: 850px; height: calc(100vh - 350px);
+            background: var(--glass-bg); /* Transparency */
+            border-radius: 28px; border: 1px solid var(--glass-border);
+            backdrop-filter: blur(25px); /* Frosting effect */
+            -webkit-backdrop-filter: blur(25px);
+            box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
 
-			.controls-row { margin-top: 1.5rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			
-			button, select {
-				padding: 10px 18px; border-radius: 12px; border: 1px solid var(--border-color);
-				background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer;
-				font-weight: 600; display: flex; align-items: center; gap: 8px; backdrop-filter: blur(5px);
-			}
-			.btn-primary { background: var(--primary-color); border: none; }
+        #chat-messages { flex: 1; overflow-y: auto; padding: 2.5rem; display: flex; flex-direction: column; gap: 1rem; }
 
-			.chat-container {
-				display: flex; flex-direction: column; width: 100%; max-width: 850px;
-				height: calc(100vh - 350px); background-color: var(--app-bg);
-				border-radius: 28px; border: 1px solid var(--border-color);
-				backdrop-filter: blur(25px); /* THE GLASS FIX */
-				box-shadow: 0 25px 60px rgba(0,0,0,0.4); overflow: hidden;
-			}
+        .message-input {
+            padding: 1.5rem; background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid var(--glass-border);
+        }
 
-			#chat-messages { flex: 1; overflow-y: auto; padding: 2.5rem; display: flex; flex-direction: column; gap: 1rem; }
+        textarea {
+            width: 100%; padding: 14px; border-radius: 14px; border: 1px solid var(--glass-border);
+            background: rgba(255, 255, 255, 0.05); color: white; outline: none; resize: none;
+        }
 
-			.message-input {
-				padding: 1.5rem 2rem; background: rgba(0,0,0,0.2);
-				border-top: 1px solid var(--border-color);
-			}
+        footer { margin-top: 2rem; color: #64748b; font-size: 0.9rem; }
+    </style>
+</head>
+<body class="theme-fancy">
+    <div class="lava-lamp-container">
+        <div class="blob blob1"></div>
+        <div class="blob blob2"></div>
+    </div>
 
-			textarea {
-				width: 100%; padding: 14px; border-radius: 14px; border: 1px solid var(--border-color);
-				background: rgba(255,255,255,0.05); color: white; outline: none; resize: none;
-			}
+    <header>
+        <h1>Jolene</h1>
+        <div class="controls-row">
+            <button onclick="clearScreen()"><i class="ph ph-trash"></i> Clear</button>
+            <button class="btn-primary" onclick="newChat()"><i class="ph ph-plus"></i> New Chat</button>
+            <button onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Theme</button>
+            <button onclick="openSidebar()"><i class="ph ph-database"></i> Memory</button>
+            <button onclick="openHelp()"><i class="ph ph-question"></i> Help</button>
+            <select id="model-selector">
+                <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
+                <option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral 7B</option>
+                <option value="@cf/google/gemma-7b-it">Gemma 7B</option>
+            </select>
+        </div>
+    </header>
 
-			/* Sidebar/Modal logic restored */
-			.sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: #1e293b; border-left: 1px solid var(--border-color); transition: 0.4s; padding: 2rem; z-index: 2000; }
-			.sidebar.open { right: 0; }
-			.modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 3000; }
-			.modal-content { background: #1e293b; padding: 2rem; border-radius: 20px; width: 90%; border: 1px solid var(--border-color); color: white; }
+    <div class="chat-container">
+        <div id="chat-messages">
+            <div class="message"><p>Hi there! I'm Jolene. Ready to get back to work?</p></div>
+        </div>
+        <div class="message-input">
+            <div style="display:flex; gap:12px;">
+                <textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
+                <button onclick="sendMessage()" class="btn-primary" style="border-radius:50%; width:48px; height:48px; justify-content:center;"><i class="ph-fill ph-paper-plane-right"></i></button>
+            </div>
+        </div>
+    </div>
 
-			footer { margin-top: 2rem; color: #64748b; font-size: 0.9rem; }
-		</style>
-	</head>
-	<body class="theme-fancy">
-		<div class="lava-lamp-container"><div class="blob blob1"></div><div class="blob blob2"></div></div>
-		<header>
-			<h1>Jolene</h1>
-			<div class="controls-row">
-				<button onclick="clearScreen()"><i class="ph ph-trash"></i> Clear</button>
-				<button class="btn-primary" onclick="newChat()"><i class="ph ph-plus"></i> New Chat</button>
-				<button onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button onclick="openSidebar()"><i class="ph ph-database"></i> Memory</button>
-				<button onclick="openHelp()"><i class="ph ph-question"></i> Help</button>
-				<select id="model-selector" onchange="modelChanged()">
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral 7B</option>
-					<option value="@cf/google/gemma-7b-it">Gemma 7B</option>
-					<option value="@cf/microsoft/phi-2">Phi-2</option>
-				</select>
-			</div>
-		</header>
-
-		<div class="chat-container">
-			<div id="chat-messages">
-				<div class="message"><p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?</p></div>
-			</div>
-			<div class="message-input">
-				<div style="display:flex; gap:10px; margin-bottom:12px; align-items:center;">
-					<input type="file" id="file-input" style="color:#64748b; font-size: 0.8rem;">
-					<button onclick="memorizeFile()" style="font-size: 0.8rem; padding: 5px 10px;">Memorize</button>
-				</div>
-				<div style="display:flex; gap:10px;">
-					<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-					<button onclick="sendMessage()" class="btn-primary" style="border-radius:50%; width:48px; height:48px; justify-content:center;"><i class="ph-fill ph-paper-plane-right"></i></button>
-				</div>
-			</div>
-		</div>
-
-		<div id="memory-sidebar" class="sidebar">
-			<div style="display:flex; justify-content:space-between; margin-bottom:20px;"><h3>Memory</h3><button onclick="openSidebar()">&times;</button></div>
-			<div id="kv-profile-display">Loading profile...</div>
-		</div>
-
-		<div id="help-modal" class="modal">
-			<div class="modal-content">
-				<h3>Jolene Help</h3>
-				<p>Use "Draw" for images. Upload files to "Memorize".</p>
-				<button class="btn-primary" onclick="openHelp()" style="width:100%; margin-top:15px;">Close</button>
-			</div>
-		</div>
-
-		<footer>Jolene AI &copy; 2026</footer>
-		<script src="chat.js"></script>
-	</body>
+    <footer>Jolene AI &copy; 2026</footer>
+    <script src="chat.js"></script>
+</body>
 </html>
