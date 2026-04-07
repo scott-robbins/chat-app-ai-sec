@@ -31,7 +31,11 @@ function speak(text) {
     const cleanText = text.replace(/[*#_~]/g, "").replace(/\[.*?\]\(.*?\)/g, "").replace(/!\[.*?\]\(.*?\)/g, "");
     const utterance = new SpeechSynthesisUtterance(cleanText);
     const voices = synth.getVoices();
-    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || voices.find(v => v.name.includes("Siri")) || voices.find(v => v.lang === "en-US");
+    // Targeting Ava Premium or Siri for that sleek Mac sound
+    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
+                        voices.find(v => v.name.includes("Siri")) || 
+                        voices.find(v => v.lang === "en-US");
+    
     if (joleneVoice) utterance.voice = joleneVoice;
     utterance.pitch = 1.2; 
     utterance.rate = 1.1;  
@@ -163,8 +167,12 @@ async function sendMessage() {
         chatHistory.push({ role: "assistant", content: text });
         speak(text);
         if (sidebar.classList.contains("open")) updateSidebarContent();
-    } catch (err) { addMessageToChat("assistant", "Error: " + err.message); } 
-    finally { isProcessing = false; typingIndicator?.classList.remove("visible"); }
+    } catch (err) { 
+        addMessageToChat("assistant", "Error: " + err.message); 
+    } finally { 
+        isProcessing = false; 
+        typingIndicator?.classList.remove("visible"); 
+    }
 }
 
 function addMessageToChat(role, content) {
@@ -180,7 +188,7 @@ function createMessageElement(role) {
     return div;
 }
 
-// --- UPDATED: MULTIMODAL MEMORY ACTIONS ---
+// --- UPDATED: ROBUST MEMORIZE ACTIONS ---
 memorizeBtn?.addEventListener("click", async () => {
     const file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
@@ -202,20 +210,25 @@ memorizeBtn?.addEventListener("click", async () => {
         if (res.ok) {
             const data = await res.json();
             
-            // If it was an image, Jolene should report back her visual analysis
+            // If it was an image, show the vision description
             const feedbackText = data.description 
-                ? `👁️ **Vision Analysis:** ${data.description}\n\nI've stored this visual memory in my Brain.`
-                : `I've successfully memorized **${file.name}**! I've indexed it into Vectorize for semantic search.`;
+                ? `👁️ **Vision Analysis Complete:** ${data.description}`
+                : `I've successfully memorized **${file.name}**.`;
 
             addMessageToChat("assistant", feedbackText);
             speak(feedbackText);
             
             fileInput.value = "";
             updateSidebarContent();
+        } else {
+            const errorData = await res.json();
+            throw new Error(errorData.error || "Server error");
         }
     } catch (e) { 
-        alert("Memorize failed"); 
+        console.error("Memorize Error:", e);
+        addMessageToChat("assistant", "Sorry, my visual cortex glitched. Please try again!");
     } finally { 
+        // Ensures the "thinking bubbles" always go away
         memorizeBtn.innerText = "Memorize File"; 
         memorizeBtn.disabled = false;
         typingIndicator?.classList.remove("visible");
