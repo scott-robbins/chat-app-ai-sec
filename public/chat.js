@@ -20,7 +20,7 @@ let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
-let voiceEnabled = false; // Default to OFF
+let voiceEnabled = false; 
 
 // --- THE VOICE ENGINE ---
 const synth = window.speechSynthesis;
@@ -33,15 +33,41 @@ function speak(text) {
     const voices = synth.getVoices();
     const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || voices.find(v => v.name.includes("Siri")) || voices.find(v => v.lang === "en-US");
     if (joleneVoice) utterance.voice = joleneVoice;
-    utterance.pitch = 1.2; // Doxie Pitch
-    utterance.rate = 1.1;  // Doxie Speed
+    utterance.pitch = 1.2; 
+    utterance.rate = 1.1;  
     synth.speak(utterance);
 }
 
+// --- UI: VOICE TOGGLE ---
 voiceToggleBtn?.addEventListener("click", () => {
     voiceEnabled = !voiceEnabled;
     if (voiceIcon) voiceIcon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
     if (!voiceEnabled) synth.cancel();
+});
+
+// --- UI: THEME TOGGLE (Fixed) ---
+themeToggleBtn?.addEventListener("click", async () => {
+    const isFancy = document.body.classList.toggle("theme-fancy");
+    const currentTheme = isFancy ? "fancy" : "plain";
+    localStorage.setItem("chatTheme", currentTheme);
+    
+    try {
+        await fetch("/api/save-theme", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ theme: currentTheme })
+        });
+    } catch (e) { console.error("KV Sync Failed", e); }
+});
+
+// --- UI: MODEL SELECTOR NOTIFICATION (Fixed) ---
+modelSelector?.addEventListener("change", () => {
+    const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
+    const notification = document.createElement("div");
+    notification.style = "text-align: center; font-size: 0.75rem; margin: 15px 0; color: var(--text-light); opacity: 0.7;";
+    notification.innerHTML = `— Model switched to <strong>${selectedModelName}</strong> —`;
+    chatMessages.appendChild(notification);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 });
 
 // --- DASHBOARD UPDATER ---
@@ -55,12 +81,10 @@ async function updateSidebarContent() {
                 <p class="dash-label">Global Identity (KV)</p>
                 <p class="dash-value">${data.profile}</p>
             </div>
-
             <div class="dash-card" style="border-left: 3px solid #60a5fa;">
                 <p class="dash-label">Currently Thinking About</p>
                 <p class="dash-value" style="font-style: italic; color: #cbd5e1; font-size: 0.8rem;">"${data.thinkingAbout}"</p>
             </div>
-
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="dash-card">
                     <p class="dash-label">SQL Logs</p>
@@ -71,25 +95,11 @@ async function updateSidebarContent() {
                     <p class="dash-value"><i class="ph ph-circle-wavy-check" style="color: #22c55e;"></i> Live</p>
                 </div>
             </div>
-
             <div class="dash-card">
-                <p class="dash-label">Top Interests (D1 Analytics)</p>
-                <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
-                    ${data.keywords}
-                </p>
-            </div>
-
-            <div class="dash-card" style="border-left: 3px solid #a855f7;">
-                <p class="dash-label">Brain (Vectorize)</p>
-                <p class="dash-value" style="font-size: 0.7rem; opacity: 0.8;">Indexing Active | RAG Enabled</p>
+                <p class="dash-label">Top Interests</p>
+                <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; text-transform: uppercase;">${data.keywords}</p>
             </div>
         `;
-
-        const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
-        const filesData = await filesRes.json();
-        fileListDisplay.innerHTML = filesData.files.length > 0 
-            ? filesData.files.map(f => `<li><i class="ph ph-file-text"></i> ${f.key.split('/').pop()}</li>`).join('') 
-            : "<li>No files memorized.</li>";
     } catch (e) { console.error(e); }
 }
 
@@ -127,7 +137,7 @@ async function sendMessage() {
                     try {
                         const json = JSON.parse(dataString);
                         if (json.themeUpdate) {
-                            document.body.className = json.themeUpdate === "fancy" ? "theme-fancy" : "";
+                            document.body.classList.toggle("theme-fancy", json.themeUpdate === "fancy");
                         }
                         text += json.response || "";
                         contentEl.innerHTML = marked.parse(text);
@@ -143,7 +153,6 @@ async function sendMessage() {
     finally { isProcessing = false; typingIndicator?.classList.remove("visible"); }
 }
 
-// Initialization & Listeners
 function addMessageToChat(role, content) {
     const el = createMessageElement(role);
     el.querySelector(".message-content").innerHTML = marked.parse(content);
@@ -156,6 +165,7 @@ function createMessageElement(role) {
     div.innerHTML = `<div class="message-content"></div>`;
     return div;
 }
+
 sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 toggleSidebarBtn?.addEventListener("click", () => { sidebar.classList.add("open"); updateSidebarContent(); });
@@ -168,7 +178,7 @@ async function init() {
     const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
     if (res.ok) {
         const data = await res.json();
-        document.body.className = data.theme === "fancy" ? "theme-fancy" : "";
+        document.body.classList.toggle("theme-fancy", data.theme === "fancy");
         if (data.messages.length > 0) {
             chatHistory = data.messages;
             chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
