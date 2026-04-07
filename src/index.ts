@@ -30,7 +30,6 @@ export class ChatSession extends DurableObject<Env> {
 		// --- GLOBAL BRAIN: FETCH KV PROFILE (GLOBAL) + D1 STATS ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
-			
 			const stats = await this.env.jolene_db.prepare(
 				"SELECT COUNT(*) as count FROM messages WHERE session_id = ?"
 			).bind(sessionId).first();
@@ -52,19 +51,6 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- API: CLEAR ALL KNOWLEDGE ---
-		if (url.pathname === "/api/clear-memory" && request.method === "POST") {
-			try {
-				const list = await this.env.DOCUMENTS.list();
-				for (const obj of list.objects) {
-					await this.env.DOCUMENTS.delete(obj.key);
-				}
-				return new Response("Memory Cleared", { status: 200 });
-			} catch (e: any) {
-				return new Response(e.message, { status: 500 });
-			}
-		}
-
 		// --- API: MEMORIZE FILE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
@@ -77,11 +63,9 @@ export class ChatSession extends DurableObject<Env> {
 
 				for (const chunk of chunks) {
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-					const vector = embeddingResponse.data[0];
-
 					await this.env.VECTORIZE.insert([{
 						id: crypto.randomUUID(),
-						values: vector,
+						values: embeddingResponse.data[0],
 						metadata: { text: chunk, fileName: file.name, sessionId }
 					}]);
 				}
@@ -103,25 +87,14 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// --- UPDATED GLOBAL BRAIN: APPEND LOGIC ---
+				// 1. SAVE TO PROFILE LOGIC
 				if (latestUserMessage.toLowerCase().startsWith("save to my profile:")) {
 					const newData = latestUserMessage.replace(/save to my profile:/i, "").trim();
-					
-					// 1. Fetch existing profile
 					const existingProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
-					
-					// 2. Append new info to old info
-					const updatedProfile = existingProfile 
-						? `${existingProfile} | ${newData}` 
-						: newData;
-					
-					// 3. Save the full combined string back to KV
+					const updatedProfile = existingProfile ? `${existingProfile} | ${newData}` : newData;
 					await this.env.SETTINGS.put(`global_user_profile`, updatedProfile);
 					
-					const successMsg = `Got it! I've added that to your profile. I now know: ${updatedProfile}`;
-					
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "user", latestUserMessage).run();
+					const successMsg = `Got it! I now know: ${updatedProfile}`;
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "assistant", successMsg).run();
 
@@ -130,11 +103,30 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// Log standard user message to D1
+				// 2. IMAGE GENERATION LOGIC
+				if (latestUserMessage.toLowerCase().includes("generate an image") || latestUserMessage.toLowerCase().includes("draw a")) {
+					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMessage });
+					const imageKey = `generated/${crypto.randomUUID()}.png`;
+					
+					await this.env.DOCUMENTS.put(imageKey, imageResponse, {
+						httpMetadata: { contentType: "image/png" }
+					});
+
+					const imageUrl = `${PUBLIC_R2_URL}/${imageKey}`;
+					const assistantResponse = `I've generated that image for you:\n\n![Generated Image](${imageUrl})`;
+
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "assistant", assistantResponse).run();
+
+					return new Response(`data: ${JSON.stringify({ response: assistantResponse })}\n\ndata: [DONE]\n\n`, {
+						headers: { "Content-Type": "text/event-stream" }
+					});
+				}
+
+				// 3. STANDARD TEXT/RAG LOGIC
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// RAG: Search Vectorize
 				let contextText = "";
 				try {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
@@ -144,22 +136,23 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				} catch (e) { console.error("RAG Error:", e); }
 
-				// GLOBAL BRAIN: Fetch persistent profile data
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 
-				// SYSTEM PROMPT
-				let sysPrompt = "You are Jolene, a helpful and witty AI personal assistant.";
-				if (globalProfile) sysPrompt += `\n\nUser Profile Facts (Stay consistent with these): ${globalProfile}`;
-				if (contextText) sysPrompt += `\n\nContext from Memorized Files:\n${contextText}`;
+				// UPDATED SYSTEM PROMPT: Tell Jolene she can paint!
+				let sysPrompt = "You are Jolene, a helpful, witty, and highly capable AI personal assistant. " + 
+								"You have the ability to brainstorm, analyze files, and generate photorealistic images. " +
+								"If the user asks for a drawing or image, acknowledge that you can create it.";
+				
+				if (globalProfile) sysPrompt += `\n\nUser Profile: ${globalProfile}`;
+				if (contextText) sysPrompt += `\n\nFile Context:\n${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-				const finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure.";
+				const finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure how to respond to that.";
 
-				// Log assistant response to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
