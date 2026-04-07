@@ -62,8 +62,6 @@ export class ChatSession extends DurableObject<Env> {
 				const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
 
 				for (const chunk of chunks) {
-					// Embedding calls can also go through gateway if desired, 
-					// but usually kept direct for speed.
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					await this.env.VECTORIZE.insert([{
 						id: crypto.randomUUID(),
@@ -88,9 +86,10 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
+				const lowMsg = latestUserMessage.toLowerCase();
 
 				// 1. SAVE TO PROFILE LOGIC
-				if (latestUserMessage.toLowerCase().startsWith("save to my profile:")) {
+				if (lowMsg.startsWith("save to my profile:")) {
 					const newData = latestUserMessage.replace(/save to my profile:/i, "").trim();
 					const existingProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 					const updatedProfile = existingProfile ? `${existingProfile} | ${newData}` : newData;
@@ -105,30 +104,45 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// 2. IMAGE GENERATION LOGIC (WITH GATEWAY)
-				if (latestUserMessage.toLowerCase().includes("generate an image") || latestUserMessage.toLowerCase().includes("draw a")) {
-					const imageResponse = await this.env.AI.run(IMAGE_MODEL, 
-						{ prompt: latestUserMessage },
-						{ gateway: { id: "ai-sec-gateway" } } // UPDATED GATEWAY ID
-					);
-					const imageKey = `generated/${crypto.randomUUID()}.png`;
-					
-					await this.env.DOCUMENTS.put(imageKey, imageResponse, {
-						httpMetadata: { contentType: "image/png" }
-					});
+				// 2. CONVERSATIONAL IMAGE GENERATION LOGIC
+				const isAffirmative = ["sure", "yes", "go for it", "do it", "ok"].includes(lowMsg.replace(/[.!?]/g, ""));
+				const hasImageKeywords = lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("image") || lowMsg.includes("picture");
 
-					const imageUrl = `${PUBLIC_R2_URL}/${imageKey}`;
-					const assistantResponse = `I've generated that image for you:\n\n![Generated Image](${imageUrl})`;
+				if (hasImageKeywords || isAffirmative) {
+					let imagePrompt = latestUserMessage;
 
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", assistantResponse).run();
+					// If user just said "Sure/Yes", grab the context from the last things Jolene said
+					if (isAffirmative && !hasImageKeywords) {
+						const lastAssistantMsg = messages.findLast((m: any) => m.role === 'assistant')?.content || "";
+						// Extract the subject if Jolene offered it (e.g., "Would you like me to draw Conor McGregor?")
+						imagePrompt = `Photorealistic image of the subject mentioned: ${lastAssistantMsg}`;
+					}
 
-					return new Response(`data: ${JSON.stringify({ response: assistantResponse })}\n\ndata: [DONE]\n\n`, {
-						headers: { "Content-Type": "text/event-stream" }
-					});
+					// Only trigger if we actually have a prompt worth drawing
+					if (hasImageKeywords || isAffirmative) {
+						const imageResponse = await this.env.AI.run(IMAGE_MODEL, 
+							{ prompt: imagePrompt },
+							{ gateway: { id: "ai-sec-gateway" } }
+						);
+						
+						const imageKey = `generated/${crypto.randomUUID()}.png`;
+						await this.env.DOCUMENTS.put(imageKey, imageResponse, {
+							httpMetadata: { contentType: "image/png" }
+						});
+
+						const imageUrl = `${PUBLIC_R2_URL}/${imageKey}`;
+						const assistantResponse = `Here's that image for you:\n\n![Generated Image](${imageUrl})`;
+
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", assistantResponse).run();
+
+						return new Response(`data: ${JSON.stringify({ response: assistantResponse })}\n\ndata: [DONE]\n\n`, {
+							headers: { "Content-Type": "text/event-stream" }
+						});
+					}
 				}
 
-				// 3. STANDARD TEXT/RAG LOGIC (WITH GATEWAY)
+				// 3. STANDARD TEXT/RAG LOGIC
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
@@ -144,7 +158,8 @@ export class ChatSession extends DurableObject<Env> {
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 
 				let sysPrompt = "You are Jolene, a helpful, witty, and highly capable AI personal assistant. " + 
-								"You have the ability to brainstorm, analyze files, and generate photorealistic images.";
+								"You can brainstorm, analyze files, and generate photorealistic images. " +
+								"If you offer to draw something and the user agrees, proceed to generate the image.";
 				
 				if (globalProfile) sysPrompt += `\n\nUser Profile: ${globalProfile}`;
 				if (contextText) sysPrompt += `\n\nFile Context:\n${contextText}`;
@@ -153,13 +168,12 @@ export class ChatSession extends DurableObject<Env> {
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				// UPDATED CHAT RUN WITH GATEWAY ID
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, 
 					{ messages },
-					{ gateway: { id: "ai-sec-gateway" } } // UPDATED GATEWAY ID
+					{ gateway: { id: "ai-sec-gateway" } }
 				);
 				
-				const finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure how to respond to that.";
+				const finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure how to respond.";
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
