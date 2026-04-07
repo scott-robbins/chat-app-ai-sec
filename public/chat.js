@@ -3,368 +3,176 @@ const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
+const voiceToggleBtn = document.getElementById("voice-toggle-btn");
+const voiceIcon = document.getElementById("voice-icon");
 const newChatBtn = document.getElementById("new-chat-btn");
 const clearScreenBtn = document.getElementById("clear-screen-btn");
 const modelSelector = document.getElementById("model-selector");
-
-// File Upload Elements
-const fileInput = document.getElementById("file-input");
-const memorizeBtn = document.getElementById("memorize-file-btn");
-
-// Sidebar Elements
 const sidebar = document.getElementById("memory-sidebar");
 const toggleSidebarBtn = document.getElementById("toggle-sidebar-btn");
 const closeSidebarBtn = document.getElementById("close-sidebar-btn");
-const clearVectorBtn = document.getElementById("clear-vector-btn");
 const kvDisplay = document.getElementById("kv-profile-display");
 const fileListDisplay = document.getElementById("file-list-display");
-
-// Voice Elements
-const voiceToggleBtn = document.getElementById("voice-toggle-btn");
-const voiceIcon = document.getElementById("voice-icon");
+const memorizeBtn = document.getElementById("memorize-file-btn");
+const fileInput = document.getElementById("file-input");
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
-
-// Default Voice to OFF per your request
-let voiceEnabled = false;
+let voiceEnabled = false; // Default to OFF
 
 // --- THE VOICE ENGINE ---
 const synth = window.speechSynthesis;
 
 function speak(text) {
     if (!voiceEnabled || !text || !synth) return;
-    
-    // Stop any current speaking to prevent overlap
     synth.cancel();
-
-    // Clean up Markdown and special characters before speaking
-    const cleanText = text
-        .replace(/[*#_~]/g, "") // Remove Markdown formatting
-        .replace(/\[.*?\]\(.*?\)/g, "") // Remove Markdown links
-        .replace(/!\[.*?\]\(.*?\)/g, ""); // Remove image tags
-
+    const cleanText = text.replace(/[*#_~]/g, "").replace(/\[.*?\]\(.*?\)/g, "").replace(/!\[.*?\]\(.*?\)/g, "");
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    
-    // Targeted for your Mac's new Ava Premium voice
     const voices = synth.getVoices();
-    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
-                        voices.find(v => v.name.includes("Ava")) ||
-                        voices.find(v => v.name.includes("Siri")) ||
-                        voices.find(v => v.lang === "en-US");
-    
+    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || voices.find(v => v.name.includes("Siri")) || voices.find(v => v.lang === "en-US");
     if (joleneVoice) utterance.voice = joleneVoice;
-    
-    // Personality Tweaks: Zippy Doxie energy
-    utterance.pitch = 1.2; 
-    utterance.rate = 1.1;
-    
+    utterance.pitch = 1.2; // Doxie Pitch
+    utterance.rate = 1.1;  // Doxie Speed
     synth.speak(utterance);
 }
 
-// Ensure the icon matches the default "OFF" state on load
-if (voiceIcon) {
-    voiceIcon.className = "ph ph-speaker-slash";
-}
-
-// Initial Theme Logic (Local check before server sync)
-if (localStorage.getItem("chatTheme") === "fancy") {
-    document.body.classList.add("theme-fancy");
-}
-
-// --- VOICE TOGGLE LOGIC ---
 voiceToggleBtn?.addEventListener("click", () => {
     voiceEnabled = !voiceEnabled;
-    if (voiceIcon) {
-        voiceIcon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
-    }
+    if (voiceIcon) voiceIcon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
     if (!voiceEnabled) synth.cancel();
 });
 
-// --- THEME TOGGLE WITH KV PERSISTENCE ---
-themeToggleBtn?.addEventListener("click", async () => {
-    document.body.classList.toggle("theme-fancy");
-    const currentTheme = document.body.classList.contains("theme-fancy") ? "fancy" : "plain";
-    
-    localStorage.setItem("chatTheme", currentTheme);
-    
-    try {
-        await fetch("/api/save-theme", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ theme: currentTheme })
-        });
-    } catch (e) {
-        console.error("Failed to save theme to KV", e);
-    }
-});
-
-// Initialization - Load history and sync KV preferences
-async function init() {
-    try {
-        const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-        chatMessages.innerHTML = ''; 
-        
-        if (res.ok) {
-            const data = await res.json();
-            const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
-            
-            if (activeTheme === "fancy") {
-                document.body.classList.add("theme-fancy");
-            } else {
-                document.body.classList.remove("theme-fancy");
-            }
-            localStorage.setItem("chatTheme", activeTheme);
-
-            if (data.messages && data.messages.length > 0) {
-                chatHistory = data.messages;
-                chatHistory.forEach(msg => { 
-                    if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
-                });
-            } else {
-                addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or even generate some art. What's on your mind today?");
-            }
-        }
-    } catch (e) {
-        console.error("History failed to load:", e);
-        addMessageToChat('assistant', "Hi! I'm Jolene. Ready to start a new session.");
-    }
-}
-
-// Load voices into memory for modern browsers
-window.speechSynthesis.onvoiceschanged = () => {
-    synth.getVoices();
-};
-init();
-
-function renderContent(element, content) {
-    element.innerHTML = marked.parse(content);
-}
-
-// --- SIDEBAR MANAGEMENT ---
+// --- DASHBOARD UPDATER ---
 async function updateSidebarContent() {
     try {
-        const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
-        const profileData = await profileRes.json();
+        const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
+        const data = await res.json();
         
         kvDisplay.innerHTML = `
-            <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px;">
-                <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Global Identity (KV)</p>
-                <p style="font-size: 0.9rem; font-weight: 500; line-height: 1.3;">${profileData.profile}</p>
+            <div class="dash-card">
+                <p class="dash-label">Global Identity (KV)</p>
+                <p class="dash-value">${data.profile}</p>
             </div>
-            
+
+            <div class="dash-card" style="border-left: 3px solid #60a5fa;">
+                <p class="dash-label">Currently Thinking About</p>
+                <p class="dash-value" style="font-style: italic; color: #cbd5e1; font-size: 0.8rem;">"${data.thinkingAbout}"</p>
+            </div>
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px;">
-                    <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">SQL Logs (D1)</p>
-                    <p style="font-size: 1.2rem; color: #60a5fa; font-weight: 500;">${profileData.messageCount}</p>
+                <div class="dash-card">
+                    <p class="dash-label">SQL Logs</p>
+                    <p class="dash-value" style="font-size: 1.2rem; color: #60a5fa;">${data.messageCount}</p>
                 </div>
-                <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px;">
-                    <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Status</p>
-                    <p style="font-size: 0.9rem; font-weight: 500;"><i class="ph ph-circle-wavy-check" style="color: #22c55e;"></i> Live</p>
+                <div class="dash-card">
+                    <p class="dash-label">Status</p>
+                    <p class="dash-value"><i class="ph ph-circle-wavy-check" style="color: #22c55e;"></i> Live</p>
                 </div>
             </div>
 
-            <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #a855f7;">
-                <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Brain (Vectorize)</p>
-                <p style="font-size: 0.75rem; opacity: 0.8; font-weight: 500;">
-                    Semantic Indexing: Active<br>
-                    RAG Retrieval: Enabled
+            <div class="dash-card">
+                <p class="dash-label">Top Interests (D1 Analytics)</p>
+                <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
+                    ${data.keywords}
                 </p>
+            </div>
+
+            <div class="dash-card" style="border-left: 3px solid #a855f7;">
+                <p class="dash-label">Brain (Vectorize)</p>
+                <p class="dash-value" style="font-size: 0.7rem; opacity: 0.8;">Indexing Active | RAG Enabled</p>
             </div>
         `;
 
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
-        
-        fileListDisplay.innerHTML = ""; 
-
-        if (filesData.files && filesData.files.length > 0) {
-            filesData.files.forEach(file => {
-                const li = document.createElement("li");
-                const fullKey = typeof file === 'string' ? file : file.key;
-                const fileName = fullKey.split('/').pop();
-                const isUpload = fullKey.includes('uploads/');
-                const isGenerated = fullKey.includes('generated/');
-
-                li.innerHTML = `
-                    <i class="ph ${isGenerated ? 'ph-image' : 'ph-file-text'}" 
-                       style="color: ${isUpload ? 'var(--primary-color)' : 'var(--text-light)'}"></i>
-                    <span title="${fullKey}">${fileName}</span>
-                `;
-                fileListDisplay.appendChild(li);
-            });
-        } else {
-            fileListDisplay.innerHTML = "<li>No files memorized yet.</li>";
-        }
-    } catch (e) {
-        console.error("Sidebar update failed:", e);
-    }
+        fileListDisplay.innerHTML = filesData.files.length > 0 
+            ? filesData.files.map(f => `<li><i class="ph ph-file-text"></i> ${f.key.split('/').pop()}</li>`).join('') 
+            : "<li>No files memorized.</li>";
+    } catch (e) { console.error(e); }
 }
 
-toggleSidebarBtn?.addEventListener("click", () => {
-    sidebar.classList.add("open");
-    updateSidebarContent();
-});
-
-closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
-
-clearVectorBtn?.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to wipe Jolene's memory?")) return;
-    clearVectorBtn.innerText = "Wiping...";
-    try {
-        const res = await fetch("/api/clear-memory", { 
-            method: "POST", 
-            headers: { 'x-session-id': sessionId } 
-        });
-        if (res.ok) {
-            alert("Memory cleared!");
-            updateSidebarContent();
-        }
-    } catch (e) {
-        alert("Failed to clear memory.");
-    } finally {
-        clearVectorBtn.innerHTML = `<i class="ph ph-warning"></i> Wipe All Knowledge`;
-    }
-});
-
-memorizeBtn?.addEventListener("click", async () => {
-    const file = fileInput.files[0];
-    if (!file) return alert("Please choose a file first!");
-
-    memorizeBtn.disabled = true;
-    memorizeBtn.innerText = "Memorizing...";
-    typingIndicator?.classList.add("visible");
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-        const res = await fetch("/api/memorize", {
-            method: "POST",
-            headers: { "x-session-id": sessionId },
-            body: formData
-        });
-
-        if (res.ok) {
-            const successMsg = `I've successfully memorized **${file.name}**! I've indexed it into Vectorize for semantic search.`;
-            addMessageToChat("assistant", successMsg);
-            speak(successMsg);
-            fileInput.value = ""; 
-            if (sidebar.classList.contains("open")) updateSidebarContent();
-        }
-    } catch (e) {
-        addMessageToChat("assistant", "Network error.");
-    } finally {
-        memorizeBtn.disabled = false;
-        memorizeBtn.innerText = "Memorize File";
-        typingIndicator?.classList.remove("visible");
-    }
-});
-
+// --- CORE CHAT LOGIC ---
 async function sendMessage() {
     const message = userInput.value.trim();
     if (!message || isProcessing) return;
-
     isProcessing = true;
     addMessageToChat("user", message);
     userInput.value = "";
     typingIndicator?.classList.add("visible");
-
     chatHistory.push({ role: "user", content: message });
 
     try {
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-            body: JSON.stringify({ 
-                messages: chatHistory, 
-                model: modelSelector?.value || "@cf/meta/llama-3.2-11b-vision-instruct" 
-            }),
+            body: JSON.stringify({ messages: chatHistory, model: modelSelector?.value })
         });
-
         typingIndicator?.classList.remove("visible");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const msgEl = createMessageElement("assistant");
         chatMessages.appendChild(msgEl);
         const contentEl = msgEl.querySelector(".message-content");
-        
         let text = "";
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value);
-            const lines = chunk.split("\n");
-            for (const line of lines) {
+            const chunk = decoder.decode(value).split("\n");
+            for (const line of chunk) {
                 if (line.startsWith("data: ")) {
                     const dataString = line.slice(6).trim();
                     if (dataString === "[DONE]") break;
                     try {
                         const json = JSON.parse(dataString);
-                        
                         if (json.themeUpdate) {
-                            if (json.themeUpdate === "fancy") document.body.classList.add("theme-fancy");
-                            else document.body.classList.remove("theme-fancy");
-                            localStorage.setItem("chatTheme", json.themeUpdate);
+                            document.body.className = json.themeUpdate === "fancy" ? "theme-fancy" : "";
                         }
-
                         text += json.response || "";
-                        renderContent(contentEl, text);
+                        contentEl.innerHTML = marked.parse(text);
                     } catch (e) {}
                 }
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-        
         chatHistory.push({ role: "assistant", content: text });
-        if (sidebar.classList.contains("open")) updateSidebarContent();
-        
         speak(text);
-        
-    } catch (err) {
-        addMessageToChat("assistant", "Error: " + err.message);
-    } finally {
-        isProcessing = false;
-        typingIndicator?.classList.remove("visible");
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
+        if (sidebar.classList.contains("open")) updateSidebarContent();
+    } catch (err) { addMessageToChat("assistant", "Error: " + err.message); } 
+    finally { isProcessing = false; typingIndicator?.classList.remove("visible"); }
 }
 
+// Initialization & Listeners
+function addMessageToChat(role, content) {
+    const el = createMessageElement(role);
+    el.querySelector(".message-content").innerHTML = marked.parse(content);
+    chatMessages.appendChild(el);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
 function createMessageElement(role) {
     const div = document.createElement("div");
     div.className = `message ${role}-message`;
     div.innerHTML = `<div class="message-content"></div>`;
     return div;
 }
-
-function addMessageToChat(role, content) {
-    const el = createMessageElement(role);
-    renderContent(el.querySelector(".message-content"), content);
-    chatMessages.appendChild(el);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
 sendButton?.addEventListener("click", sendMessage);
-userInput?.addEventListener("keydown", (e) => { 
-    if (e.key === "Enter" && !e.shiftKey) { 
-        e.preventDefault(); 
-        sendMessage(); 
-    } 
-});
+userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+toggleSidebarBtn?.addEventListener("click", () => { sidebar.classList.add("open"); updateSidebarContent(); });
+closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
+newChatBtn?.addEventListener("click", () => { localStorage.removeItem("chatSessionId"); location.reload(); });
+clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; addMessageToChat('assistant', "Screen cleared!"); });
 
-newChatBtn?.addEventListener("click", () => {
-    localStorage.removeItem("chatSessionId");
-    sessionId = crypto.randomUUID();
-    localStorage.setItem("chatSessionId", sessionId);
-    chatHistory = [];
-    isProcessing = false;
-    location.reload(); 
-});
-
-clearScreenBtn?.addEventListener("click", () => {
-    chatMessages.innerHTML = '';
-    isProcessing = false;
-    addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start.");
-});
+window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
+async function init() {
+    const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
+    if (res.ok) {
+        const data = await res.json();
+        document.body.className = data.theme === "fancy" ? "theme-fancy" : "";
+        if (data.messages.length > 0) {
+            chatHistory = data.messages;
+            chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
+        }
+    }
+}
+init();
