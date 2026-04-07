@@ -10,7 +10,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- UPGRADED: ADVANCED AI SEARCH ---
+	// --- ADVANCED TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -44,7 +44,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response("OK");
 		}
 
-		// --- DASHBOARD ANALYTICS & PROFILE ---
+		// --- DASHBOARD ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
@@ -83,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- OPTIMIZED: VISION BRAIN MEMORIZE ---
+		// --- FINAL STABLE VISION PIPELINE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -95,21 +95,22 @@ export class ChatSession extends DurableObject<Env> {
 				let textToIndex = "";
 
 				if (isImage) {
-					console.log(`[Vision] Processing: ${file.name} (${file.size} bytes)`);
+					console.log(`[Vision] Processing image: ${file.name}`);
+					const imageBuffer = await file.arrayBuffer();
 					
-					// 4MB Guard Rail for Worker Memory
-					if (file.size > 4 * 1024 * 1024) {
-						return new Response(JSON.stringify({ error: "Image too large. Keep it under 4MB." }), { status: 400 });
-					}
+					// Convert to Base64 String (The most stable format for Cloudflare AI Vision)
+					const base64Image = btoa(
+						new Uint8Array(imageBuffer)
+							.reduce((data, byte) => data + String.fromCharCode(byte), '')
+					);
 
-					const imageArrayBuffer = await file.arrayBuffer();
 					const visionResponse = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{
 								role: "user",
 								content: [
-									{ type: "text", text: "Describe this image in detail. Mention objects, visible text, and context for a searchable database." },
-									{ type: "image", image: [...new Uint8Array(imageArrayBuffer)] }
+									{ type: "text", text: "Describe this image in detail. Focus on people, text, objects, and colors for a memory database." },
+									{ type: "image", image: base64Image } 
 								]
 							}
 						]
@@ -135,8 +136,7 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 				
-				const storagePath = `${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`;
-				await this.env.DOCUMENTS.put(storagePath, await file.arrayBuffer());
+				await this.env.DOCUMENTS.put(`${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`, await file.arrayBuffer());
 				
 				return new Response(JSON.stringify({ 
 					message: "Memory stored!", 
@@ -144,7 +144,7 @@ export class ChatSession extends DurableObject<Env> {
 				}), { headers: { "Content-Type": "application/json" } });
 
 			} catch (err: any) {
-				console.error("Memorize Pipeline Error:", err);
+				console.error("Vision Error:", err);
 				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
 			}
 		}
