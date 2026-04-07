@@ -2,58 +2,64 @@ const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
-const themeToggleBtn = document.getElementById("theme-toggle-btn");
-const newChatBtn = document.getElementById("new-chat-btn");
-const clearScreenBtn = document.getElementById("clear-screen-btn");
 const modelSelector = document.getElementById("model-selector");
-
-// Help Modal Elements
-const helpModal = document.getElementById("helpModal");
-const helpBtn = document.getElementById("help-btn");
+const fileStatus = document.getElementById("file-status");
 
 // File Upload Elements
 const fileInput = document.getElementById("file-input");
-const memorizeBtn = document.getElementById("memorize-file-btn");
 
 // Sidebar Elements
 const sidebar = document.getElementById("memory-sidebar");
-const toggleSidebarBtn = document.getElementById("toggle-sidebar-btn");
 const closeSidebarBtn = document.getElementById("close-sidebar-btn");
 const clearVectorBtn = document.getElementById("clear-vector-btn");
 const kvDisplay = document.getElementById("kv-profile-display");
 const fileListDisplay = document.getElementById("file-list-display");
+
+// Modal Elements
+const helpModal = document.getElementById("helpModal");
 
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
-// --- HELP MODAL LOGIC ---
-function toggleHelp() {
-    if (!helpModal) return;
-    const isVisible = helpModal.style.display === "flex";
-    helpModal.style.display = isVisible ? "none" : "flex";
-}
-
-// Close modal if user clicks the dark overlay
-window.addEventListener("click", (event) => {
-    if (event.target === helpModal) {
-        toggleHelp();
-    }
-});
-
 // Initial Theme Logic
 if (localStorage.getItem("chatTheme") === "fancy") {
     document.body.classList.add("theme-fancy");
 }
 
-themeToggleBtn?.addEventListener("click", () => {
+// --- UI TOGGLES ---
+
+function toggleMenu() {
+    document.getElementById('app-menu').classList.toggle('show');
+}
+
+function toggleHelp() {
+    const isVisible = helpModal.style.display === "flex";
+    helpModal.style.display = isVisible ? "none" : "flex";
+}
+
+function toggleSidebar() {
+    sidebar.classList.toggle("open");
+    if (sidebar.classList.contains("open")) updateSidebarContent();
+}
+
+function toggleTheme() {
     document.body.classList.toggle("theme-fancy");
     const currentTheme = document.body.classList.contains("theme-fancy") ? "fancy" : "plain";
     localStorage.setItem("chatTheme", currentTheme);
+}
+
+// Close dropdowns/modals on outside click
+window.addEventListener("click", (event) => {
+    if (event.target === helpModal) toggleHelp();
+    if (!document.querySelector('.brand-container').contains(event.target)) {
+        document.getElementById('app-menu').classList.remove('show');
+    }
 });
 
-// Initialization - Load history and sync KV preferences
+// --- CORE LOGIC ---
+
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
@@ -61,105 +67,62 @@ async function init() {
         
         if (res.ok) {
             const data = await res.json();
-            const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
-            
-            if (activeTheme === "fancy") {
-                document.body.classList.add("theme-fancy");
-            } else {
-                document.body.classList.remove("theme-fancy");
-            }
-            localStorage.setItem("chatTheme", activeTheme);
-
             if (data.messages && data.messages.length > 0) {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => { 
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?");
+                addMessageToChat('assistant', "Hi there! I'm Jolene. How can I help you today?");
             }
         }
     } catch (e) {
         console.error("History failed to load:", e);
-        addMessageToChat('assistant', "Hi! I'm Jolene. Ready to start a new session.");
     }
 }
 init();
 
 function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
-    // Trigger syntax highlighting for code blocks
     element.querySelectorAll('pre code').forEach((block) => {
         hljs.highlightElement(block);
     });
 }
 
-// --- SIDEBAR MANAGEMENT ---
-
 async function updateSidebarContent() {
     try {
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
-        
-        kvDisplay.innerHTML = `
-            <p><strong>Profile:</strong> ${profileData.profile}</p>
+        kvDisplay.innerHTML = `<p><strong>Profile:</strong> ${profileData.profile}</p>
             <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.8;">
                 <i class="ph ph-chat-centered-text"></i> Total Messages: ${profileData.messageCount}
-            </p>
-        `;
+            </p>`;
 
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
-        
-        if (filesData.files && filesData.files.length > 0) {
-            fileListDisplay.innerHTML = filesData.files
-                .map(f => `<li><i class="ph ph-file-text"></i> ${f}</li>`)
-                .join("");
-        } else {
-            fileListDisplay.innerHTML = "<li>No files memorized yet.</li>";
-        }
-    } catch (e) {
-        console.error("Sidebar update failed:", e);
-        kvDisplay.innerText = "Error loading memory data.";
+        fileListDisplay.innerHTML = (filesData.files?.length > 0) 
+            ? filesData.files.map(f => `<li><i class="ph ph-file-text"></i> ${f}</li>`).join("")
+            : "<li>No files memorized yet.</li>";
+    } catch (e) { console.error("Sidebar update failed:", e); }
+}
+
+// --- FILE HANDLING ---
+
+function handleFileSelect() {
+    const file = fileInput.files[0];
+    if (file) {
+        fileStatus.innerText = `Selected: ${file.name} (Click to Memorize)`;
+        fileStatus.style.display = "block";
+        fileStatus.onclick = memorizeFile; // Click the text to trigger upload
+        fileStatus.style.cursor = "pointer";
     }
 }
 
-toggleSidebarBtn?.addEventListener("click", () => {
-    sidebar.classList.add("open");
-    updateSidebarContent();
-});
-
-closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
-
-clearVectorBtn?.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to wipe Jolene's file memory? This will delete all files in R2.")) return;
-    
-    clearVectorBtn.innerText = "Wiping...";
-    try {
-        const res = await fetch("/api/clear-memory", { 
-            method: "POST", 
-            headers: { 'x-session-id': sessionId } 
-        });
-        if (res.ok) {
-            alert("Memory cleared! Jolene has forgotten your uploaded files.");
-            updateSidebarContent();
-        }
-    } catch (e) {
-        alert("Failed to clear memory.");
-    } finally {
-        clearVectorBtn.innerHTML = `<i class="ph ph-warning"></i> Wipe All Knowledge`;
-    }
-});
-
-// --- MEMORIZE FILE LOGIC ---
-memorizeBtn?.addEventListener("click", async () => {
+async function memorizeFile() {
     const file = fileInput.files[0];
-    if (!file) return alert("Please choose a file first!");
+    if (!file) return;
 
-    memorizeBtn.disabled = true;
-    memorizeBtn.innerText = "Memorizing...";
-    typingIndicator?.classList.add("visible");
-
+    fileStatus.innerText = `Memorizing ${file.name}...`;
     const formData = new FormData();
     formData.append("file", file);
 
@@ -169,23 +132,16 @@ memorizeBtn?.addEventListener("click", async () => {
             headers: { "x-session-id": sessionId },
             body: formData
         });
-
         if (res.ok) {
-            addMessageToChat("assistant", `I've successfully memorized **${file.name}**! You can now ask me questions about its content.`);
-            fileInput.value = ""; 
-            if (sidebar.classList.contains("open")) updateSidebarContent();
-        } else {
-            const errorText = await res.text();
-            addMessageToChat("assistant", "Sorry, I had trouble memorizing that file: " + errorText);
+            addMessageToChat("assistant", `I've successfully memorized **${file.name}**!`);
+            fileInput.value = "";
+            fileStatus.style.display = "none";
+            updateSidebarContent();
         }
-    } catch (e) {
-        addMessageToChat("assistant", "Network error. I couldn't reach the server.");
-    } finally {
-        memorizeBtn.disabled = false;
-        memorizeBtn.innerText = "Memorize File";
-        typingIndicator?.classList.remove("visible");
-    }
-});
+    } catch (e) { fileStatus.innerText = "Error memorizing file."; }
+}
+
+// --- MESSAGING ---
 
 async function sendMessage() {
     const message = userInput.value.trim();
@@ -194,21 +150,15 @@ async function sendMessage() {
     isProcessing = true;
     addMessageToChat("user", message);
     userInput.value = "";
-    typingIndicator?.classList.add("visible");
-
     chatHistory.push({ role: "user", content: message });
 
     try {
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-            body: JSON.stringify({ 
-                messages: chatHistory, 
-                model: modelSelector?.value || "@cf/meta/llama-3.2-11b-vision-instruct" 
-            }),
+            body: JSON.stringify({ messages: chatHistory }),
         });
 
-        typingIndicator?.classList.remove("visible");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const msgEl = createMessageElement("assistant");
@@ -235,14 +185,10 @@ async function sendMessage() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         chatHistory.push({ role: "assistant", content: text });
-        
-        if (sidebar.classList.contains("open")) updateSidebarContent();
-        
     } catch (err) {
         addMessageToChat("assistant", "Error: " + err.message);
     } finally {
         isProcessing = false;
-        typingIndicator?.classList.remove("visible");
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 }
@@ -261,40 +207,24 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// --- Event Listeners ---
-sendButton?.addEventListener("click", sendMessage);
+// --- GLOBAL UTILITIES ---
 
+function clearScreen() {
+    chatMessages.innerHTML = '';
+    addMessageToChat('assistant', "Screen cleared.");
+}
+
+function newChat() {
+    localStorage.removeItem("chatSessionId");
+    location.reload(); 
+}
+
+// --- LISTENERS ---
+sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { 
     if (e.key === "Enter" && !e.shiftKey) { 
         e.preventDefault(); 
         sendMessage(); 
     } 
 });
-
-newChatBtn?.addEventListener("click", () => {
-    localStorage.removeItem("chatSessionId");
-    sessionId = crypto.randomUUID();
-    localStorage.setItem("chatSessionId", sessionId);
-    chatHistory = [];
-    isProcessing = false;
-    location.reload(); 
-});
-
-clearScreenBtn?.addEventListener("click", () => {
-    chatMessages.innerHTML = '';
-    isProcessing = false;
-    addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start.");
-});
-
-modelSelector?.addEventListener("change", () => {
-    const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
-    const notification = document.createElement("div");
-    notification.style.textAlign = "center";
-    notification.style.fontSize = "0.75rem";
-    notification.style.margin = "15px 0";
-    notification.style.color = "var(--text-color)";
-    notification.style.opacity = "0.6";
-    notification.innerHTML = `— Model switched to <strong>${selectedModelName}</strong> —`;
-    chatMessages.appendChild(notification);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-});
+closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
