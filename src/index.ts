@@ -10,6 +10,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
+	// --- UPGRADED: ADVANCED AI SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -18,11 +19,16 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({
 					api_key: this.env.TAVILY_API_KEY,
 					query: query,
-					search_depth: "basic",
-					max_results: 3
+					search_depth: "advanced", // Deep research mode
+					include_answer: true,      // Get an AI-summarized answer from Tavily
+					max_results: 5
 				})
 			});
 			const data = await response.json() as any;
+			
+			// Priority: Use Tavily's pre-summarized 'answer' field first for accuracy
+			if (data.answer) return `VERIFIED FACTUAL SUMMARY: ${data.answer}`;
+			
 			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
@@ -122,7 +128,20 @@ export class ChatSession extends DurableObject<Env> {
 				contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
-				let sysPrompt = `You are Jolene. Profile: ${globalProfile}\nContext: ${contextText}\nSearch: ${searchResults}`;
+				
+				// --- UPGRADED SYSTEM PROMPT FOR ACCURACY ---
+				let sysPrompt = `You are Jolene, a sharp and helpful AI agent.
+IDENTITY: ${globalProfile}
+CONTEXT: ${contextText}
+LIVE SEARCH: ${searchResults}
+
+STRICT ACCURACY RULES:
+1. Use the SEARCH results to answer real-time questions.
+2. If the search results do not contain the specific answer, say "I couldn't verify that currently" - NEVER GUESS OR HALLUCINATE.
+3. Cite your sources with URLs if they are provided in the search content.
+4. If the user's profile is relevant, tailor the tone, but do not prioritize profile assumptions over search facts.
+5. Your personality: You are a miniature smooth-haired dachshund—sleek, intelligent, and a bit feisty.`;
+
 				messages.unshift({ role: "system", content: sysPrompt });
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
