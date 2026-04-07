@@ -19,25 +19,66 @@ const clearVectorBtn = document.getElementById("clear-vector-btn");
 const kvDisplay = document.getElementById("kv-profile-display");
 const fileListDisplay = document.getElementById("file-list-display");
 
+// Voice Elements
+const voiceToggleBtn = document.getElementById("voice-toggle-btn");
+const voiceIcon = document.getElementById("voice-icon");
+
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
+let voiceEnabled = true;
+
+// --- THE VOICE ENGINE ---
+const synth = window.speechSynthesis;
+
+function speak(text) {
+    if (!voiceEnabled || !text || !synth) return;
+    
+    // Stop any current speaking to prevent overlap
+    synth.cancel();
+
+    // Clean up Markdown and special characters before speaking
+    const cleanText = text
+        .replace(/[*#_~]/g, "") // Remove Markdown formatting
+        .replace(/\[.*?\]\(.*?\)/g, "") // Remove Markdown links
+        .replace(/!\[.*?\]\(.*?\)/g, ""); // Remove image tags
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    
+    // Attempt to find a high-quality female voice
+    const voices = synth.getVoices();
+    const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female") || v.lang === "en-US");
+    
+    if (preferredVoice) utterance.voice = preferredVoice;
+    
+    utterance.pitch = 1.1; // Giving Jolene a slightly witty/energetic pitch
+    utterance.rate = 1.0;
+    
+    synth.speak(utterance);
+}
 
 // Initial Theme Logic (Local check before server sync)
 if (localStorage.getItem("chatTheme") === "fancy") {
     document.body.classList.add("theme-fancy");
 }
 
+// --- VOICE TOGGLE LOGIC ---
+voiceToggleBtn?.addEventListener("click", () => {
+    voiceEnabled = !voiceEnabled;
+    if (voiceIcon) {
+        voiceIcon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
+    }
+    if (!voiceEnabled) synth.cancel();
+});
+
 // --- THEME TOGGLE WITH KV PERSISTENCE ---
 themeToggleBtn?.addEventListener("click", async () => {
     document.body.classList.toggle("theme-fancy");
     const currentTheme = document.body.classList.contains("theme-fancy") ? "fancy" : "plain";
     
-    // Save locally for instant feel
     localStorage.setItem("chatTheme", currentTheme);
     
-    // Persist to Cloudflare KV for the demo (Global Preference)
     try {
         await fetch("/api/save-theme", {
             method: "POST",
@@ -57,8 +98,6 @@ async function init() {
         
         if (res.ok) {
             const data = await res.json();
-            
-            // Sync theme from KV (Global Preference)
             const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
             
             if (activeTheme === "fancy") {
@@ -82,20 +121,20 @@ async function init() {
         addMessageToChat('assistant', "Hi! I'm Jolene. Ready to start a new session.");
     }
 }
+// Load voices into memory for better utterance performance
+synth.getVoices();
 init();
 
 function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
 }
 
-// --- SIDEBAR MANAGEMENT (D1, KV, & Vectorize Labeling) ---
-
+// --- SIDEBAR MANAGEMENT ---
 async function updateSidebarContent() {
     try {
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
         
-        // Show off the full Cloudflare Storage Trifecta
         kvDisplay.innerHTML = `
             <div style="margin-bottom: 15px;">
                 <p><strong style="color: var(--primary-color);">Profile (Cloudflare KV):</strong></p>
@@ -145,7 +184,6 @@ async function updateSidebarContent() {
         }
     } catch (e) {
         console.error("Sidebar update failed:", e);
-        kvDisplay.innerText = "Error loading memory data.";
     }
 }
 
@@ -157,8 +195,7 @@ toggleSidebarBtn?.addEventListener("click", () => {
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
 
 clearVectorBtn?.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to wipe Jolene's memory? This clears R2 files and Vectorize indices.")) return;
-    
+    if (!confirm("Are you sure you want to wipe Jolene's memory?")) return;
     clearVectorBtn.innerText = "Wiping...";
     try {
         const res = await fetch("/api/clear-memory", { 
@@ -166,7 +203,7 @@ clearVectorBtn?.addEventListener("click", async () => {
             headers: { 'x-session-id': sessionId } 
         });
         if (res.ok) {
-            alert("Memory cleared! Jolene is back to a clean slate.");
+            alert("Memory cleared!");
             updateSidebarContent();
         }
     } catch (e) {
@@ -176,7 +213,6 @@ clearVectorBtn?.addEventListener("click", async () => {
     }
 });
 
-// --- MEMORIZE FILE LOGIC ---
 memorizeBtn?.addEventListener("click", async () => {
     const file = fileInput.files[0];
     if (!file) return alert("Please choose a file first!");
@@ -196,15 +232,14 @@ memorizeBtn?.addEventListener("click", async () => {
         });
 
         if (res.ok) {
-            addMessageToChat("assistant", `I've successfully memorized **${file.name}**! I've indexed it into Vectorize for semantic search.`);
+            const successMsg = `I've successfully memorized **${file.name}**! I've indexed it into Vectorize for semantic search.`;
+            addMessageToChat("assistant", successMsg);
+            speak(successMsg);
             fileInput.value = ""; 
             if (sidebar.classList.contains("open")) updateSidebarContent();
-        } else {
-            const errorText = await res.text();
-            addMessageToChat("assistant", "Sorry, I had trouble memorizing that file: " + errorText);
         }
     } catch (e) {
-        addMessageToChat("assistant", "Network error. I couldn't reach the server.");
+        addMessageToChat("assistant", "Network error.");
     } finally {
         memorizeBtn.disabled = false;
         memorizeBtn.innerText = "Memorize File";
@@ -253,7 +288,6 @@ async function sendMessage() {
                     try {
                         const json = JSON.parse(dataString);
                         
-                        // Functional Trigger: Instant UI Theme update via AI response
                         if (json.themeUpdate) {
                             if (json.themeUpdate === "fancy") document.body.classList.add("theme-fancy");
                             else document.body.classList.remove("theme-fancy");
@@ -267,9 +301,12 @@ async function sendMessage() {
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-        chatHistory.push({ role: "assistant", content: text });
         
+        chatHistory.push({ role: "assistant", content: text });
         if (sidebar.classList.contains("open")) updateSidebarContent();
+        
+        // --- VOICE TRIGGER ---
+        speak(text);
         
     } catch (err) {
         addMessageToChat("assistant", "Error: " + err.message);
@@ -294,9 +331,7 @@ function addMessageToChat(role, content) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// --- Event Listeners ---
 sendButton?.addEventListener("click", sendMessage);
-
 userInput?.addEventListener("keydown", (e) => { 
     if (e.key === "Enter" && !e.shiftKey) { 
         e.preventDefault(); 
@@ -317,17 +352,4 @@ clearScreenBtn?.addEventListener("click", () => {
     chatMessages.innerHTML = '';
     isProcessing = false;
     addMessageToChat('assistant', "Screen cleared! I'm ready for a fresh start.");
-});
-
-modelSelector?.addEventListener("change", () => {
-    const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
-    const notification = document.createElement("div");
-    notification.style.textAlign = "center";
-    notification.style.fontSize = "0.75rem";
-    notification.style.margin = "15px 0";
-    notification.style.color = "var(--text-color)";
-    notification.style.opacity = "0.6";
-    notification.innerHTML = `— Model switched to <strong>${selectedModelName}</strong> —`;
-    chatMessages.appendChild(notification);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
 });
