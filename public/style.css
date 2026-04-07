@@ -1,3 +1,5 @@
+/* --- ANIMATIONS & INDICATORS --- */
+
 /* Thinking Indicator Animation */
 .typing-dots {
     display: flex;
@@ -14,7 +16,7 @@
 .typing-dots span {
     width: 8px;
     height: 8px;
-    background: #ff8c00; /* Matching your orange theme */
+    background: #f6821f; /* Standard Jolene Orange */
     border-radius: 50%;
     display: inline-block;
     animation: bounce 1.3s infinite ease-in-out;
@@ -35,4 +37,82 @@
 
 #typing-indicator.visible {
     display: flex;
+}
+
+/* --- MARKDOWN & CONTENT STYLING --- */
+
+/* Ensure generated images fit the chat bubble */
+.message img {
+    max-width: 100%;
+    border-radius: 12px;
+    margin-top: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* Code block styling */
+pre {
+    background: #0d1117 !important;
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 10px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+code {
+    font-family: 'Fira Code', monospace;
+    font-size: 0.9rem;
+}
+
+/* --- SCROLLBAR CUSTOMIZATION --- */
+
+#chat-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+#chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(246, 130, 31, 0.2);
+    border-radius: 10px;
+}
+
+#chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(246, 130, 31, 0.5);
+}
+
+/* --- MODAL TRANSITIONS --- */
+
+.modal-overlay {
+    transition: opacity 0.3s ease;
+}
+
+/* Fancy Hover Effects for Buttons */
+.btn-secondary:hover, .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    filter: brightness(1.1);
+}
+
+.btn-secondary:active, .btn-primary:active {
+    transform: translateY(0);
+}
+
+/* File Input Styling */
+#file-input {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    background: var(--light-bg);
+    padding: 5px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+    flex: 1;
+}
+
+/* Sidebar Animation Logic */
+#memory-sidebar {
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
