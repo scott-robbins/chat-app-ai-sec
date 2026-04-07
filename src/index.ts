@@ -83,39 +83,39 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- ROBUST: VISION BRAIN MEMORIZE ---
+		// --- OPTIMIZED: VISION BRAIN MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				
-				// Better detection: Check MIME type OR file extension fallback
 				const isImage = file.type.startsWith("image/") || 
 								/\.(jpg|jpeg|png|webp|gif)$/i.test(file.name);
 				
 				let textToIndex = "";
 
 				if (isImage) {
-					console.log(`[Vision] Starting analysis for: ${file.name}`);
-					const imageArrayBuffer = await file.arrayBuffer();
+					console.log(`[Vision] Processing: ${file.name} (${file.size} bytes)`);
 					
-					// Convert ArrayBuffer to Uint8Array for the AI model
-					const uint8Array = new Uint8Array(imageArrayBuffer);
+					// 4MB Guard Rail for Worker Memory
+					if (file.size > 4 * 1024 * 1024) {
+						return new Response(JSON.stringify({ error: "Image too large. Keep it under 4MB." }), { status: 400 });
+					}
 
+					const imageArrayBuffer = await file.arrayBuffer();
 					const visionResponse = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{
 								role: "user",
 								content: [
-									{ type: "text", text: "Describe this image in detail. Mention specific objects, any visible text, colors, and the overall context." },
-									{ type: "image", image: Array.from(uint8Array) }
+									{ type: "text", text: "Describe this image in detail. Mention objects, visible text, and context for a searchable database." },
+									{ type: "image", image: [...new Uint8Array(imageArrayBuffer)] }
 								]
 							}
 						]
 					});
 					
-					textToIndex = visionResponse.response || "Image uploaded but no description generated.";
-					console.log(`[Vision] Description generated: ${textToIndex.substring(0, 50)}...`);
+					textToIndex = visionResponse.response || "No description generated.";
 				} else {
 					textToIndex = await file.text();
 				}
@@ -128,14 +128,13 @@ export class ChatSession extends DurableObject<Env> {
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
 						metadata: { 
-							text: isImage ? `[IMAGE DESCRIPTION]: ${chunk}` : chunk, 
+							text: isImage ? `[VISION]: ${chunk}` : chunk, 
 							fileName: file.name, 
 							sessionId 
 						} 
 					}]);
 				}
 				
-				// Put in R2
 				const storagePath = `${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`;
 				await this.env.DOCUMENTS.put(storagePath, await file.arrayBuffer());
 				
@@ -144,7 +143,7 @@ export class ChatSession extends DurableObject<Env> {
 					description: isImage ? textToIndex : null 
 				}), { headers: { "Content-Type": "application/json" } });
 
-			} catch (err) {
+			} catch (err: any) {
 				console.error("Memorize Pipeline Error:", err);
 				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
 			}
@@ -170,19 +169,13 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				let sysPrompt = `You are Jolene, a sharp and helpful AI agent.
+				let sysPrompt = `You are Jolene, a sharp AI agent.
 IDENTITY: ${globalProfile}
 CONTEXT: ${contextText}
 LIVE SEARCH: ${searchResults}
-
-STRICT ACCURACY RULES:
-1. Use the SEARCH results to answer real-time questions.
-2. If the search results do not contain the specific answer, say "I couldn't verify that currently" - NEVER GUESS.
-3. Cite your sources with URLs if they are provided.
-4. Your personality: You are a miniature smooth-haired dachshund—sleek, intelligent, and a bit feisty.`;
+RULES: 1. Use search results for facts. 2. Cite sources. 3. Dachshund personality.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
-
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				const finalContent = chatRun.response || "I'm thinking...";
 				
