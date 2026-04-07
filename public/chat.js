@@ -31,7 +31,6 @@ function speak(text) {
     const cleanText = text.replace(/[*#_~]/g, "").replace(/\[.*?\]\(.*?\)/g, "").replace(/!\[.*?\]\(.*?\)/g, "");
     const utterance = new SpeechSynthesisUtterance(cleanText);
     const voices = synth.getVoices();
-    // Targeting Ava Premium or Siri for that sleek Mac sound
     const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
                         voices.find(v => v.name.includes("Siri")) || 
                         voices.find(v => v.lang === "en-US");
@@ -188,7 +187,7 @@ function createMessageElement(role) {
     return div;
 }
 
-// --- UPDATED: ROBUST MEMORIZE ACTIONS ---
+// --- OPTIMIZED: VISION & MEMORY ACTIONS ---
 memorizeBtn?.addEventListener("click", async () => {
     const file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
@@ -207,10 +206,10 @@ memorizeBtn?.addEventListener("click", async () => {
             body: formData 
         });
         
+        const data = await res.json();
+
         if (res.ok) {
-            const data = await res.json();
-            
-            // If it was an image, show the vision description
+            // Success: Vision analysis or text storage complete
             const feedbackText = data.description 
                 ? `👁️ **Vision Analysis Complete:** ${data.description}`
                 : `I've successfully memorized **${file.name}**.`;
@@ -221,14 +220,15 @@ memorizeBtn?.addEventListener("click", async () => {
             fileInput.value = "";
             updateSidebarContent();
         } else {
-            const errorData = await res.json();
-            throw new Error(errorData.error || "Server error");
+            // Handle logical errors from the server (like "File too large")
+            throw new Error(data.error || "Server error");
         }
     } catch (e) { 
         console.error("Memorize Error:", e);
-        addMessageToChat("assistant", "Sorry, my visual cortex glitched. Please try again!");
+        // Direct feedback for the user if something went wrong
+        addMessageToChat("assistant", `Sorry, I hit a snag: ${e.message}`);
     } finally { 
-        // Ensures the "thinking bubbles" always go away
+        // Reset UI regardless of success or failure
         memorizeBtn.innerText = "Memorize File"; 
         memorizeBtn.disabled = false;
         typingIndicator?.classList.remove("visible");
