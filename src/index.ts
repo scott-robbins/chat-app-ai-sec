@@ -42,12 +42,13 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- R2: LIST ALL FILES (TOTAL RECALL - INCLUDES SUBDIRECTORIES) ---
+		// --- R2: LIST ALL FILES (RECURSIVE - INCLUDES ALL SUBDIRECTORIES) ---
 		if (url.pathname === "/api/files") {
-			// .list() is flat by default; it returns all keys regardless of "/"
+			// R2 .list() is flat by default; it returns all keys regardless of "/"
+			// This ensures we get things like 'uploads/global/Family.txt'
 			const objects = await this.env.DOCUMENTS.list();
 			
-			// We return the full key and metadata so the UI can parse folders
+			// We return the full key and metadata so the UI can parse folders and icons
 			const files = objects.objects.map(o => ({
 				key: o.key,
 				size: o.size,
