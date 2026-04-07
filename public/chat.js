@@ -41,6 +41,45 @@ function speak(text) {
     synth.speak(utterance);
 }
 
+// --- IMAGE PRE-PROCESSOR (Prevents Token Overflow) ---
+async function resizeImage(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const MAX_DIM = 800; // Optimized for Vision Models
+
+                if (width > height) {
+                    if (width > MAX_DIM) {
+                        height *= MAX_DIM / width;
+                        width = MAX_DIM;
+                    }
+                } else {
+                    if (height > MAX_DIM) {
+                        width *= MAX_DIM / height;
+                        height = MAX_DIM;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+                }, 'image/jpeg', 0.8);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 // --- UI LISTENERS ---
 voiceToggleBtn?.addEventListener("click", () => {
     voiceEnabled = !voiceEnabled;
@@ -187,14 +226,21 @@ function createMessageElement(role) {
     return div;
 }
 
-// --- OPTIMIZED: VISION & MEMORY ACTIONS ---
+// --- UPDATED: MEMORIZE WITH AUTO-RESIZER ---
 memorizeBtn?.addEventListener("click", async () => {
-    const file = fileInput.files[0];
+    let file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
     
     memorizeBtn.innerText = "Analyzing Memory...";
     memorizeBtn.disabled = true;
     typingIndicator?.classList.add("visible");
+
+    // If it's an image, resize it first to prevent Token Overflow (Error 5021)
+    if (file.type.startsWith("image/")) {
+        console.log("Original Size:", file.size);
+        file = await resizeImage(file);
+        console.log("Resized Size:", file.size);
+    }
 
     const formData = new FormData();
     formData.append("file", file);
@@ -209,7 +255,6 @@ memorizeBtn?.addEventListener("click", async () => {
         const data = await res.json();
 
         if (res.ok) {
-            // Success: Vision analysis or text storage complete
             const feedbackText = data.description 
                 ? `👁️ **Vision Analysis Complete:** ${data.description}`
                 : `I've successfully memorized **${file.name}**.`;
@@ -220,15 +265,12 @@ memorizeBtn?.addEventListener("click", async () => {
             fileInput.value = "";
             updateSidebarContent();
         } else {
-            // Handle logical errors from the server (like "File too large")
             throw new Error(data.error || "Server error");
         }
     } catch (e) { 
         console.error("Memorize Error:", e);
-        // Direct feedback for the user if something went wrong
         addMessageToChat("assistant", `Sorry, I hit a snag: ${e.message}`);
     } finally { 
-        // Reset UI regardless of success or failure
         memorizeBtn.innerText = "Memorize File"; 
         memorizeBtn.disabled = false;
         typingIndicator?.classList.remove("visible");
