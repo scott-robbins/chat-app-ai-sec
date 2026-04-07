@@ -49,7 +49,7 @@ export class ChatSession extends DurableObject<Env> {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const lastMsg = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").bind(sessionId).first();
-			const thinkingAbout = lastMsg?.content ? lastMsg.content.substring(0, 35) + "..." : "Ready to assist";
+			const thinkingAbout = lastMsg?.content ? (lastMsg.content as string).substring(0, 35) + "..." : "Ready to assist";
 
 			const recentLogs = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20").bind(sessionId).all();
 			const allText = recentLogs.results.map(r => r.content).join(" ").toLowerCase();
@@ -65,7 +65,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- STANDARD API ROUTES ---
+		// --- HISTORY & THEMES ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
 			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
@@ -78,27 +78,24 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response("OK");
 		}
 
+		// --- R2 FILE LISTING ---
 		if (url.pathname === "/api/files") {
 			const objects = await this.env.DOCUMENTS.list();
 			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- FINAL STABLE VISION PIPELINE ---
+		// --- STABLE VISION & MEMORIZE PIPELINE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
-				
-				const isImage = file.type.startsWith("image/") || 
-								/\.(jpg|jpeg|png|webp|gif)$/i.test(file.name);
-				
+				const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|webp|gif)$/i.test(file.name);
 				let textToIndex = "";
 
 				if (isImage) {
-					console.log(`[Vision] Processing image: ${file.name}`);
 					const imageBuffer = await file.arrayBuffer();
 					
-					// Convert to Base64 String (The most stable format for Cloudflare AI Vision)
+					// Convert to Base64 String (Most stable for Cloudflare AI)
 					const base64Image = btoa(
 						new Uint8Array(imageBuffer)
 							.reduce((data, byte) => data + String.fromCharCode(byte), '')
@@ -109,7 +106,7 @@ export class ChatSession extends DurableObject<Env> {
 							{
 								role: "user",
 								content: [
-									{ type: "text", text: "Describe this image in detail. Focus on people, text, objects, and colors for a memory database." },
+									{ type: "text", text: "Describe this image in detail. Focus on people, objects, and key visual details." },
 									{ type: "image", image: base64Image } 
 								]
 							}
@@ -128,27 +125,19 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
-						metadata: { 
-							text: isImage ? `[VISION]: ${chunk}` : chunk, 
-							fileName: file.name, 
-							sessionId 
-						} 
+						metadata: { text: isImage ? `[VISION]: ${chunk}` : chunk, fileName: file.name, sessionId } 
 					}]);
 				}
 				
 				await this.env.DOCUMENTS.put(`${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`, await file.arrayBuffer());
 				
-				return new Response(JSON.stringify({ 
-					message: "Memory stored!", 
-					description: isImage ? textToIndex : null 
-				}), { headers: { "Content-Type": "application/json" } });
-
+				return new Response(JSON.stringify({ message: "Stored!", description: isImage ? textToIndex : null }), { headers: { "Content-Type": "application/json" } });
 			} catch (err: any) {
-				console.error("Vision Error:", err);
 				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
 			}
 		}
 
+		// --- CHAT WITH SEARCH & CONTEXT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -169,13 +158,18 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				let sysPrompt = `You are Jolene, a sharp AI agent.
+				let sysPrompt = `You are Jolene, a sharp and helpful AI agent.
 IDENTITY: ${globalProfile}
 CONTEXT: ${contextText}
 LIVE SEARCH: ${searchResults}
-RULES: 1. Use search results for facts. 2. Cite sources. 3. Dachshund personality.`;
+
+STRICT ACCURACY RULES:
+1. Use the SEARCH results to answer real-time questions.
+2. If the search results do not contain the specific answer, say "I couldn't verify that currently" - NEVER GUESS.
+3. Your personality: You are a miniature smooth-haired dachshund—sleek, intelligent, and a bit feisty.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
+
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				const finalContent = chatRun.response || "I'm thinking...";
 				
@@ -185,6 +179,7 @@ RULES: 1. Use search results for facts. 2. Cite sources. 3. Dachshund personalit
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
+		
 		return new Response("Not allowed", { status: 405 });
 	}
 }
