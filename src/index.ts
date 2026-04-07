@@ -60,7 +60,7 @@ export class ChatSession extends DurableObject<Env> {
 			const allText = recentLogs.results.map(r => r.content).join(" ").toLowerCase();
 			const words = allText.match(/\b(\w{5,})\b/g) || [];
 			const counts = words.reduce((acc: any, word) => { acc[word] = (acc[word] || 0) + 1; return acc; }, {});
-			const keywords = Object.entries(counts).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5).map(e => e[0]).join(", ");
+			const keywords = Object.entries(counts).sort((a: any, b: any) => (b[1] as number) - (a[1] as number)).slice(0, 5).map(e => e[0]).join(", ");
 
 			return new Response(JSON.stringify({ 
 				profile: profile || "No profile saved.",
