@@ -83,52 +83,71 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- UPGRADED: VISION BRAIN MEMORIZE ---
+		// --- ROBUST: VISION BRAIN MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			const isImage = file.type.startsWith("image/");
-			let textToIndex = "";
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				
+				// Better detection: Check MIME type OR file extension fallback
+				const isImage = file.type.startsWith("image/") || 
+								/\.(jpg|jpeg|png|webp|gif)$/i.test(file.name);
+				
+				let textToIndex = "";
 
-			if (isImage) {
-				const imageArrayBuffer = await file.arrayBuffer();
-				const visionResponse = await this.env.AI.run(CONVERSATION_MODEL, {
-					messages: [
-						{
-							role: "user",
-							content: [
-								{ type: "text", text: "Describe this image in detail for a searchable database. Mention specific objects, text, colors, and context." },
-								{ type: "image", image: Array.from(new Uint8Array(imageArrayBuffer)) }
-							]
-						}
-					]
-				});
-				textToIndex = visionResponse.response || "Image uploaded but no description generated.";
-			} else {
-				textToIndex = await file.text();
-			}
+				if (isImage) {
+					console.log(`[Vision] Starting analysis for: ${file.name}`);
+					const imageArrayBuffer = await file.arrayBuffer();
+					
+					// Convert ArrayBuffer to Uint8Array for the AI model
+					const uint8Array = new Uint8Array(imageArrayBuffer);
 
-			const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
-			for (const chunk of chunks) {
-				const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await this.env.VECTORIZE.insert([{ 
-					id: crypto.randomUUID(), 
-					values: emb.data[0], 
-					metadata: { 
-						text: isImage ? `[IMAGE DESCRIPTION]: ${chunk}` : chunk, 
-						fileName: file.name, 
-						sessionId 
-					} 
-				}]);
+					const visionResponse = await this.env.AI.run(CONVERSATION_MODEL, {
+						messages: [
+							{
+								role: "user",
+								content: [
+									{ type: "text", text: "Describe this image in detail. Mention specific objects, any visible text, colors, and the overall context." },
+									{ type: "image", image: Array.from(uint8Array) }
+								]
+							}
+						]
+					});
+					
+					textToIndex = visionResponse.response || "Image uploaded but no description generated.";
+					console.log(`[Vision] Description generated: ${textToIndex.substring(0, 50)}...`);
+				} else {
+					textToIndex = await file.text();
+				}
+
+				// Vectorize Indexing
+				const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
+				for (const chunk of chunks) {
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					await this.env.VECTORIZE.insert([{ 
+						id: crypto.randomUUID(), 
+						values: emb.data[0], 
+						metadata: { 
+							text: isImage ? `[IMAGE DESCRIPTION]: ${chunk}` : chunk, 
+							fileName: file.name, 
+							sessionId 
+						} 
+					}]);
+				}
+				
+				// Put in R2
+				const storagePath = `${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`;
+				await this.env.DOCUMENTS.put(storagePath, await file.arrayBuffer());
+				
+				return new Response(JSON.stringify({ 
+					message: "Memory stored!", 
+					description: isImage ? textToIndex : null 
+				}), { headers: { "Content-Type": "application/json" } });
+
+			} catch (err) {
+				console.error("Memorize Pipeline Error:", err);
+				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
 			}
-			
-			const storagePath = `${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`;
-			await this.env.DOCUMENTS.put(storagePath, await file.arrayBuffer());
-			
-			return new Response(JSON.stringify({ 
-				message: "Memory stored!", 
-				description: isImage ? textToIndex : null 
-			}), { headers: { "Content-Type": "application/json" } });
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
