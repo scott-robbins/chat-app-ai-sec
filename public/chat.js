@@ -38,19 +38,17 @@ function speak(text) {
     synth.speak(utterance);
 }
 
-// --- UI: VOICE TOGGLE ---
+// --- UI LISTENERS ---
 voiceToggleBtn?.addEventListener("click", () => {
     voiceEnabled = !voiceEnabled;
     if (voiceIcon) voiceIcon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
     if (!voiceEnabled) synth.cancel();
 });
 
-// --- UI: THEME TOGGLE (Fixed) ---
 themeToggleBtn?.addEventListener("click", async () => {
     const isFancy = document.body.classList.toggle("theme-fancy");
     const currentTheme = isFancy ? "fancy" : "plain";
     localStorage.setItem("chatTheme", currentTheme);
-    
     try {
         await fetch("/api/save-theme", {
             method: "POST",
@@ -60,7 +58,6 @@ themeToggleBtn?.addEventListener("click", async () => {
     } catch (e) { console.error("KV Sync Failed", e); }
 });
 
-// --- UI: MODEL SELECTOR NOTIFICATION (Fixed) ---
 modelSelector?.addEventListener("change", () => {
     const selectedModelName = modelSelector.options[modelSelector.selectedIndex].text;
     const notification = document.createElement("div");
@@ -70,12 +67,13 @@ modelSelector?.addEventListener("change", () => {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 });
 
-// --- DASHBOARD UPDATER ---
+// --- DASHBOARD UPDATER (Restored R2 & Vectorize) ---
 async function updateSidebarContent() {
     try {
         const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const data = await res.json();
         
+        // 1. Update Metrics Cards
         kvDisplay.innerHTML = `
             <div class="dash-card">
                 <p class="dash-label">Global Identity (KV)</p>
@@ -99,11 +97,32 @@ async function updateSidebarContent() {
                 <p class="dash-label">Top Interests</p>
                 <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; text-transform: uppercase;">${data.keywords}</p>
             </div>
+            <div class="dash-card" style="border-left: 3px solid #a855f7;">
+                <p class="dash-label">Brain (Vectorize)</p>
+                <p class="dash-value" style="font-size: 0.7rem; opacity: 0.8;">Indexing: Active | RAG: Enabled</p>
+            </div>
         `;
-    } catch (e) { console.error(e); }
+
+        // 2. Fetch and Update R2 File List
+        const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
+        const filesData = await filesRes.json();
+        
+        fileListDisplay.innerHTML = ""; 
+        if (filesData.files && filesData.files.length > 0) {
+            filesData.files.forEach(file => {
+                const li = document.createElement("li");
+                li.style = "display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 8px; opacity: 0.9;";
+                const fileName = file.key.split('/').pop();
+                li.innerHTML = `<i class="ph ph-file-text" style="color: var(--primary-color);"></i> <span>${fileName}</span>`;
+                fileListDisplay.appendChild(li);
+            });
+        } else {
+            fileListDisplay.innerHTML = "<li style='font-size: 0.8rem; opacity: 0.6;'>No files memorized.</li>";
+        }
+    } catch (e) { console.error("Sidebar sync failed:", e); }
 }
 
-// --- CORE CHAT LOGIC ---
+// --- CHAT LOGIC ---
 async function sendMessage() {
     const message = userInput.value.trim();
     if (!message || isProcessing) return;
@@ -136,9 +155,6 @@ async function sendMessage() {
                     if (dataString === "[DONE]") break;
                     try {
                         const json = JSON.parse(dataString);
-                        if (json.themeUpdate) {
-                            document.body.classList.toggle("theme-fancy", json.themeUpdate === "fancy");
-                        }
                         text += json.response || "";
                         contentEl.innerHTML = marked.parse(text);
                     } catch (e) {}
@@ -165,6 +181,24 @@ function createMessageElement(role) {
     div.innerHTML = `<div class="message-content"></div>`;
     return div;
 }
+
+// Memory Actions
+memorizeBtn?.addEventListener("click", async () => {
+    const file = fileInput.files[0];
+    if (!file) return alert("Pick a file first!");
+    memorizeBtn.innerText = "Memorizing...";
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
+        if (res.ok) {
+            addMessageToChat("assistant", `I've memorized **${file.name}**.`);
+            fileInput.value = "";
+            updateSidebarContent();
+        }
+    } catch (e) { alert("Memorize failed"); }
+    finally { memorizeBtn.innerText = "Memorize File"; }
+});
 
 sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
