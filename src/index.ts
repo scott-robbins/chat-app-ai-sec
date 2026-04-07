@@ -27,26 +27,25 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- UPDATED: FETCH KV PROFILE + D1 STATS ---
+		// --- GLOBAL BRAIN: FETCH KV PROFILE (GLOBAL) + D1 STATS ---
 		if (url.pathname === "/api/profile") {
-			const profile = await this.env.SETTINGS.get(`profile_${sessionId}`);
+			// Changed from session-based to GLOBAL
+			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			
-			// Get message count from D1 for this session
 			const stats = await this.env.jolene_db.prepare(
 				"SELECT COUNT(*) as count FROM messages WHERE session_id = ?"
 			).bind(sessionId).first();
 
 			return new Response(JSON.stringify({ 
-				profile: profile || "No profile saved yet.",
+				profile: profile || "No global profile saved yet.",
 				messageCount: stats?.count || 0 
 			}), { 
 				headers: { "Content-Type": "application/json" } 
 			});
 		}
 
-		// --- UPDATED: LIST ALL R2 FILES (GLOBAL) ---
+		// --- R2: LIST ALL FILES ---
 		if (url.pathname === "/api/files") {
-			// List all objects in the bucket without a prefix filter
 			const objects = await this.env.DOCUMENTS.list();
 			const files = objects.objects.map(o => o.key);
 			return new Response(JSON.stringify({ files }), { 
@@ -88,7 +87,6 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 
-				// Upload to R2 (using the path structure Jolene expects)
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
 					httpMetadata: { contentType: file.type || "text/plain" }
 				});
@@ -106,19 +104,27 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// Log standard user message to D1
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMessage).run();
-
-				// KV: SAVE PROFILE LOGIC
+				// GLOBAL BRAIN: SAVE PROFILE LOGIC
 				if (latestUserMessage.toLowerCase().startsWith("save to my profile:")) {
 					const profileData = latestUserMessage.replace(/save to my profile:/i, "").trim();
-					await this.env.SETTINGS.put(`profile_${sessionId}`, profileData);
-					const successMsg = `Done! I've saved that to your profile.`;
+					// Changed to GLOBAL key
+					await this.env.SETTINGS.put(`global_user_profile`, profileData);
+					
+					const successMsg = `Got it! I've saved that to your permanent profile. I'll remember this across all future sessions.`;
+					
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "user", latestUserMessage).run();
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "assistant", successMsg).run();
+
 					return new Response(`data: ${JSON.stringify({ response: successMsg })}\n\ndata: [DONE]\n\n`, {
 						headers: { "Content-Type": "text/event-stream" }
 					});
 				}
+
+				// Log to D1
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "user", latestUserMessage).run();
 
 				// RAG: Search Vectorize
 				let contextText = "";
@@ -130,9 +136,13 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				} catch (e) { console.error("RAG Error:", e); }
 
-				// SYSTEM PROMPT
-				let sysPrompt = "You are Jolene, a helpful AI. Use context if available.";
-				if (contextText) sysPrompt += `\n\nContext:\n${contextText}`;
+				// GLOBAL BRAIN: Fetch persistent profile data
+				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
+
+				// SYSTEM PROMPT: Now includes the persistent User Profile
+				let sysPrompt = "You are Jolene, a helpful and witty AI.";
+				if (globalProfile) sysPrompt += `\n\nUser Profile (Remember this across sessions): ${globalProfile}`;
+				if (contextText) sysPrompt += `\n\nContext from Memorized Files:\n${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
