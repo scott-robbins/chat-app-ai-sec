@@ -24,15 +24,29 @@ localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
 
-// Initial Theme Logic
+// Initial Theme Logic (Local check before server sync)
 if (localStorage.getItem("chatTheme") === "fancy") {
     document.body.classList.add("theme-fancy");
 }
 
-themeToggleBtn?.addEventListener("click", () => {
+// --- THEME TOGGLE WITH KV PERSISTENCE ---
+themeToggleBtn?.addEventListener("click", async () => {
     document.body.classList.toggle("theme-fancy");
     const currentTheme = document.body.classList.contains("theme-fancy") ? "fancy" : "plain";
+    
+    // Save locally for instant feel
     localStorage.setItem("chatTheme", currentTheme);
+    
+    // Persist to Cloudflare KV for the demo (Global Preference)
+    try {
+        await fetch("/api/save-theme", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ theme: currentTheme })
+        });
+    } catch (e) {
+        console.error("Failed to save theme to KV", e);
+    }
 });
 
 // Initialization - Load history and sync KV preferences
@@ -43,6 +57,8 @@ async function init() {
         
         if (res.ok) {
             const data = await res.json();
+            
+            // Sync theme from KV (Global Preference)
             const activeTheme = data.theme || localStorage.getItem("chatTheme") || "fancy";
             
             if (activeTheme === "fancy") {
@@ -76,7 +92,6 @@ function renderContent(element, content) {
 
 async function updateSidebarContent() {
     try {
-        // Fetch Profile and D1 Stats
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
         
@@ -87,7 +102,6 @@ async function updateSidebarContent() {
             </p>
         `;
 
-        // Fetch Files
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
         
@@ -96,11 +110,7 @@ async function updateSidebarContent() {
         if (filesData.files && filesData.files.length > 0) {
             filesData.files.forEach(file => {
                 const li = document.createElement("li");
-                
-                // Get the full path key from the object
                 const fullKey = typeof file === 'string' ? file : file.key;
-                
-                // Extract filename: "uploads/global/Family.txt" -> "Family.txt"
                 const fileName = fullKey.split('/').pop();
                 const isUpload = fullKey.includes('uploads/');
                 const isGenerated = fullKey.includes('generated/');
