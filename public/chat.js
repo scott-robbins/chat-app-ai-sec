@@ -1,64 +1,4 @@
-// --- ELEMENT SELECTORS ---
-const chatMessages = document.getElementById("chat-messages");
-const userInput = document.getElementById("user-input");
-const sendButton = document.getElementById("send-button");
-const typingIndicator = document.getElementById("typing-indicator");
-const modelSelector = document.getElementById("model-selector");
-
-// Top Level Buttons
-const clearScreenBtn = document.getElementById("clear-screen-btn");
-const newChatBtn = document.getElementById("new-chat-btn");
-
-// File Elements
-const fileInput = document.getElementById("file-input");
-const memorizeBtn = document.getElementById("memorize-file-btn");
-
-// Sidebar & Modals
-const sidebar = document.getElementById("memory-sidebar");
-const closeSidebarBtn = document.getElementById("close-sidebar-btn");
-const clearVectorBtn = document.getElementById("clear-vector-btn");
-const kvDisplay = document.getElementById("kv-profile-display");
-const fileListDisplay = document.getElementById("file-list-display");
-const helpModal = document.getElementById("helpModal");
-const settingsDropdown = document.getElementById("settings-dropdown");
-
-// --- STATE MANAGEMENT ---
-let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
-localStorage.setItem("chatSessionId", sessionId);
-let chatHistory = [];
-let isProcessing = false;
-
-// --- INITIALIZATION ---
-async function init() {
-    // 1. Restore Theme
-    const savedTheme = localStorage.getItem("chatTheme") || "fancy";
-    document.body.classList.remove("theme-fancy", "theme-plain");
-    document.body.classList.add(`theme-${savedTheme}`);
-
-    // 2. Restore History from D1
-    try {
-        const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-        if (res.ok) {
-            const data = await res.json();
-            if (data.messages && data.messages.length > 0) {
-                chatMessages.innerHTML = ''; 
-                chatHistory = data.messages;
-                chatHistory.forEach(msg => { 
-                    if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
-                });
-            }
-        }
-    } catch (e) {
-        console.error("History failed to load:", e);
-    }
-}
-init();
-
-// --- DIRECT UI FUNCTIONS (Called via onclick in HTML) ---
-
-function toggleSettings() {
-    settingsDropdown.classList.toggle('show');
-}
+// --- ADD TO TOP OF chat.js OR REPLACE FUNCTIONS ---
 
 function toggleTheme() {
     const isFancy = document.body.classList.contains("theme-fancy");
@@ -66,213 +6,36 @@ function toggleTheme() {
     const newTheme = isFancy ? "plain" : "fancy";
     document.body.classList.add(`theme-${newTheme}`);
     localStorage.setItem("chatTheme", newTheme);
-    
     addMessageToChat('assistant', `Theme switched to **${newTheme}** mode.`);
-    settingsDropdown.classList.remove('show');
+    document.getElementById('settings-dropdown').classList.remove('show');
 }
 
 function openSidebar() {
-    sidebar.classList.add("open");
+    document.getElementById("memory-sidebar").classList.add("open");
     updateSidebarContent();
-    settingsDropdown.classList.remove('show');
+    document.getElementById('settings-dropdown').classList.remove('show');
 }
 
 function openHelp() {
-    helpModal.style.display = "flex";
-    settingsDropdown.classList.remove('show');
+    document.getElementById("helpModal").style.display = "flex";
+    document.getElementById('settings-dropdown').classList.remove('show');
 }
 
-function closeHelp() {
-    helpModal.style.display = "none";
+function modelChanged() {
+    const selector = document.getElementById("model-selector");
+    const name = selector.options[selector.selectedIndex].text;
+    addMessageToChat('assistant', `I am now using the **${name}** model.`);
+    document.getElementById('settings-dropdown').classList.remove('show');
 }
 
-// --- UI HELPERS ---
-function renderContent(element, content) {
-    // Uses marked.js for markdown and highlight.js for code blocks
-    element.innerHTML = marked.parse(content);
-    element.querySelectorAll('pre code').forEach((block) => {
-        hljs.highlightElement(block);
-    });
+function clearScreen() {
+    chatMessages.innerHTML = `<div class="message assistant-message"><div class="message-content"><p>Screen cleared! Ready for a fresh start.</p></div></div>`;
+    chatHistory = [];
 }
 
-function createMessageElement(role) {
-    const div = document.createElement("div");
-    div.className = `message ${role}-message`;
-    div.innerHTML = `<div class="message-content"></div>`;
-    return div;
-}
-
-function addMessageToChat(role, content) {
-    const el = createMessageElement(role);
-    renderContent(el.querySelector(".message-content"), content);
-    chatMessages.appendChild(el);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-// --- SIDEBAR & MEMORY ---
-async function updateSidebarContent() {
-    try {
-        const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
-        const profileData = await profileRes.json();
-        
-        kvDisplay.innerHTML = `
-            <p><strong>Profile:</strong> ${profileData.profile}</p>
-            <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.8;">Total Messages: ${profileData.messageCount}</p>
-        `;
-
-        const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
-        const filesData = await filesRes.json();
-        
-        fileListDisplay.innerHTML = (filesData.files?.length > 0) 
-            ? filesData.files.map(f => `<li><i class="ph ph-file-text"></i> ${f}</li>`).join("")
-            : "<li>No files memorized yet.</li>";
-    } catch (e) { 
-        console.error("Sidebar update failed:", e); 
-    }
-}
-
-// --- CORE CHAT LOGIC ---
-async function sendMessage() {
-    const message = userInput.value.trim();
-    if (!message || isProcessing) return;
-
-    isProcessing = true;
-    addMessageToChat("user", message);
-    userInput.value = "";
-    typingIndicator?.classList.add("visible");
-    chatHistory.push({ role: "user", content: message });
-
-    try {
-        const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-            body: JSON.stringify({ 
-                messages: chatHistory,
-                model: modelSelector?.value
-            }),
-        });
-
-        typingIndicator?.classList.remove("visible");
-        
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        const msgEl = createMessageElement("assistant");
-        chatMessages.appendChild(msgEl);
-        const contentEl = msgEl.querySelector(".message-content");
-        
-        let text = "";
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value);
-            const lines = chunk.split("\n");
-            
-            for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                    const dataString = line.slice(6).trim();
-                    if (dataString === "[DONE]") break;
-                    
-                    try {
-                        const json = JSON.parse(dataString);
-                        text += json.response || "";
-                        renderContent(contentEl, text);
-                    } catch (e) {}
-                }
-            }
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        chatHistory.push({ role: "assistant", content: text });
-        
-    } catch (err) {
-        addMessageToChat("assistant", "Error: " + err.message);
-    } finally {
-        isProcessing = false;
-        typingIndicator?.classList.remove("visible");
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-}
-
-// --- FILE MEMORIZATION ---
-async function memorizeFile() {
-    const file = fileInput.files[0];
-    if (!file) return alert("Please select a file first.");
-
-    memorizeBtn.disabled = true;
-    memorizeBtn.innerText = "Memorizing...";
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-        const res = await fetch("/api/memorize", {
-            method: "POST",
-            headers: { "x-session-id": sessionId },
-            body: formData
-        });
-        
-        if (res.ok) {
-            addMessageToChat("assistant", `I've memorized **${file.name}**! You can now ask questions about it.`);
-            fileInput.value = "";
-            updateSidebarContent();
-        }
-    } catch (e) { 
-        alert("Error uploading file."); 
-    } finally {
-        memorizeBtn.disabled = false;
-        memorizeBtn.innerText = "Memorize";
-    }
-}
-
-// --- EVENT LISTENERS ---
-
-// Model Switch Notification
-modelSelector?.addEventListener("change", () => {
-    const name = modelSelector.options[modelSelector.selectedIndex].text;
-    addMessageToChat('assistant', `I'm now using the **${name}** model.`);
-});
-
-// Top Level Button Actions
-clearScreenBtn?.addEventListener("click", () => {
-    chatMessages.innerHTML = `
-        <div class="message assistant-message">
-            <div class="message-content">
-                <p>Screen cleared! I'm ready for something new.</p>
-            </div>
-        </div>`;
-    // We clear visual but keep history context unless it's a "New Chat"
-});
-
-newChatBtn?.addEventListener("click", () => {
-    if(confirm("Start a brand new session? This clears our current context.")) {
+function newChat() {
+    if(confirm("Start a new session?")) {
         localStorage.removeItem("chatSessionId");
-        location.reload(); 
-    }
-});
-
-// Messaging Listeners
-sendButton?.addEventListener("click", sendMessage);
-
-userInput?.addEventListener("keydown", (e) => { 
-    if (e.key === "Enter" && !e.shiftKey) { 
-        e.preventDefault(); 
-        sendMessage(); 
-    } 
-});
-
-// Close Sidebar Sidebar
-closeSidebarBtn?.addEventListener("click", () => {
-    sidebar.classList.remove("open");
-});
-
-// External Click Logic
-window.onclick = function(event) {
-    // Close help modal if clicking outside
-    if (event.target === helpModal) {
-        closeHelp();
-    }
-    // Close settings dropdown if clicking outside
-    if (!event.target.closest('.dropdown')) {
-        settingsDropdown.classList.remove('show');
+        location.reload();
     }
 }
