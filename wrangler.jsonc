@@ -53,5 +53,9 @@
 			"binding": "DOCUMENTS",
 			"bucket_name": "chat-docs"
 		}
-	]
+	],
+	// NEW: Added Cron Trigger logic
+	"triggers": {
+		"crons": ["0 13 * * *"] 
+	}
 }
