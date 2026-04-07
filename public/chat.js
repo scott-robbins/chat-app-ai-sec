@@ -7,16 +7,17 @@ let chatHistory = [];
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 
-// UI FUNCTIONS
+// UI CONTROLS
 function toggleTheme() {
     const isFancy = document.body.classList.contains("theme-fancy");
     document.body.className = isFancy ? "theme-plain" : "theme-fancy";
     localStorage.setItem("chatTheme", isFancy ? "plain" : "fancy");
+    addMessageToChat('assistant', `Theme switched to **${isFancy ? "plain" : "fancy"}** mode.`);
 }
 
 function openSidebar() {
     document.getElementById("memory-sidebar").classList.toggle("open");
-    // Add logic here to fetch /api/profile if needed
+    updateSidebarContent();
 }
 
 function openHelp() {
@@ -26,22 +27,22 @@ function openHelp() {
 
 function modelChanged() {
     const name = modelSelector.options[modelSelector.selectedIndex].text;
-    const msg = document.createElement("div");
-    msg.innerHTML = `<p style="text-align:center; opacity:0.5; font-size:0.8rem; margin:10px 0;">— Switched to ${name} —</p>`;
-    chatMessages.appendChild(msg);
+    addMessageToChat('assistant', `I'm now using the **${name}** model.`);
 }
 
 function clearScreen() {
-    chatMessages.innerHTML = `<div class="message"><p>Screen cleared!</p></div>`;
+    chatMessages.innerHTML = `<div class="message assistant-message"><p>Screen cleared! What's next?</p></div>`;
     chatHistory = [];
 }
 
 function newChat() {
-    localStorage.removeItem("chatSessionId");
-    location.reload();
+    if(confirm("Start a new session?")) {
+        localStorage.removeItem("chatSessionId");
+        location.reload();
+    }
 }
 
-// CORE MESSAGING
+// CORE CHAT
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text) return;
@@ -80,20 +81,31 @@ async function sendMessage() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         chatHistory.push({ role: "assistant", content: aiText });
-    } catch (e) { alert("Error: " + e.message); }
+    } catch (e) { console.error(e); }
+}
+
+async function updateSidebarContent() {
+    try {
+        const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
+        const data = await res.json();
+        document.getElementById("kv-profile-display").innerText = data.profile || "No profile data yet.";
+    } catch (e) { console.log("Sidebar failed to load."); }
 }
 
 async function memorizeFile() {
     const file = fileInput.files[0];
-    if (!file) return alert("Select a file first.");
+    if (!file) return alert("Please select a file first.");
     const formData = new FormData();
     formData.append("file", file);
     try {
         const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
-        if (res.ok) {
-            const aiDiv = document.createElement("div");
-            aiDiv.innerHTML = `<p><b>Jolene:</b> I've memorized **${file.name}**.</p>`;
-            chatMessages.appendChild(aiDiv);
-        }
+        if (res.ok) addMessageToChat('assistant', `I've memorized **${file.name}**.`);
     } catch (e) { alert("Upload failed."); }
+}
+
+function addMessageToChat(role, content) {
+    const div = document.createElement("div");
+    div.innerHTML = `<p><b>Jolene:</b> ${content}</p>`;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
