@@ -1,143 +1,238 @@
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jolene AI</title>
-    
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Jolene AI</title>
+		
+		<script src="https://unpkg.com/@phosphor-icons/web"></script>
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
-    <style>
-        /* --- THE ORIGINAL GLASS THEME --- */
-        :root {
-            --primary: #f6821f;
-            --glass-bg: rgba(30, 41, 59, 0.55); /* High Transparency */
-            --glass-border: rgba(255, 255, 255, 0.15);
-            --text-color: #f8fafc;
-            --body-bg: #0f172a;
-        }
+		<link rel="stylesheet" href="style.css">
 
-        body.theme-plain {
-            --glass-bg: rgba(255, 255, 255, 0.95);
-            --text-color: #1e293b;
-            --glass-border: #e2e8f0;
-            --body-bg: #f8fafc;
-        }
+		<style>
+			:root {
+				--primary-color: #f6821f;
+				--primary-hover: #e67e22;
+				--primary-light: rgba(246, 130, 31, 0.1);
+				--light-bg: #f4f6f8;
+				--app-bg: #ffffff;
+				--border-color: #e2e8f0;
+				--text-color: #1e293b;
+				--text-color-dark: #0f172a;
+				--text-light: #64748b;
+				--user-msg-bg: #f6821f;
+				--user-msg-text: #ffffff;
+				--assistant-msg-bg: #ffffff;
+				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
+			}
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+			body.theme-fancy {
+				--app-bg: rgba(30, 41, 59, 0.9);
+				--light-bg: rgba(15, 23, 42, 0.4);
+				--border-color: rgba(255, 255, 255, 0.1);
+				--text-color: #f8fafc;
+				--text-light: #cbd5e1;
+				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
+				--body-bg: #0f172a;
+			}
 
-        body {
-            font-family: -apple-system, system-ui, sans-serif;
-            background: var(--body-bg);
-            color: var(--text-color);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 2rem 1rem;
-            transition: all 0.5s ease;
-        }
+			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
+				backdrop-filter: blur(16px);
+				-webkit-backdrop-filter: blur(16px);
+				border: 1px solid rgba(255, 255, 255, 0.15);
+				box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+			}
 
-        /* --- LAVA LAMP (Z-Index Fixed) --- */
-        .lava-lamp-container {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            z-index: -1; pointer-events: none;
-        }
-        body.theme-plain .lava-lamp-container { display: none; }
-        .blob {
-            position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
-            animation: float 15s infinite alternate ease-in-out;
-        }
-        .blob1 { width: 450px; height: 450px; background: var(--primary); top: -100px; left: -100px; }
-        .blob2 { width: 550px; height: 550px; background: #d95d14; bottom: -150px; right: -100px; }
-        @keyframes float { 100% { transform: translate(120px, -60px) scale(1.1); } }
+			body.theme-fancy #user-input {
+				background-color: rgba(15, 23, 42, 0.5);
+				color: white;
+			}
 
-        header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-        header h1 { font-size: 3.5rem; color: #fff; text-shadow: 0 0 25px rgba(246, 130, 31, 0.7); }
+			body.theme-fancy header h1 {
+				color: #ffffff;
+				text-shadow: 0 2px 10px rgba(246, 130, 31, 0.5);
+			}
 
-        /* --- STANDALONE BUTTONS (No Dropdowns) --- */
-        .controls-row { display: flex; justify-content: center; gap: 10px; margin-top: 1.5rem; flex-wrap: wrap; }
-        button, select {
-            padding: 10px 18px; border-radius: 12px; border: 1px solid var(--glass-border);
-            background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer;
-            font-weight: 600; display: flex; align-items: center; gap: 8px;
-            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-        }
-        .btn-primary { background: var(--primary); border: none; }
-        body.theme-plain button { background: #eee; color: #333; }
+			* { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* --- THE CORE GLASS CONTAINER --- */
-        .chat-container {
-            width: 100%; max-width: 850px; height: calc(100vh - 380px);
-            background: var(--glass-bg);
-            border-radius: 32px; border: 1px solid var(--glass-border);
-            backdrop-filter: blur(25px); /* This makes the lava lamp shine through */
-            -webkit-backdrop-filter: blur(25px);
-            box-shadow: 0 30px 60px rgba(0,0,0,0.4);
-            display: flex; flex-direction: column; overflow: hidden;
-        }
+			body {
+				font-family: -apple-system, system-ui, sans-serif;
+				color: var(--text-color);
+				background: var(--body-bg);
+				min-height: 100vh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				padding: 2rem 1rem;
+				transition: background 0.5s ease;
+				overflow-x: hidden;
+			}
 
-        #chat-messages { flex: 1; overflow-y: auto; padding: 2.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
-        .message-input { padding: 1.5rem 2rem; background: rgba(0,0,0,0.2); border-top: 1px solid var(--glass-border); }
-        
-        textarea {
-            width: 100%; padding: 14px; border-radius: 14px; border: 1px solid var(--glass-border);
-            background: rgba(255, 255, 255, 0.05); color: white; outline: none; resize: none; font-size: 1rem;
-        }
+			/* Lava Lamp Effect */
+			.lava-lamp-container {
+				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+				z-index: -1; overflow: hidden; display: none;
+			}
+			body.theme-fancy .lava-lamp-container { display: block; }
+			
+			.blob {
+				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
+				animation: float 15s infinite alternate ease-in-out;
+			}
+			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; }
+			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
+			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; animation-delay: 5s; }
 
-        /* Modals & Sidebar */
-        .sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: #1e293b; border-left: 1px solid var(--glass-border); transition: 0.4s; padding: 2rem; z-index: 2000; }
-        .sidebar.open { right: 0; }
-        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 3000; }
+			@keyframes float {
+				0% { transform: translate(0, 0) scale(1); }
+				100% { transform: translate(100px, -50px) scale(1.2); }
+			}
 
-        footer { margin-top: 2rem; color: #64748b; font-size: 0.9rem; font-weight: 500; }
-    </style>
-</head>
-<body class="theme-fancy">
-    <div class="lava-lamp-container"><div class="blob blob1"></div><div class="blob blob2"></div></div>
-    
-    <header>
-        <h1>Jolene</h1>
-        <div class="controls-row">
-            <button onclick="clearScreen()"><i class="ph ph-trash"></i> Clear</button>
-            <button class="btn-primary" onclick="newChat()"><i class="ph ph-plus"></i> New Chat</button>
-            <button onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Theme</button>
-            <button onclick="openSidebar()"><i class="ph ph-database"></i> Memory</button>
-            <button onclick="openHelp()"><i class="ph ph-question"></i> Help</button>
-            <select id="model-selector" onchange="modelChanged()">
-                <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
-                <option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-                <option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral 7B</option>
-                <option value="@cf/google/gemma-7b-it">Gemma 7B</option>
-            </select>
-        </div>
-    </header>
+			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
+			h1 { font-size: 1.75rem; color: var(--primary-color); font-weight: 700; }
+			header p { color: var(--text-light); font-size: 0.95rem; margin-top: 0.25rem; }
 
-    <div class="chat-container">
-        <div id="chat-messages">
-            <div class="message assistant-message"><p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?</p></div>
-        </div>
-        <div class="message-input">
-            <div style="display:flex; gap:10px; margin-bottom:12px; align-items:center;">
-                <input type="file" id="file-input" style="color:#64748b; font-size: 0.8rem;">
-                <button onclick="memorizeFile()" style="font-size: 0.8rem; padding: 5px 10px;">Memorize</button>
-            </div>
-            <div style="display:flex; gap:12px;">
-                <textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-                <button onclick="sendMessage()" class="btn-primary" style="border-radius:50%; width:48px; height:48px; justify-content:center;"><i class="ph-fill ph-paper-plane-right"></i></button>
-            </div>
-        </div>
-    </div>
+			.chat-container {
+				display: flex; flex-direction: column; width: 100%; max-width: 800px;
+				height: calc(100vh - 250px); min-height: 500px; background-color: var(--app-bg);
+				border-radius: 16px; overflow: hidden; border: 1px solid var(--border-color);
+				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+			}
 
-    <div id="memory-sidebar" class="sidebar">
-        <div style="display:flex; justify-content:space-between; color:white;"><h3>Memory</h3><button onclick="openSidebar()">&times;</button></div>
-        <div id="kv-profile-display" style="color:white; margin-top:20px;">Loading profile...</div>
-    </div>
+			#chat-messages {
+				flex: 1; overflow-y: auto; padding: 1.5rem; background-color: var(--light-bg);
+				display: flex; flex-direction: column; gap: 1rem;
+			}
 
-    <footer>Jolene AI &copy; 2026</footer>
-    <script src="chat.js"></script>
-</body>
+			.message { padding: 0.85rem 1.2rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
+			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; }
+			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
+
+			#typing-indicator { display: none; align-self: flex-start; }
+			#typing-indicator.visible { display: block; }
+
+			.message-input {
+				display: flex; padding: 1rem; background-color: var(--app-bg);
+				border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;
+			}
+
+			#user-input {
+				flex: 1; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
+				border-radius: 12px; min-height: 50px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none;
+			}
+
+			#send-button {
+				padding: 0 1.5rem; height: 50px; background-color: var(--primary-color); color: white;
+				border: none; border-radius: 12px; cursor: pointer; font-size: 1.25rem;
+			}
+
+			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+			.btn-secondary { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
+			
+			body.theme-fancy .btn-secondary { color: white; }
+
+			.btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+
+			/* SIDEBAR STYLES */
+			.sidebar {
+				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
+				background: var(--app-bg); border-left: 1px solid var(--border-color);
+				box-shadow: -5px 0 15px rgba(0,0,0,0.1); transition: right 0.3s ease-in-out; 
+				z-index: 1000; padding: 25px; display: flex; flex-direction: column; gap: 20px;
+			}
+			.sidebar.open { right: 0; }
+			.sidebar-header { display: flex; justify-content: space-between; align-items: center; }
+			.sidebar-header h2 { font-size: 1.2rem; color: var(--primary-color); }
+			#close-sidebar-btn { background: none; border: none; color: var(--text-light); font-size: 1.5rem; cursor: pointer; }
+			
+			.sidebar-content h3 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin: 15px 0 10px 0; }
+			.memory-card { background: var(--light-bg); padding: 12px; border-radius: 10px; font-size: 0.9rem; line-height: 1.4; border: 1px solid var(--border-color); }
+			.file-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+			.file-list li { font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: var(--text-color); }
+			
+			.btn-danger { width: 100%; margin-top: auto; padding: 12px; background: #ef4444; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+			.btn-danger:hover { background: #dc2626; }
+
+		</style>
+	</head>
+	<body class="theme-fancy">
+		<div class="lava-lamp-container">
+			<div class="blob blob1"></div>
+			<div class="blob blob2"></div>
+			<div class="blob blob3"></div>
+		</div>
+
+		<header>
+			<h1>Jolene</h1>
+			<p>Your Personal AI Agent</p>
+			
+			<div class="controls-row">
+				<select id="model-selector" class="btn-secondary">
+					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
+					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
+					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
+				</select>
+				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
+				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+			</div>
+		</header>
+
+		<div class="chat-container">
+			<div id="chat-messages" class="chat-messages">
+				<div class="message assistant-message">
+					<div class="message-content">
+						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
+					</div>
+				</div>
+			</div>
+			
+			<div id="typing-indicator" class="message assistant-message">
+				<div class="message-content">
+					<div class="typing-dots">
+						<span></span><span></span><span></span>
+					</div>
+				</div>
+			</div>
+
+			<div class="message-input">
+				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
+					<input type="file" id="file-input" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" />
+					<button id="memorize-file-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
+				</div>
+				<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
+				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
+			</div>
+		</div>
+
+		<div id="memory-sidebar" class="sidebar">
+			<div class="sidebar-header">
+				<h2>Jolene's Memory</h2>
+				<button id="close-sidebar-btn"><i class="ph ph-x"></i></button>
+			</div>
+			<div class="sidebar-content">
+				<section>
+					<h3><i class="ph ph-user-focus"></i> Profile (KV)</h3>
+					<div id="kv-profile-display" class="memory-card">Loading profile...</div>
+				</section>
+				<section style="margin-top: 30px;">
+					<h3><i class="ph ph-files"></i> Memorized Files (R2)</h3>
+					<ul id="file-list-display" class="file-list">
+						</ul>
+				</section>
+			</div>
+			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe All Knowledge</button>
+		</div>
+
+		<footer>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.8rem;">Jolene AI &copy; 2026</p>
+		</footer>
+
+		<script src="chat.js"></script>
+	</body>
 </html>
