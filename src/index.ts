@@ -12,7 +12,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "default";
+		const sessionId = request.headers.get("x-session-id") || "global";
 
 		// --- D1 & KV: FETCH HISTORY & PREFERENCES ---
 		if (url.pathname === "/api/history") {
@@ -42,10 +42,13 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- R2: LIST ALL FILES ---
+		// --- R2: LIST ALL FILES (INCLUDING UPLOADS) ---
 		if (url.pathname === "/api/files") {
+			// Listing all objects in the bucket
 			const objects = await this.env.DOCUMENTS.list();
+			// Map the keys so the UI sees full paths like 'uploads/default/file.txt'
 			const files = objects.objects.map(o => o.key);
+			
 			return new Response(JSON.stringify({ files }), { 
 				headers: { "Content-Type": "application/json" } 
 			});
@@ -61,6 +64,7 @@ export class ChatSession extends DurableObject<Env> {
 				const text = await file.text();
 				const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
 
+				// Semantic Indexing (Vectorize)
 				for (const chunk of chunks) {
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					await this.env.VECTORIZE.insert([{
@@ -70,6 +74,7 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 
+				// Physical Storage (R2) - Stored in uploads/ directory
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
 					httpMetadata: { contentType: file.type || "text/plain" }
 				});
@@ -104,7 +109,7 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// 2. IMAGE GENERATION LOGIC (FIXED FOR R2 STREAMING)
+				// 2. IMAGE GENERATION LOGIC
 				const isAffirmative = ["sure", "yes", "go for it", "do it", "ok"].includes(lowMsg.replace(/[.!?]/g, ""));
 				const hasImageKeywords = lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("image") || lowMsg.includes("picture");
 
@@ -116,14 +121,12 @@ export class ChatSession extends DurableObject<Env> {
 						imagePrompt = `Photorealistic image of the subject mentioned: ${lastAssistantMsg}`;
 					}
 
-					// We only proceed if it's a clear intent
 					if (hasImageKeywords || isAffirmative) {
 						const imageResponse = await this.env.AI.run(IMAGE_MODEL, 
 							{ prompt: imagePrompt },
 							{ gateway: { id: "ai-sec-gateway" } }
 						);
 						
-						// FIX: Convert the AI stream to a Buffer so R2 knows the content length
 						const imageBuffer = await new Response(imageResponse).arrayBuffer();
 						const imageKey = `generated/${crypto.randomUUID()}.png`;
 						
