@@ -29,7 +29,6 @@ export class ChatSession extends DurableObject<Env> {
 
 		// --- GLOBAL BRAIN: FETCH KV PROFILE (GLOBAL) + D1 STATS ---
 		if (url.pathname === "/api/profile") {
-			// Changed from session-based to GLOBAL
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			
 			const stats = await this.env.jolene_db.prepare(
@@ -104,13 +103,22 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// GLOBAL BRAIN: SAVE PROFILE LOGIC
+				// --- UPDATED GLOBAL BRAIN: APPEND LOGIC ---
 				if (latestUserMessage.toLowerCase().startsWith("save to my profile:")) {
-					const profileData = latestUserMessage.replace(/save to my profile:/i, "").trim();
-					// Changed to GLOBAL key
-					await this.env.SETTINGS.put(`global_user_profile`, profileData);
+					const newData = latestUserMessage.replace(/save to my profile:/i, "").trim();
 					
-					const successMsg = `Got it! I've saved that to your permanent profile. I'll remember this across all future sessions.`;
+					// 1. Fetch existing profile
+					const existingProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
+					
+					// 2. Append new info to old info
+					const updatedProfile = existingProfile 
+						? `${existingProfile} | ${newData}` 
+						: newData;
+					
+					// 3. Save the full combined string back to KV
+					await this.env.SETTINGS.put(`global_user_profile`, updatedProfile);
+					
+					const successMsg = `Got it! I've added that to your profile. I now know: ${updatedProfile}`;
 					
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "user", latestUserMessage).run();
@@ -122,7 +130,7 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// Log to D1
+				// Log standard user message to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
@@ -139,9 +147,9 @@ export class ChatSession extends DurableObject<Env> {
 				// GLOBAL BRAIN: Fetch persistent profile data
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 
-				// SYSTEM PROMPT: Now includes the persistent User Profile
-				let sysPrompt = "You are Jolene, a helpful and witty AI.";
-				if (globalProfile) sysPrompt += `\n\nUser Profile (Remember this across sessions): ${globalProfile}`;
+				// SYSTEM PROMPT
+				let sysPrompt = "You are Jolene, a helpful and witty AI personal assistant.";
+				if (globalProfile) sysPrompt += `\n\nUser Profile Facts (Stay consistent with these): ${globalProfile}`;
 				if (contextText) sysPrompt += `\n\nContext from Memorized Files:\n${contextText}`;
 				
 				const sysIdx = messages.findIndex((m: any) => m.role === 'system');
