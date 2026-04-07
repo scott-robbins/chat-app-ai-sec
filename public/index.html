@@ -32,15 +32,14 @@
 			/* --- FANCY THEME (GLASSMORPHISM) --- */
 			body.theme-fancy {
 				--app-bg: rgba(30, 41, 59, 0.4); 
-				--light-bg: transparent; /* KEY: Must be transparent to see through */
+				--light-bg: transparent; 
 				--border-color: rgba(255, 255, 255, 0.1);
 				--text-color: #f8fafc;
 				--text-light: #cbd5e1;
-				--assistant-msg-bg: rgba(255, 255, 255, 0.05); /* Subtle glass bubble */
+				--assistant-msg-bg: rgba(255, 255, 255, 0.05);
 				--body-bg: #0f172a;
 			}
 
-			/* Apply the actual glass filter here */
 			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
 				backdrop-filter: blur(25px) saturate(180%);
 				-webkit-backdrop-filter: blur(25px) saturate(180%);
@@ -75,7 +74,6 @@
 				overflow-x: hidden;
 			}
 
-			/* Lava Lamp Effect (Fixed Z-index) */
 			.lava-lamp-container {
 				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
 				z-index: -1; overflow: hidden; display: none;
@@ -97,10 +95,7 @@
 			}
 
 			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-			
-			/* FIX: reduced Jolene font size from 2.5rem to 2rem */
 			h1 { font-size: 2rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
-			
 			header p { color: var(--text-light); font-size: 1rem; margin-top: 0.25rem; opacity: 0.8; }
 
 			.chat-container {
@@ -119,16 +114,9 @@
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
-			/* THINKING INDICATOR (Hide by default) */
-			#typing-indicator { 
-				display: none; 
-				align-self: flex-start; 
-			}
-			#typing-indicator.visible { 
-				display: block !important; 
-			}
+			#typing-indicator { display: none; align-self: flex-start; }
+			#typing-indicator.visible { display: block !important; }
 			
-			/* Thinking Indicator Animation Dots */
 			.typing-dots { display: flex; align-items: center; gap: 4px; }
 			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
 			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
@@ -136,7 +124,7 @@
 			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
 			.message-input {
-				display: flex; padding: 1.5rem; background-color: transparent; /* KEY: Transparent input area */
+				display: flex; padding: 1.5rem; background-color: transparent;
 				border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;
 			}
 
@@ -167,6 +155,9 @@
 			.sidebar.open { right: 0; }
 			.btn-danger { width: 100%; margin-top: auto; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
+			/* Voice Icon Styling */
+			#voice-icon { font-size: 1.1rem; }
+
 		</style>
 	</head>
 	<body class="theme-fancy">
@@ -188,6 +179,7 @@
 					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-high" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
 				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
@@ -224,16 +216,16 @@
 		<div id="memory-sidebar" class="sidebar">
 			<div class="sidebar-header">
 				<h2 style="color: var(--primary-color); font-weight: 700;">Jolene's Memory</h2>
-				<button id="close-sidebar-btn"><i class="ph ph-x"></i></button>
+				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
-				<section>
-					<h3 style="color: var(--primary-color);"><i class="ph ph-user-focus"></i> Profile (KV)</h3>
-					<div id="kv-profile-display" class="memory-card">Loading profile...</div>
+				<section id="kv-profile-section">
+					<h3 style="color: var(--primary-color);"><i class="ph ph-user-focus"></i> Memory Insights</h3>
+					<div id="kv-profile-display" class="memory-card" style="margin-top:10px;">Loading memory...</div>
 				</section>
 				<section style="margin-top: 30px;">
-					<h3 style="color: var(--primary-color);"><i class="ph ph-files"></i> Memorized Files (R2)</h3>
-					<ul id="file-list-display" class="file-list"></ul>
+					<h3 style="color: var(--primary-color);"><i class="ph ph-files"></i> Knowledge Base</h3>
+					<ul id="file-list-display" class="file-list" style="list-style:none; margin-top:10px;"></ul>
 				</section>
 			</div>
 			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe All Knowledge</button>
