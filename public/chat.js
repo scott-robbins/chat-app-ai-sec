@@ -1,26 +1,22 @@
 const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
+const fileInput = document.getElementById("file-input");
+const modelSelector = document.getElementById("model-selector");
+
 let chatHistory = [];
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 
-// Initialize
-(function init() {
-    const savedTheme = localStorage.getItem("chatTheme") || "fancy";
-    document.body.className = `theme-${savedTheme}`;
-})();
-
+// UI FUNCTIONS
 function toggleTheme() {
     const isFancy = document.body.classList.contains("theme-fancy");
-    const newTheme = isFancy ? "plain" : "fancy";
-    document.body.className = `theme-${newTheme}`;
-    localStorage.setItem("chatTheme", newTheme);
+    document.body.className = isFancy ? "theme-plain" : "theme-fancy";
+    localStorage.setItem("chatTheme", isFancy ? "plain" : "fancy");
 }
 
 function openSidebar() {
-    const sb = document.getElementById("memory-sidebar");
-    sb.classList.toggle("open");
-    // You could call your /api/profile fetch here to update content
+    document.getElementById("memory-sidebar").classList.toggle("open");
+    // Add logic here to fetch /api/profile if needed
 }
 
 function openHelp() {
@@ -28,8 +24,15 @@ function openHelp() {
     modal.style.display = (modal.style.display === "flex") ? "none" : "flex";
 }
 
+function modelChanged() {
+    const name = modelSelector.options[modelSelector.selectedIndex].text;
+    const msg = document.createElement("div");
+    msg.innerHTML = `<p style="text-align:center; opacity:0.5; font-size:0.8rem; margin:10px 0;">— Switched to ${name} —</p>`;
+    chatMessages.appendChild(msg);
+}
+
 function clearScreen() {
-    chatMessages.innerHTML = `<p style="opacity:0.5; text-align:center;">--- Screen Cleared ---</p>`;
+    chatMessages.innerHTML = `<div class="message"><p>Screen cleared!</p></div>`;
     chatHistory = [];
 }
 
@@ -38,13 +41,14 @@ function newChat() {
     location.reload();
 }
 
+// CORE MESSAGING
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text) return;
 
-    const uMsg = document.createElement("div");
-    uMsg.innerHTML = `<p style="text-align:right; color:#f6821f; margin: 10px 0;"><b>You:</b> ${text}</p>`;
-    chatMessages.appendChild(uMsg);
+    const uDiv = document.createElement("div");
+    uDiv.innerHTML = `<p style="text-align:right; color:#f6821f; margin-bottom:1rem;"><b>You:</b> ${text}</p>`;
+    chatMessages.appendChild(uDiv);
     userInput.value = "";
     chatHistory.push({ role: "user", content: text });
 
@@ -52,14 +56,14 @@ async function sendMessage() {
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-session-id": sessionId },
-            body: JSON.stringify({ messages: chatHistory })
+            body: JSON.stringify({ messages: chatHistory, model: modelSelector.value })
         });
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let assistantText = "";
-        const aMsg = document.createElement("div");
-        chatMessages.appendChild(aMsg);
+        let aiText = "";
+        const aDiv = document.createElement("div");
+        chatMessages.appendChild(aDiv);
 
         while (true) {
             const { done, value } = await reader.read();
@@ -69,12 +73,27 @@ async function sendMessage() {
             for (const line of lines) {
                 if (line.startsWith("data: ")) {
                     const data = JSON.parse(line.slice(6));
-                    assistantText += data.response;
-                    aMsg.innerHTML = `<p><b>Jolene:</b> ${assistantText}</p>`;
+                    aiText += data.response;
+                    aDiv.innerHTML = `<p><b>Jolene:</b> ${aiText}</p>`;
                 }
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-        chatHistory.push({ role: "assistant", content: assistantText });
-    } catch (e) { console.error(e); }
+        chatHistory.push({ role: "assistant", content: aiText });
+    } catch (e) { alert("Error: " + e.message); }
+}
+
+async function memorizeFile() {
+    const file = fileInput.files[0];
+    if (!file) return alert("Select a file first.");
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
+        if (res.ok) {
+            const aiDiv = document.createElement("div");
+            aiDiv.innerHTML = `<p><b>Jolene:</b> I've memorized **${file.name}**.</p>`;
+            chatMessages.appendChild(aiDiv);
+        }
+    } catch (e) { alert("Upload failed."); }
 }
