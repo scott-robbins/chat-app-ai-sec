@@ -7,6 +7,10 @@ const newChatBtn = document.getElementById("new-chat-btn");
 const clearScreenBtn = document.getElementById("clear-screen-btn");
 const modelSelector = document.getElementById("model-selector");
 
+// Help Modal Elements
+const helpModal = document.getElementById("helpModal");
+const helpBtn = document.getElementById("help-btn");
+
 // File Upload Elements
 const fileInput = document.getElementById("file-input");
 const memorizeBtn = document.getElementById("memorize-file-btn");
@@ -23,6 +27,20 @@ let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
+
+// --- HELP MODAL LOGIC ---
+function toggleHelp() {
+    if (!helpModal) return;
+    const isVisible = helpModal.style.display === "flex";
+    helpModal.style.display = isVisible ? "none" : "flex";
+}
+
+// Close modal if user clicks the dark overlay
+window.addEventListener("click", (event) => {
+    if (event.target === helpModal) {
+        toggleHelp();
+    }
+});
 
 // Initial Theme Logic
 if (localStorage.getItem("chatTheme") === "fancy") {
@@ -58,7 +76,7 @@ async function init() {
                     if (msg.role !== "system") addMessageToChat(msg.role, msg.content); 
                 });
             } else {
-                addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or even generate some art. What's on your mind today?");
+                addMessageToChat('assistant', "Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?");
             }
         }
     } catch (e) {
@@ -70,17 +88,19 @@ init();
 
 function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
+    // Trigger syntax highlighting for code blocks
+    element.querySelectorAll('pre code').forEach((block) => {
+        hljs.highlightElement(block);
+    });
 }
 
 // --- SIDEBAR MANAGEMENT ---
 
 async function updateSidebarContent() {
     try {
-        // Fetch Profile and D1 Stats
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
         
-        // Display Profile and Message Count
         kvDisplay.innerHTML = `
             <p><strong>Profile:</strong> ${profileData.profile}</p>
             <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.8;">
@@ -88,7 +108,6 @@ async function updateSidebarContent() {
             </p>
         `;
 
-        // Fetch Files (Global List)
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
         
@@ -217,7 +236,6 @@ async function sendMessage() {
         }
         chatHistory.push({ role: "assistant", content: text });
         
-        // Refresh sidebar stats in the background if it's open
         if (sidebar.classList.contains("open")) updateSidebarContent();
         
     } catch (err) {
