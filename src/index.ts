@@ -104,29 +104,30 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// 2. CONVERSATIONAL IMAGE GENERATION LOGIC
+				// 2. IMAGE GENERATION LOGIC (FIXED FOR R2 STREAMING)
 				const isAffirmative = ["sure", "yes", "go for it", "do it", "ok"].includes(lowMsg.replace(/[.!?]/g, ""));
 				const hasImageKeywords = lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("image") || lowMsg.includes("picture");
 
 				if (hasImageKeywords || isAffirmative) {
 					let imagePrompt = latestUserMessage;
 
-					// If user just said "Sure/Yes", grab the context from the last things Jolene said
 					if (isAffirmative && !hasImageKeywords) {
 						const lastAssistantMsg = messages.findLast((m: any) => m.role === 'assistant')?.content || "";
-						// Extract the subject if Jolene offered it (e.g., "Would you like me to draw Conor McGregor?")
 						imagePrompt = `Photorealistic image of the subject mentioned: ${lastAssistantMsg}`;
 					}
 
-					// Only trigger if we actually have a prompt worth drawing
+					// We only proceed if it's a clear intent
 					if (hasImageKeywords || isAffirmative) {
 						const imageResponse = await this.env.AI.run(IMAGE_MODEL, 
 							{ prompt: imagePrompt },
 							{ gateway: { id: "ai-sec-gateway" } }
 						);
 						
+						// FIX: Convert the AI stream to a Buffer so R2 knows the content length
+						const imageBuffer = await new Response(imageResponse).arrayBuffer();
 						const imageKey = `generated/${crypto.randomUUID()}.png`;
-						await this.env.DOCUMENTS.put(imageKey, imageResponse, {
+						
+						await this.env.DOCUMENTS.put(imageKey, imageBuffer, {
 							httpMetadata: { contentType: "image/png" }
 						});
 
@@ -159,7 +160,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				let sysPrompt = "You are Jolene, a helpful, witty, and highly capable AI personal assistant. " + 
 								"You can brainstorm, analyze files, and generate photorealistic images. " +
-								"If you offer to draw something and the user agrees, proceed to generate the image.";
+								"If you offer to draw something and the user agrees, generate the image.";
 				
 				if (globalProfile) sysPrompt += `\n\nUser Profile: ${globalProfile}`;
 				if (contextText) sysPrompt += `\n\nFile Context:\n${contextText}`;
