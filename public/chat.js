@@ -14,9 +14,8 @@ localStorage.setItem("chatSessionId", sessionId);
 
 function toggleTheme() {
     const isFancy = document.body.classList.contains("theme-fancy");
-    const newTheme = isFancy ? "plain" : "fancy";
-    document.body.className = `theme-${newTheme}`;
-    localStorage.setItem("chatTheme", newTheme);
+    document.body.className = isFancy ? "theme-plain" : "theme-fancy";
+    localStorage.setItem("chatTheme", isFancy ? "plain" : "fancy");
 }
 
 function openSidebar() {
@@ -24,12 +23,11 @@ function openSidebar() {
 }
 
 function openHelp() {
-    const modal = document.getElementById("help-modal");
-    modal.style.display = (modal.style.display === "flex") ? "none" : "flex";
+    alert("Jolene Tips:\n1. Say 'Draw...' for images.\n2. Upload text for memory.\n3. Switch models for different logic.");
 }
 
 function clearScreen() {
-    chatMessages.innerHTML = `<div class="message"><p>Screen cleared!</p></div>`;
+    chatMessages.innerHTML = `<div class="message assistant-message"><p>Cleared! Ready for something new.</p></div>`;
     chatHistory = [];
 }
 
@@ -41,7 +39,7 @@ function newChat() {
 function modelChanged() {
     const name = modelSelector.options[modelSelector.selectedIndex].text;
     const msg = document.createElement("div");
-    msg.innerHTML = `<p style="text-align:center; opacity:0.5; font-size:0.8rem; margin:10px 0;">— Switched to ${name} —</p>`;
+    msg.innerHTML = `<p style="text-align:center; opacity:0.5; font-size:0.8rem; margin:10px 0;">— Now using ${name} —</p>`;
     chatMessages.appendChild(msg);
 }
 
@@ -50,7 +48,7 @@ async function sendMessage() {
     if (!text) return;
     
     const uDiv = document.createElement("div");
-    uDiv.innerHTML = `<p style="text-align:right; color:#f6821f; margin-bottom:10px;"><b>You:</b> ${text}</p>`;
+    uDiv.innerHTML = `<p style="text-align:right; color:#f6821f; margin-bottom:15px;"><b>You:</b> ${text}</p>`;
     chatMessages.appendChild(uDiv);
     userInput.value = "";
     chatHistory.push({ role: "user", content: text });
@@ -86,13 +84,13 @@ async function sendMessage() {
 
 async function memorizeFile() {
     const file = fileInput.files[0];
-    if (!file) return alert("Select a file.");
+    if (!file) return alert("Please select a file.");
     const formData = new FormData();
     formData.append("file", file);
     const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
     if (res.ok) {
         const d = document.createElement("div");
-        d.innerHTML = `<p><b>Jolene:</b> Memorized ${file.name}.</p>`;
+        d.innerHTML = `<p><b>Jolene:</b> I have memorized ${file.name}.</p>`;
         chatMessages.appendChild(d);
     }
 }
