@@ -29,31 +29,35 @@
 				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 			}
 
+			/* --- FANCY THEME (GLASSMORPHISM) --- */
 			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.9);
-				--light-bg: rgba(15, 23, 42, 0.4);
+				--app-bg: rgba(30, 41, 59, 0.4); /* Reduced opacity for more glass look */
+				--light-bg: transparent; /* KEY: Must be transparent to see through */
 				--border-color: rgba(255, 255, 255, 0.1);
 				--text-color: #f8fafc;
 				--text-light: #cbd5e1;
-				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
+				--assistant-msg-bg: rgba(255, 255, 255, 0.05); /* Subtle glass bubble */
 				--body-bg: #0f172a;
 			}
 
+			/* Apply the actual glass filter here */
 			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
-				backdrop-filter: blur(16px);
-				-webkit-backdrop-filter: blur(16px);
-				border: 1px solid rgba(255, 255, 255, 0.15);
-				box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+				backdrop-filter: blur(25px) saturate(180%);
+				-webkit-backdrop-filter: blur(25px) saturate(180%);
+				border: 1px solid rgba(255, 255, 255, 0.2);
+				box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+				background-color: var(--app-bg);
 			}
 
 			body.theme-fancy #user-input {
-				background-color: rgba(15, 23, 42, 0.5);
+				background-color: rgba(0, 0, 0, 0.2);
 				color: white;
+				border: 1px solid rgba(255, 255, 255, 0.1);
 			}
 
 			body.theme-fancy header h1 {
 				color: #ffffff;
-				text-shadow: 0 2px 10px rgba(246, 130, 31, 0.5);
+				text-shadow: 0 0 20px rgba(246, 130, 31, 0.4);
 			}
 
 			* { box-sizing: border-box; margin: 0; padding: 0; }
@@ -71,90 +75,78 @@
 				overflow-x: hidden;
 			}
 
-			/* Lava Lamp Effect */
+			/* Lava Lamp Effect (Fixed Z-index) */
 			.lava-lamp-container {
 				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
 				z-index: -1; overflow: hidden; display: none;
+				pointer-events: none;
 			}
 			body.theme-fancy .lava-lamp-container { display: block; }
 			
 			.blob {
-				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
+				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5;
 				animation: float 15s infinite alternate ease-in-out;
 			}
-			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; }
-			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
-			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; animation-delay: 5s; }
+			.blob1 { width: 500px; height: 500px; background: #f6821f; top: -100px; left: -100px; }
+			.blob2 { width: 600px; height: 600px; background: #d95d14; bottom: -150px; right: -100px; }
+			.blob3 { width: 400px; height: 400px; background: #faad3f; top: 30%; left: 60%; animation-delay: -5s; }
 
 			@keyframes float {
 				0% { transform: translate(0, 0) scale(1); }
-				100% { transform: translate(100px, -50px) scale(1.2); }
+				100% { transform: translate(120px, -60px) scale(1.1); }
 			}
 
 			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-			h1 { font-size: 1.75rem; color: var(--primary-color); font-weight: 700; }
-			header p { color: var(--text-light); font-size: 0.95rem; margin-top: 0.25rem; }
+			h1 { font-size: 2.5rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
+			header p { color: var(--text-light); font-size: 1rem; margin-top: 0.25rem; opacity: 0.8; }
 
 			.chat-container {
-				display: flex; flex-direction: column; width: 100%; max-width: 800px;
-				height: calc(100vh - 250px); min-height: 500px; background-color: var(--app-bg);
-				border-radius: 16px; overflow: hidden; border: 1px solid var(--border-color);
-				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+				display: flex; flex-direction: column; width: 100%; max-width: 850px;
+				height: calc(100vh - 280px); min-height: 500px; background-color: var(--app-bg);
+				border-radius: 24px; overflow: hidden; border: 1px solid var(--border-color);
+				transition: all 0.3s ease;
 			}
 
 			#chat-messages {
-				flex: 1; overflow-y: auto; padding: 1.5rem; background-color: var(--light-bg);
-				display: flex; flex-direction: column; gap: 1rem;
+				flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg);
+				display: flex; flex-direction: column; gap: 1.5rem;
 			}
 
-			.message { padding: 0.85rem 1.2rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
-			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; }
+			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
+			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
-			#typing-indicator { display: none; align-self: flex-start; }
-			#typing-indicator.visible { display: block; }
-
 			.message-input {
-				display: flex; padding: 1rem; background-color: var(--app-bg);
+				display: flex; padding: 1.5rem; background-color: transparent; /* KEY: Transparent input area */
 				border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;
 			}
 
 			#user-input {
-				flex: 1; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
-				border-radius: 12px; min-height: 50px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none;
+				flex: 1; padding: 1rem; border: 1px solid var(--border-color);
+				border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none;
 			}
 
 			#send-button {
-				padding: 0 1.5rem; height: 50px; background-color: var(--primary-color); color: white;
-				border: none; border-radius: 12px; cursor: pointer; font-size: 1.25rem;
+				padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white;
+				border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s;
 			}
+			#send-button:hover { transform: scale(1.05); }
 
 			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			.btn-secondary { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
+			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
 			
-			body.theme-fancy .btn-secondary { color: white; }
+			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
 
-			.btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
 
-			/* SIDEBAR STYLES */
 			.sidebar {
 				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
 				background: var(--app-bg); border-left: 1px solid var(--border-color);
-				box-shadow: -5px 0 15px rgba(0,0,0,0.1); transition: right 0.3s ease-in-out; 
-				z-index: 1000; padding: 25px; display: flex; flex-direction: column; gap: 20px;
+				transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 20px;
 			}
 			.sidebar.open { right: 0; }
-			.sidebar-header { display: flex; justify-content: space-between; align-items: center; }
-			.sidebar-header h2 { font-size: 1.2rem; color: var(--primary-color); }
-			#close-sidebar-btn { background: none; border: none; color: var(--text-light); font-size: 1.5rem; cursor: pointer; }
-			
-			.sidebar-content h3 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin: 15px 0 10px 0; }
-			.memory-card { background: var(--light-bg); padding: 12px; border-radius: 10px; font-size: 0.9rem; line-height: 1.4; border: 1px solid var(--border-color); }
-			.file-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-			.file-list li { font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: var(--text-color); }
-			
-			.btn-danger { width: 100%; margin-top: auto; padding: 12px; background: #ef4444; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
-			.btn-danger:hover { background: #dc2626; }
+			.btn-danger { width: 100%; margin-top: auto; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
 		</style>
 	</head>
@@ -184,7 +176,7 @@
 		</header>
 
 		<div class="chat-container">
-			<div id="chat-messages" class="chat-messages">
+			<div id="chat-messages">
 				<div class="message assistant-message">
 					<div class="message-content">
 						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
@@ -212,25 +204,24 @@
 
 		<div id="memory-sidebar" class="sidebar">
 			<div class="sidebar-header">
-				<h2>Jolene's Memory</h2>
+				<h2 style="color: var(--primary-color); font-weight: 700;">Jolene's Memory</h2>
 				<button id="close-sidebar-btn"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
 				<section>
-					<h3><i class="ph ph-user-focus"></i> Profile (KV)</h3>
+					<h3 style="color: var(--primary-color);"><i class="ph ph-user-focus"></i> Profile (KV)</h3>
 					<div id="kv-profile-display" class="memory-card">Loading profile...</div>
 				</section>
 				<section style="margin-top: 30px;">
-					<h3><i class="ph ph-files"></i> Memorized Files (R2)</h3>
-					<ul id="file-list-display" class="file-list">
-						</ul>
+					<h3 style="color: var(--primary-color);"><i class="ph ph-files"></i> Memorized Files (R2)</h3>
+					<ul id="file-list-display" class="file-list"></ul>
 				</section>
 			</div>
 			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe All Knowledge</button>
 		</div>
 
 		<footer>
-			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.8rem;">Jolene AI &copy; 2026</p>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
 		</footer>
 
 		<script src="chat.js"></script>
