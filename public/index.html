@@ -14,20 +14,17 @@
 		<style>
 			:root {
 				--primary-color: #f6821f;
-				--primary-hover: #e67e22;
 				--app-bg: #ffffff;
-				--border-color: #e2e8f0;
 				--text-color: #1e293b;
-				--user-msg-bg: #f6821f;
-				--body-bg: #0f172a;
+				--body-bg: #f4f6f8;
 			}
 
 			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.7);
+				--app-bg: rgba(30, 41, 59, 0.85);
 				--light-bg: rgba(15, 23, 42, 0.4);
 				--border-color: rgba(255, 255, 255, 0.1);
 				--text-color: #f8fafc;
-				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
+				--body-bg: #0f172a;
 			}
 
 			body {
@@ -39,69 +36,47 @@
 				flex-direction: column;
 				align-items: center;
 				padding: 2rem 1rem;
-				margin: 0;
+				transition: background 0.5s ease;
 			}
 
-			/* --- LAVA LAMP RESTORED --- */
-			.lava-lamp-container {
-				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-				z-index: -1; overflow: hidden;
-			}
+			.lava-lamp-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; display: none; }
+			body.theme-fancy .lava-lamp-container { display: block; }
 			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6; animation: float 15s infinite alternate ease-in-out; }
 			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; }
 			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
-			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; }
 			@keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(100px, -50px) scale(1.1); } }
 
 			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-			h1 { font-size: 2.2rem; color: #fff; text-shadow: 0 2px 15px rgba(246, 130, 31, 0.6); margin-bottom: 0.2rem; }
-			header p { color: #cbd5e1; font-size: 1rem; opacity: 0.8; }
+			h1 { font-size: 2.2rem; color: #fff; text-shadow: 0 2px 15px rgba(246, 130, 31, 0.5); }
 
-			.controls-row { margin-top: 1.5rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; position: relative; }
+			.controls-row { display: flex; justify-content: center; gap: 10px; margin-top: 1.5rem; }
 			
-			/* Menu Button Logic */
-			.btn-secondary { 
-				padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); 
-				background: rgba(255,255,255,0.1); color: white; cursor: pointer; 
-				display: flex; align-items: center; gap: 8px; backdrop-filter: blur(5px);
+			/* Dropdown Styles */
+			.dropdown { position: relative; display: inline-block; }
+			.dropdown-content {
+				display: none; position: absolute; background-color: #1e293b; min-width: 200px;
+				box-shadow: 0px 8px 16px rgba(0,0,0,0.4); border-radius: 12px; z-index: 1000;
+				border: 1px solid rgba(255,255,255,0.1); overflow: hidden; margin-top: 8px;
 			}
-			.btn-primary { padding: 8px 16px; border-radius: 8px; border: none; background: var(--primary-color); color: white; cursor: pointer; font-weight: 600; }
+			.dropdown-content.show { display: block; }
+			.dropdown-item { color: white; padding: 12px 16px; text-decoration: none; display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.9rem; }
+			.dropdown-item:hover { background-color: var(--primary-color); }
 
-			.dropdown-menu {
-				position: absolute; top: 110%; left: 50%; transform: translateX(-50%);
-				background: #1e293b; border: 1px solid var(--border-color); border-radius: 12px;
-				min-width: 200px; display: none; flex-direction: column; z-index: 3000; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-			}
-			.dropdown-menu.show { display: flex; }
-			.menu-item { padding: 12px 16px; color: white; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
-			.menu-item:hover { background: var(--primary-color); }
-
-			/* --- CHAT CONTAINER RESTORED --- */
 			.chat-container {
-				width: 100%; max-width: 800px; height: calc(100vh - 300px); 
+				width: 100%; max-width: 800px; height: calc(100vh - 300px);
 				background: var(--app-bg); border-radius: 20px; overflow: hidden;
-				border: 1px solid var(--border-color); backdrop-filter: blur(15px);
-				display: flex; flex-direction: column;
+				border: 1px solid var(--border-color); backdrop-filter: blur(10px);
+				display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
 			}
 
-			#chat-messages { flex: 1; overflow-y: auto; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
-
-			.message-input { padding: 1.5rem; background: rgba(15, 23, 42, 0.2); border-top: 1px solid var(--border-color); }
-			.input-row { display: flex; gap: 12px; align-items: center; }
-			
-			#user-input {
-				flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
-				border-radius: 12px; padding: 12px; color: white; font-family: inherit; resize: none;
-			}
-			
-			#send-button { background: var(--primary-color); border: none; border-radius: 50%; width: 45px; height: 45px; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+			#chat-messages { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+			.message-input { padding: 1.5rem; border-top: 1px solid var(--border-color); background: rgba(0,0,0,0.1); }
 		</style>
 	</head>
 	<body class="theme-fancy">
 		<div class="lava-lamp-container">
 			<div class="blob blob1"></div>
 			<div class="blob blob2"></div>
-			<div class="blob blob3"></div>
 		</div>
 
 		<header>
@@ -109,23 +84,22 @@
 			<p>Your Personal AI Agent</p>
 			
 			<div class="controls-row">
-				<div style="position: relative;">
-					<button class="btn-secondary" onclick="toggleMenu()"><i class="ph ph-list"></i> Settings</button>
-					<div id="settings-menu" class="dropdown-menu">
-						<div class="menu-item" onclick="toggleHelp()"><i class="ph ph-question"></i> Help & Tips</div>
-						<div class="menu-item" onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Switch Theme</div>
-						<div class="menu-item" onclick="toggleSidebar()"><i class="ph ph-database"></i> Memory Sidebar</div>
-						<div class="menu-item">
-							<select id="model-selector" style="background:transparent; border:none; color:white; width:100%;">
+				<div class="dropdown">
+					<button class="btn-secondary" onclick="toggleSettings()"><i class="ph ph-gear"></i> Settings</button>
+					<div id="settings-dropdown" class="dropdown-content">
+						<div class="dropdown-item" id="theme-toggle-btn"><i class="ph ph-magic-wand"></i> Switch Theme</div>
+						<div class="dropdown-item" id="toggle-sidebar-btn"><i class="ph ph-database"></i> Memory & Files</div>
+						<div class="dropdown-item" onclick="toggleHelp()"><i class="ph ph-question"></i> Help Tips</div>
+						<div class="dropdown-item">
+							<select id="model-selector" style="background:transparent; border:none; color:white; width:100%; cursor:pointer;">
 								<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
 								<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
 							</select>
 						</div>
 					</div>
 				</div>
-
-				<button class="btn-secondary" onclick="clearScreen()"><i class="ph ph-trash"></i> Clear Screen</button>
-				<button class="btn-primary" onclick="newChat()"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
+				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
 			</div>
 		</header>
 
@@ -133,34 +107,53 @@
 			<div id="chat-messages">
 				<div class="message assistant-message">
 					<div class="message-content">
-						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or even generate some art. What's on your mind today?</p>
+						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?</p>
 					</div>
 				</div>
+			</div>
+			
+			<div id="typing-indicator" class="message assistant-message">
+				<div class="typing-dots"><span></span><span></span><span></span></div>
 			</div>
 
 			<div class="message-input">
 				<div style="display: flex; gap: 10px; margin-bottom: 10px;">
-					<input type="file" id="file-input" style="color: #cbd5e1; font-size: 0.8rem;" />
-					<button id="memorize-file-btn" class="btn-secondary" onclick="memorizeFile()" style="font-size: 0.8rem; padding: 4px 10px;">
-						<i class="ph ph-paperclip"></i> Memorize File
-					</button>
+					<input type="file" id="file-input" style="color:var(--text-light); font-size:0.8rem;" />
+					<button id="memorize-file-btn" class="btn-secondary" style="font-size:0.8rem; padding: 4px 8px;"><i class="ph ph-paperclip"></i> Memorize</button>
 				</div>
-				<div class="input-row">
-					<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-					<button id="send-button" onclick="sendMessage()"><i class="ph-fill ph-paper-plane-right"></i></button>
+				<div style="display:flex; gap:10px;">
+					<textarea id="user-input" placeholder="Message Jolene..." rows="1" style="flex:1; padding:10px; border-radius:8px; border:1px solid var(--border-color); background:rgba(255,255,255,0.05); color:inherit;"></textarea>
+					<button id="send-button" class="btn-primary" style="border-radius:50%; width:44px; height:44px; padding:0; display:flex; align-items:center; justify-content:center;"><i class="ph-fill ph-paper-plane-right"></i></button>
 				</div>
 			</div>
 		</div>
 
-		<div id="memory-sidebar" class="sidebar">...</div>
-		<div id="helpModal" class="modal-overlay">...</div>
+		<div id="memory-sidebar" class="sidebar">
+			<div class="sidebar-header">
+				<h2>Jolene's Memory</h2>
+				<button id="close-sidebar-btn"><i class="ph ph-x"></i></button>
+			</div>
+			<div class="sidebar-content">
+				<section><h3>Profile (KV)</h3><div id="kv-profile-display" class="memory-card">...</div></section>
+				<section style="margin-top:20px;"><h3>Files (R2)</h3><ul id="file-list-display" class="file-list"></ul></section>
+			</div>
+			<button id="clear-vector-btn" class="btn-danger">Wipe Knowledge</button>
+		</div>
+
+		<div id="helpModal" class="modal-overlay">
+			<div class="modal-content">
+				<div class="sidebar-header"><h2>Jolene Tips</h2><button onclick="toggleHelp()">&times;</button></div>
+				<p><code>Save to my profile: [Fact]</code></p>
+				<p>Ask: <em>"Generate an image of..."</em></p>
+				<button class="btn-primary" onclick="toggleHelp()" style="width:100%; margin-top:20px;">Got it!</button>
+			</div>
+		</div>
 
 		<script src="chat.js"></script>
 		<script>
-			function toggleMenu() { document.getElementById('settings-menu').classList.toggle('show'); }
-			window.onclick = function(e) { if (!e.target.matches('.btn-secondary') && !e.target.matches('.ph-list')) {
-				var dropdowns = document.getElementsByClassName("dropdown-menu");
-				for (var i = 0; i < dropdowns.length; i++) { if (dropdowns[i].classList.contains('show')) dropdowns[i].classList.remove('show'); }
+			function toggleSettings() { document.getElementById('settings-dropdown').classList.toggle('show'); }
+			window.onclick = function(e) { if (!e.target.matches('.btn-secondary') && !e.target.matches('.ph-gear')) {
+				document.getElementById('settings-dropdown').classList.remove('show');
 			}}
 		</script>
 	</body>
