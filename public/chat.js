@@ -80,7 +80,6 @@ async function updateSidebarContent() {
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
         
-        // Display Profile and Message Count
         kvDisplay.innerHTML = `
             <p><strong>Profile:</strong> ${profileData.profile}</p>
             <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.8;">
@@ -88,20 +87,20 @@ async function updateSidebarContent() {
             </p>
         `;
 
-        // Fetch Files (Updated to handle object list with keys)
+        // Fetch Files
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
         
-        fileListDisplay.innerHTML = ""; // Clear existing list
+        fileListDisplay.innerHTML = ""; 
 
         if (filesData.files && filesData.files.length > 0) {
             filesData.files.forEach(file => {
                 const li = document.createElement("li");
                 
-                // Logic to handle object-based file list from updated index.ts
+                // Get the full path key from the object
                 const fullKey = typeof file === 'string' ? file : file.key;
                 
-                // Clean up the name for display (strip folder paths)
+                // Extract filename: "uploads/global/Family.txt" -> "Family.txt"
                 const fileName = fullKey.split('/').pop();
                 const isUpload = fullKey.includes('uploads/');
                 const isGenerated = fullKey.includes('generated/');
