@@ -14,17 +14,25 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- D1 & KV: FETCH HISTORY & PREFERENCES ---
+		// --- D1 & KV: FETCH HISTORY & GLOBAL PREFERENCES ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare(
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
 			).bind(sessionId).all();
 			
-			const theme = await this.env.SETTINGS.get(`theme_${sessionId}`) || "fancy";
+			// Change: Now fetches global_theme so it persists across New Chat/Sessions
+			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
 			
 			return new Response(JSON.stringify({ messages: results, theme }), { 
 				headers: { "Content-Type": "application/json" } 
 			});
+		}
+
+		// --- KV: SAVE THEME PREFERENCE ---
+		if (url.pathname === "/api/save-theme" && request.method === "POST") {
+			const { theme } = await request.json() as any;
+			await this.env.SETTINGS.put(`global_theme`, theme);
+			return new Response("Theme saved", { status: 200 });
 		}
 
 		// --- GLOBAL BRAIN: FETCH KV PROFILE ---
@@ -42,13 +50,9 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- R2: LIST ALL FILES (RECURSIVE - INCLUDES ALL SUBDIRECTORIES) ---
+		// --- R2: LIST ALL FILES (RECURSIVE) ---
 		if (url.pathname === "/api/files") {
-			// R2 .list() is flat by default; it returns all keys regardless of "/"
-			// This ensures we get things like 'uploads/global/Family.txt'
 			const objects = await this.env.DOCUMENTS.list();
-			
-			// We return the full key and metadata so the UI can parse folders and icons
 			const files = objects.objects.map(o => ({
 				key: o.key,
 				size: o.size,
@@ -70,7 +74,6 @@ export class ChatSession extends DurableObject<Env> {
 				const text = await file.text();
 				const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
 
-				// Semantic Indexing (Vectorize)
 				for (const chunk of chunks) {
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					await this.env.VECTORIZE.insert([{
@@ -80,7 +83,6 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 
-				// Physical Storage (R2) - Structured in uploads/
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
 					httpMetadata: { contentType: file.type || "text/plain" }
 				});
