@@ -20,7 +20,6 @@ export class ChatSession extends DurableObject<Env> {
 				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
 			).bind(sessionId).all();
 			
-			// Change: Now fetches global_theme so it persists across New Chat/Sessions
 			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
 			
 			return new Response(JSON.stringify({ messages: results, theme }), { 
@@ -113,6 +112,21 @@ export class ChatSession extends DurableObject<Env> {
 						.bind(sessionId, "assistant", successMsg).run();
 
 					return new Response(`data: ${JSON.stringify({ response: successMsg })}\n\ndata: [DONE]\n\n`, {
+						headers: { "Content-Type": "text/event-stream" }
+					});
+				}
+
+				// 1.5 FUNCTIONAL THEME TRIGGER
+				if (lowMsg.includes("change my ui to") || lowMsg.includes("set theme to")) {
+					const newTheme = lowMsg.includes("plain") ? "plain" : "fancy";
+					await this.env.SETTINGS.put(`global_theme`, newTheme);
+					
+					const themeMsg = `I've switched your interface to the **${newTheme}** theme and saved it to your permanent KV settings.`;
+					
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "assistant", themeMsg).run();
+
+					return new Response(`data: ${JSON.stringify({ response: themeMsg, themeUpdate: newTheme })}\n\ndata: [DONE]\n\n`, {
 						headers: { "Content-Type": "text/event-stream" }
 					});
 				}
