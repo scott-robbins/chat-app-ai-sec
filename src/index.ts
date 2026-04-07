@@ -27,7 +27,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- GLOBAL BRAIN: FETCH KV PROFILE (GLOBAL) + D1 STATS ---
+		// --- GLOBAL BRAIN: FETCH KV PROFILE ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare(
@@ -62,6 +62,8 @@ export class ChatSession extends DurableObject<Env> {
 				const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
 
 				for (const chunk of chunks) {
+					// Embedding calls can also go through gateway if desired, 
+					// but usually kept direct for speed.
 					const embeddingResponse = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					await this.env.VECTORIZE.insert([{
 						id: crypto.randomUUID(),
@@ -103,9 +105,12 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// 2. IMAGE GENERATION LOGIC
+				// 2. IMAGE GENERATION LOGIC (WITH GATEWAY)
 				if (latestUserMessage.toLowerCase().includes("generate an image") || latestUserMessage.toLowerCase().includes("draw a")) {
-					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMessage });
+					const imageResponse = await this.env.AI.run(IMAGE_MODEL, 
+						{ prompt: latestUserMessage },
+						{ gateway: { id: "ai-sec-gateway" } } // UPDATED GATEWAY ID
+					);
 					const imageKey = `generated/${crypto.randomUUID()}.png`;
 					
 					await this.env.DOCUMENTS.put(imageKey, imageResponse, {
@@ -123,7 +128,7 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
-				// 3. STANDARD TEXT/RAG LOGIC
+				// 3. STANDARD TEXT/RAG LOGIC (WITH GATEWAY)
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
@@ -138,10 +143,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 
-				// UPDATED SYSTEM PROMPT: Tell Jolene she can paint!
 				let sysPrompt = "You are Jolene, a helpful, witty, and highly capable AI personal assistant. " + 
-								"You have the ability to brainstorm, analyze files, and generate photorealistic images. " +
-								"If the user asks for a drawing or image, acknowledge that you can create it.";
+								"You have the ability to brainstorm, analyze files, and generate photorealistic images.";
 				
 				if (globalProfile) sysPrompt += `\n\nUser Profile: ${globalProfile}`;
 				if (contextText) sysPrompt += `\n\nFile Context:\n${contextText}`;
@@ -150,7 +153,12 @@ export class ChatSession extends DurableObject<Env> {
 				if (sysIdx !== -1) messages[sysIdx].content = sysPrompt;
 				else messages.unshift({ role: "system", content: sysPrompt });
 
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
+				// UPDATED CHAT RUN WITH GATEWAY ID
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, 
+					{ messages },
+					{ gateway: { id: "ai-sec-gateway" } } // UPDATED GATEWAY ID
+				);
+				
 				const finalContent = chatRun.response || chatRun.choices?.[0]?.message?.content || "I'm not sure how to respond to that.";
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
