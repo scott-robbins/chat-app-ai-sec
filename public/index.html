@@ -12,103 +12,89 @@
 		<link rel="stylesheet" href="style.css">
 
 		<style>
-            /* --- RESTORING JOLENE CORE THEME --- */
 			:root {
 				--primary-color: #f6821f;
 				--primary-hover: #e67e22;
-				--primary-light: rgba(246, 130, 31, 0.1);
-				--light-bg: #f4f6f8;
 				--app-bg: #ffffff;
 				--border-color: #e2e8f0;
 				--text-color: #1e293b;
-				--text-color-dark: #0f172a;
-				--text-light: #64748b;
 				--user-msg-bg: #f6821f;
-				--user-msg-text: #ffffff;
-				--assistant-msg-bg: #ffffff;
-				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
-			}
-
-			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.8);
-				--light-bg: rgba(15, 23, 42, 0.3);
-				--border-color: rgba(255, 255, 255, 0.1);
-				--text-color: #f8fafc;
-				--text-light: #cbd5e1;
-				--assistant-msg-bg: rgba(30, 41, 59, 0.6);
 				--body-bg: #0f172a;
 			}
 
-            body {
+			body.theme-fancy {
+				--app-bg: rgba(30, 41, 59, 0.7);
+				--light-bg: rgba(15, 23, 42, 0.4);
+				--border-color: rgba(255, 255, 255, 0.1);
+				--text-color: #f8fafc;
+				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
+			}
+
+			body {
 				font-family: -apple-system, system-ui, sans-serif;
-				color: var(--text-color);
 				background: var(--body-bg);
+				color: var(--text-color);
 				min-height: 100vh;
 				display: flex;
 				flex-direction: column;
 				align-items: center;
-				padding: 1rem;
-				transition: background 0.5s ease;
-				overflow-x: hidden;
+				padding: 2rem 1rem;
+				margin: 0;
 			}
 
-            /* Restoring Lava Lamp */
+			/* --- LAVA LAMP RESTORED --- */
 			.lava-lamp-container {
 				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-				z-index: -1; overflow: hidden; display: none;
+				z-index: -1; overflow: hidden;
 			}
-			body.theme-fancy .lava-lamp-container { display: block; }
-			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; animation: float 15s infinite alternate ease-in-out; }
+			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6; animation: float 15s infinite alternate ease-in-out; }
 			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; }
 			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
 			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; }
+			@keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(100px, -50px) scale(1.1); } }
 
-            @keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(100px, -50px) scale(1.1); } }
+			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
+			h1 { font-size: 2.2rem; color: #fff; text-shadow: 0 2px 15px rgba(246, 130, 31, 0.6); margin-bottom: 0.2rem; }
+			header p { color: #cbd5e1; font-size: 1rem; opacity: 0.8; }
 
-            /* New Clean Header with Presence */
-			header {
-				display: flex; justify-content: space-between; align-items: center;
-				padding: 1rem 0; width: 100%; max-width: 800px; margin-bottom: 1.5rem;
-			}
-
-			.brand-container { position: relative; cursor: pointer; text-align: left; }
-			.brand-container h1 { font-size: 1.8rem; color: #fff; margin: 0; text-shadow: 0 2px 10px rgba(246, 130, 31, 0.5); }
+			.controls-row { margin-top: 1.5rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; position: relative; }
 			
+			/* Menu Button Logic */
+			.btn-secondary { 
+				padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); 
+				background: rgba(255,255,255,0.1); color: white; cursor: pointer; 
+				display: flex; align-items: center; gap: 8px; backdrop-filter: blur(5px);
+			}
+			.btn-primary { padding: 8px 16px; border-radius: 8px; border: none; background: var(--primary-color); color: white; cursor: pointer; font-weight: 600; }
+
 			.dropdown-menu {
-				position: absolute; top: 110%; left: 0; background: #1e293b;
-				border: 1px solid var(--border-color); border-radius: 12px;
-				min-width: 220px; display: none; flex-direction: column;
-				box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 3000; overflow: hidden;
-                backdrop-filter: blur(10px);
+				position: absolute; top: 110%; left: 50%; transform: translateX(-50%);
+				background: #1e293b; border: 1px solid var(--border-color); border-radius: 12px;
+				min-width: 200px; display: none; flex-direction: column; z-index: 3000; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
 			}
 			.dropdown-menu.show { display: flex; }
-			.menu-item {
-				padding: 14px 18px; color: #fff; display: flex; align-items: center; gap: 12px; transition: 0.2s; font-size: 0.9rem;
-			}
+			.menu-item { padding: 12px 16px; color: white; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
 			.menu-item:hover { background: var(--primary-color); }
 
-			.icon-actions { display: flex; gap: 15px; }
-			.icon-btn { background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; transition: 0.2s; opacity: 0.8; }
-			.icon-btn:hover { opacity: 1; transform: scale(1.1); color: var(--primary-color); }
-
-            /* Chat Window Restored */
-            .chat-container {
-				display: flex; flex-direction: column; width: 100%; max-width: 800px;
-				height: calc(100vh - 200px); min-height: 500px; background-color: var(--app-bg);
-				border-radius: 20px; overflow: hidden; border: 1px solid var(--border-color);
-				backdrop-filter: blur(16px);
-                box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+			/* --- CHAT CONTAINER RESTORED --- */
+			.chat-container {
+				width: 100%; max-width: 800px; height: calc(100vh - 300px); 
+				background: var(--app-bg); border-radius: 20px; overflow: hidden;
+				border: 1px solid var(--border-color); backdrop-filter: blur(15px);
+				display: flex; flex-direction: column;
 			}
 
-			#chat-messages { flex: 1; overflow-y: auto; padding: 1.5rem; background-color: var(--light-bg); display: flex; flex-direction: column; gap: 1rem; }
+			#chat-messages { flex: 1; overflow-y: auto; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
 
-            /* Messaging Bar Cleanup */
-			.input-wrapper {
-				display: flex; align-items: center; gap: 12px; width: 100%;
-				background: rgba(15, 23, 42, 0.5); border-radius: 28px; padding: 10px 20px;
-				border: 1px solid var(--border-color);
+			.message-input { padding: 1.5rem; background: rgba(15, 23, 42, 0.2); border-top: 1px solid var(--border-color); }
+			.input-row { display: flex; gap: 12px; align-items: center; }
+			
+			#user-input {
+				flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+				border-radius: 12px; padding: 12px; color: white; font-family: inherit; resize: none;
 			}
-			#user-input { background: transparent; border: none; outline: none; color: white; flex: 1; font-family: inherit; resize: none; }
+			
+			#send-button { background: var(--primary-color); border: none; border-radius: 50%; width: 45px; height: 45px; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
 		</style>
 	</head>
 	<body class="theme-fancy">
@@ -119,24 +105,27 @@
 		</div>
 
 		<header>
-			<div class="brand-container" onclick="toggleMenu()">
-				<h1>Jolene <i class="ph ph-caret-down" style="font-size: 0.9rem; opacity: 0.6;"></i></h1>
-				<div id="app-menu" class="dropdown-menu">
-					<div class="menu-item" onclick="toggleSidebar()"><i class="ph ph-database"></i> Memory Sidebar</div>
-					<div class="menu-item" onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Switch Theme</div>
-					<div class="menu-item" onclick="toggleHelp()"><i class="ph ph-question"></i> Tips & Help</div>
-                    <div class="menu-item" style="border-top: 1px solid rgba(255,255,255,0.1)">
-						<select id="model-selector" style="background:transparent; border:none; color:inherit; font-size:inherit; width:100%; cursor:pointer;">
-							<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
-							<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-						</select>
+			<h1>Jolene</h1>
+			<p>Your Personal AI Agent</p>
+			
+			<div class="controls-row">
+				<div style="position: relative;">
+					<button class="btn-secondary" onclick="toggleMenu()"><i class="ph ph-list"></i> Settings</button>
+					<div id="settings-menu" class="dropdown-menu">
+						<div class="menu-item" onclick="toggleHelp()"><i class="ph ph-question"></i> Help & Tips</div>
+						<div class="menu-item" onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Switch Theme</div>
+						<div class="menu-item" onclick="toggleSidebar()"><i class="ph ph-database"></i> Memory Sidebar</div>
+						<div class="menu-item">
+							<select id="model-selector" style="background:transparent; border:none; color:white; width:100%;">
+								<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
+								<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+							</select>
+						</div>
 					</div>
 				</div>
-			</div>
 
-			<div class="icon-actions">
-				<button class="icon-btn" onclick="clearScreen()" title="Clear Screen"><i class="ph ph-trash"></i></button>
-				<button class="icon-btn" onclick="newChat()" title="New Chat" style="color: var(--primary-color);"><i class="ph ph-plus-circle"></i></button>
+				<button class="btn-secondary" onclick="clearScreen()"><i class="ph ph-trash"></i> Clear Screen</button>
+				<button class="btn-primary" onclick="newChat()"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
 			</div>
 		</header>
 
@@ -144,78 +133,35 @@
 			<div id="chat-messages">
 				<div class="message assistant-message">
 					<div class="message-content">
-						<p>Hi there! I'm Jolene. How can I help you today?</p>
+						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or even generate some art. What's on your mind today?</p>
 					</div>
 				</div>
 			</div>
 
-            <div id="typing-indicator" class="message assistant-message">
-				<div class="typing-dots"><span></span><span></span><span></span></div>
-			</div>
-
-			<div class="message-input" style="padding: 1.5rem; background: transparent;">
-				<div class="input-wrapper">
-					<label for="file-input" class="icon-btn" title="Upload File" style="font-size: 1.2rem;">
-						<i class="ph ph-paperclip"></i>
-					</label>
-					<input type="file" id="file-input" style="display:none;" onchange="handleFileSelect()">
-					
-					<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-					
-					<button id="send-button" class="icon-btn" style="color: var(--primary-color);">
-						<i class="ph-fill ph-paper-plane-right"></i>
+			<div class="message-input">
+				<div style="display: flex; gap: 10px; margin-bottom: 10px;">
+					<input type="file" id="file-input" style="color: #cbd5e1; font-size: 0.8rem;" />
+					<button id="memorize-file-btn" class="btn-secondary" onclick="memorizeFile()" style="font-size: 0.8rem; padding: 4px 10px;">
+						<i class="ph ph-paperclip"></i> Memorize File
 					</button>
 				</div>
-				<div id="file-status" style="font-size: 0.75rem; color: var(--primary-color); margin-top: 8px; margin-left: 20px; display: none; font-weight: 600;"></div>
+				<div class="input-row">
+					<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
+					<button id="send-button" onclick="sendMessage()"><i class="ph-fill ph-paper-plane-right"></i></button>
+				</div>
 			</div>
 		</div>
 
-        <div id="memory-sidebar" class="sidebar">
-            <div class="sidebar-header">
-                <h2>Jolene's Memory</h2>
-                <button id="close-sidebar-btn" onclick="toggleSidebar()"><i class="ph ph-x"></i></button>
-            </div>
-            <div class="sidebar-content">
-                <section>
-                    <h3><i class="ph ph-user-focus"></i> Profile (KV)</h3>
-                    <div id="kv-profile-display" class="memory-card">Loading profile...</div>
-                </section>
-                <section style="margin-top: 30px;">
-                    <h3><i class="ph ph-files"></i> Memorized Files (R2)</h3>
-                    <ul id="file-list-display" class="file-list"></ul>
-                </section>
-            </div>
-            <button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe All Knowledge</button>
-        </div>
-
-        <div id="helpModal" class="modal-overlay">
-			<div class="modal-content">
-				<div class="sidebar-header" style="margin-bottom: 20px;">
-					<h2>Tips & Tricks</h2>
-					<button onclick="toggleHelp()" style="background:none; border:none; color:var(--text-light); font-size: 1.5rem; cursor:pointer;">&times;</button>
-				</div>
-				<div class="modal-body">
-					<div class="tip-section">
-						<h4><i class="ph ph-brain"></i> Memory</h4>
-						<p>Save facts: <code>Save to my profile: [Fact]</code></p>
-					</div>
-					<div class="tip-section">
-						<h4><i class="ph ph-paint-brush"></i> Art</h4>
-						<p>Ask her to <em>"Generate an image..."</em></p>
-					</div>
-				</div>
-				<button class="btn-primary" style="width:100%; justify-content:center; padding:12px; border-radius: 8px;" onclick="toggleHelp()">Got it!</button>
-			</div>
-		</div>
+		<div id="memory-sidebar" class="sidebar">...</div>
+		<div id="helpModal" class="modal-overlay">...</div>
 
 		<script src="chat.js"></script>
 		<script>
-			function toggleMenu() { document.getElementById('app-menu').classList.toggle('show'); }
-			window.addEventListener('click', function(e) {
-				if (!document.querySelector('.brand-container').contains(e.target)) {
-					document.getElementById('app-menu').classList.remove('show');
-				}
-			});
+			function toggleMenu() { document.getElementById('settings-menu').classList.toggle('show'); }
+			window.onclick = function(e) { if (!e.target.matches('.btn-secondary') && !e.target.matches('.ph-list')) {
+				var dropdowns = document.getElementsByClassName("dropdown-menu");
+				for (var i = 0; i < dropdowns.length; i++) { if (dropdowns[i].classList.contains('show')) dropdowns[i].classList.remove('show'); }
+			}}
 		</script>
 	</body>
 </html>
