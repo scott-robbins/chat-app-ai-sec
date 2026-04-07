@@ -5,12 +5,9 @@ const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 const modelSelector = document.getElementById("model-selector");
 
-// Buttons (Now in Dropdown or Header)
-const themeToggleBtn = document.getElementById("theme-toggle-btn");
-const toggleSidebarBtn = document.getElementById("toggle-sidebar-btn");
+// Buttons (Top Level)
 const clearScreenBtn = document.getElementById("clear-screen-btn");
 const newChatBtn = document.getElementById("new-chat-btn");
-const helpBtn = document.getElementById("help-btn");
 
 // File Elements
 const fileInput = document.getElementById("file-input");
@@ -23,6 +20,7 @@ const clearVectorBtn = document.getElementById("clear-vector-btn");
 const kvDisplay = document.getElementById("kv-profile-display");
 const fileListDisplay = document.getElementById("file-list-display");
 const helpModal = document.getElementById("helpModal");
+const settingsDropdown = document.getElementById("settings-dropdown");
 
 // --- STATE MANAGEMENT ---
 let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
@@ -32,16 +30,16 @@ let isProcessing = false;
 
 // --- INITIALIZATION ---
 async function init() {
-    // Apply saved theme immediately
+    // 1. Restore Theme
     const savedTheme = localStorage.getItem("chatTheme") || "fancy";
     document.body.classList.remove("theme-fancy", "theme-plain");
     document.body.classList.add(`theme-${savedTheme}`);
 
+    // 2. Restore History
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
             const data = await res.json();
-            // Only clear if we actually have history to show
             if (data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = ''; 
                 chatHistory = data.messages;
@@ -55,6 +53,37 @@ async function init() {
     }
 }
 init();
+
+// --- DIRECT UI FUNCTIONS (Called via onclick in HTML) ---
+
+function toggleSettings() {
+    settingsDropdown.classList.toggle('show');
+}
+
+function toggleTheme() {
+    const isFancy = document.body.classList.contains("theme-fancy");
+    document.body.classList.remove("theme-fancy", "theme-plain");
+    const newTheme = isFancy ? "plain" : "fancy";
+    document.body.classList.add(`theme-${newTheme}`);
+    localStorage.setItem("chatTheme", newTheme);
+    addMessageToChat('assistant', `Theme switched to **${newTheme}** mode.`);
+    settingsDropdown.classList.remove('show');
+}
+
+function openSidebar() {
+    sidebar.classList.add("open");
+    updateSidebarContent();
+    settingsDropdown.classList.remove('show');
+}
+
+function openHelp() {
+    helpModal.style.display = "flex";
+    settingsDropdown.classList.remove('show');
+}
+
+function closeHelp() {
+    helpModal.style.display = "none";
+}
 
 // --- UI HELPERS ---
 function renderContent(element, content) {
@@ -76,10 +105,6 @@ function addMessageToChat(role, content) {
     renderContent(el.querySelector(".message-content"), content);
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function toggleHelp() {
-    helpModal.style.display = (helpModal.style.display === "flex") ? "none" : "flex";
 }
 
 // --- SIDEBAR & MEMORY ---
@@ -185,25 +210,7 @@ async function memorizeFile() {
 
 // --- EVENT LISTENERS ---
 
-// Settings Menu Actions
-themeToggleBtn?.addEventListener("click", () => {
-    const isFancy = document.body.classList.contains("theme-fancy");
-    document.body.classList.remove("theme-fancy", "theme-plain");
-    const newTheme = isFancy ? "plain" : "fancy";
-    document.body.classList.add(`theme-${newTheme}`);
-    localStorage.setItem("chatTheme", newTheme);
-    addMessageToChat('assistant', `Theme switched to **${newTheme}** mode.`);
-});
-
-toggleSidebarBtn?.addEventListener("click", () => {
-    sidebar.classList.add("open");
-    updateSidebarContent();
-});
-
-helpBtn?.addEventListener("click", () => {
-    toggleHelp();
-});
-
+// Model Switch Notification
 modelSelector?.addEventListener("change", () => {
     const name = modelSelector.options[modelSelector.selectedIndex].text;
     addMessageToChat('assistant', `I'm now using the **${name}** model.`);
@@ -231,9 +238,12 @@ userInput?.addEventListener("keydown", (e) => {
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
 memorizeBtn?.addEventListener("click", memorizeFile);
 
-// Outside click for Help Modal
+// Global Clicks (Close menu or modal)
 window.onclick = function(event) {
     if (event.target === helpModal) {
-        helpModal.style.display = "none";
+        closeHelp();
+    }
+    if (!event.target.closest('.dropdown')) {
+        settingsDropdown.classList.remove('show');
     }
 }
