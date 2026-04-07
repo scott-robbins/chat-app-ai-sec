@@ -3,14 +3,11 @@ import { DurableObject } from "cloudflare:workers";
 
 const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
 const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct"; 
-const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
-const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- ADVANCED TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -34,23 +31,12 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- CRON BRIEFING ---
-		if (url.pathname === "/api/cron-briefing" && request.method === "POST") {
-			const profile = await this.env.SETTINGS.get(`global_user_profile`) || "General news";
-			const searchResults = await this.searchWeb(`Morning briefing for: ${profile}`);
-			const briefing = `☀️ **Good Morning! Here is your Jolene Daily Briefing:**\n\n${searchResults}`;
-			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-				.bind(sessionId, "assistant", briefing).run();
-			return new Response("OK");
-		}
-
-		// --- DASHBOARD ANALYTICS ---
+		// DASHBOARD ROUTE
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const lastMsg = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").bind(sessionId).first();
 			const thinkingAbout = lastMsg?.content ? (lastMsg.content as string).substring(0, 35) + "..." : "Ready to assist";
-
 			const recentLogs = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20").bind(sessionId).all();
 			const allText = recentLogs.results.map(r => r.content).join(" ").toLowerCase();
 			const words = allText.match(/\b(\w{5,})\b/g) || [];
@@ -65,7 +51,13 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- HISTORY & THEMES ---
+		// R2 FILE LIST
+		if (url.pathname === "/api/files") {
+			const objects = await this.env.DOCUMENTS.list();
+			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
+		}
+
+		// HISTORY & THEME
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
 			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
@@ -78,13 +70,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response("OK");
 		}
 
-		// --- R2 FILE LISTING ---
-		if (url.pathname === "/api/files") {
-			const objects = await this.env.DOCUMENTS.list();
-			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
-		}
-
-		// --- STABLE VISION & MEMORIZE PIPELINE ---
+		// --- VISION & MEMORIZE (STABLE VERSION) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -95,7 +81,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (isImage) {
 					const imageBuffer = await file.arrayBuffer();
 					
-					// Convert to Base64 String (Most stable for Cloudflare AI)
+					// Convert to Base64 String - CRITICAL FIX FOR 8001 ERROR
 					const base64Image = btoa(
 						new Uint8Array(imageBuffer)
 							.reduce((data, byte) => data + String.fromCharCode(byte), '')
@@ -106,7 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 							{
 								role: "user",
 								content: [
-									{ type: "text", text: "Describe this image in detail. Focus on people, objects, and key visual details." },
+									{ type: "text", text: "Describe this image in detail. Mention objects, people, and context for a memory database." },
 									{ type: "image", image: base64Image } 
 								]
 							}
@@ -118,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 					textToIndex = await file.text();
 				}
 
-				// Vectorize Indexing
 				const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
 				for (const chunk of chunks) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
@@ -137,7 +122,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- CHAT WITH SEARCH & CONTEXT ---
+		// CHAT API
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -157,29 +142,18 @@ export class ChatSession extends DurableObject<Env> {
 				contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
-				
-				let sysPrompt = `You are Jolene, a sharp and helpful AI agent.
-IDENTITY: ${globalProfile}
-CONTEXT: ${contextText}
-LIVE SEARCH: ${searchResults}
-
-STRICT ACCURACY RULES:
-1. Use the SEARCH results to answer real-time questions.
-2. If the search results do not contain the specific answer, say "I couldn't verify that currently" - NEVER GUESS.
-3. Your personality: You are a miniature smooth-haired dachshund—sleek, intelligent, and a bit feisty.`;
+				let sysPrompt = `You are Jolene, a sharp AI agent. Identity: ${globalProfile}\nContext: ${contextText}\nSearch: ${searchResults}`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
-
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				const finalContent = chatRun.response || "I'm thinking...";
-				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
-		
+
 		return new Response("Not allowed", { status: 405 });
 	}
 }
