@@ -88,14 +88,31 @@ async function updateSidebarContent() {
             </p>
         `;
 
-        // Fetch Files (Global List)
+        // Fetch Files (Updated to handle object list with keys)
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
         
+        fileListDisplay.innerHTML = ""; // Clear existing list
+
         if (filesData.files && filesData.files.length > 0) {
-            fileListDisplay.innerHTML = filesData.files
-                .map(f => `<li><i class="ph ph-file-text"></i> ${f}</li>`)
-                .join("");
+            filesData.files.forEach(file => {
+                const li = document.createElement("li");
+                
+                // Logic to handle object-based file list from updated index.ts
+                const fullKey = typeof file === 'string' ? file : file.key;
+                
+                // Clean up the name for display (strip folder paths)
+                const fileName = fullKey.split('/').pop();
+                const isUpload = fullKey.includes('uploads/');
+                const isGenerated = fullKey.includes('generated/');
+
+                li.innerHTML = `
+                    <i class="ph ${isGenerated ? 'ph-image' : 'ph-file-text'}" 
+                       style="color: ${isUpload ? 'var(--primary-color)' : 'var(--text-light)'}"></i>
+                    <span title="${fullKey}">${fileName}</span>
+                `;
+                fileListDisplay.appendChild(li);
+            });
         } else {
             fileListDisplay.innerHTML = "<li>No files memorized yet.</li>";
         }
@@ -217,7 +234,6 @@ async function sendMessage() {
         }
         chatHistory.push({ role: "assistant", content: text });
         
-        // Refresh sidebar stats in the background if it's open
         if (sidebar.classList.contains("open")) updateSidebarContent();
         
     } catch (err) {
