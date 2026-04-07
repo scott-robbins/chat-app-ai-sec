@@ -19,16 +19,13 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({
 					api_key: this.env.TAVILY_API_KEY,
 					query: query,
-					search_depth: "advanced", // Deep research mode
-					include_answer: true,      // Get an AI-summarized answer from Tavily
+					search_depth: "advanced",
+					include_answer: true,
 					max_results: 5
 				})
 			});
 			const data = await response.json() as any;
-			
-			// Priority: Use Tavily's pre-summarized 'answer' field first for accuracy
 			if (data.answer) return `VERIFIED FACTUAL SUMMARY: ${data.answer}`;
-			
 			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
@@ -50,9 +47,7 @@ export class ChatSession extends DurableObject<Env> {
 		// --- DASHBOARD ANALYTICS & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
-			
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
-			
 			const lastMsg = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").bind(sessionId).first();
 			const thinkingAbout = lastMsg?.content ? lastMsg.content.substring(0, 35) + "..." : "Ready to assist";
 
@@ -88,17 +83,52 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
 		}
 
+		// --- UPGRADED: VISION BRAIN MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
-			const text = await file.text();
-			const chunks = text.split(/\n/).filter(c => c.trim().length > 0);
+			const isImage = file.type.startsWith("image/");
+			let textToIndex = "";
+
+			if (isImage) {
+				const imageArrayBuffer = await file.arrayBuffer();
+				const visionResponse = await this.env.AI.run(CONVERSATION_MODEL, {
+					messages: [
+						{
+							role: "user",
+							content: [
+								{ type: "text", text: "Describe this image in detail for a searchable database. Mention specific objects, text, colors, and context." },
+								{ type: "image", image: Array.from(new Uint8Array(imageArrayBuffer)) }
+							]
+						}
+					]
+				});
+				textToIndex = visionResponse.response || "Image uploaded but no description generated.";
+			} else {
+				textToIndex = await file.text();
+			}
+
+			const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
 			for (const chunk of chunks) {
 				const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: chunk, fileName: file.name, sessionId } }]);
+				await this.env.VECTORIZE.insert([{ 
+					id: crypto.randomUUID(), 
+					values: emb.data[0], 
+					metadata: { 
+						text: isImage ? `[IMAGE DESCRIPTION]: ${chunk}` : chunk, 
+						fileName: file.name, 
+						sessionId 
+					} 
+				}]);
 			}
-			await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-			return new Response("OK");
+			
+			const storagePath = `${isImage ? 'images' : 'uploads'}/${sessionId}/${file.name}`;
+			await this.env.DOCUMENTS.put(storagePath, await file.arrayBuffer());
+			
+			return new Response(JSON.stringify({ 
+				message: "Memory stored!", 
+				description: isImage ? textToIndex : null 
+			}), { headers: { "Content-Type": "application/json" } });
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
@@ -106,17 +136,9 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
-				const lowMsg = latestUserMessage.toLowerCase();
 
-				// Save User Message to D1 immediately
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
-
-				if (lowMsg.includes("change my ui to") || lowMsg.includes("set theme to")) {
-					const newTheme = lowMsg.includes("plain") ? "plain" : "fancy";
-					await this.env.SETTINGS.put(`global_theme`, newTheme);
-					return new Response(`data: ${JSON.stringify({ response: `Theme set to ${newTheme}`, themeUpdate: newTheme })}\n\ndata: [DONE]\n\n`);
-				}
 
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` });
 				let searchResults = "";
@@ -129,7 +151,6 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				// --- UPGRADED SYSTEM PROMPT FOR ACCURACY ---
 				let sysPrompt = `You are Jolene, a sharp and helpful AI agent.
 IDENTITY: ${globalProfile}
 CONTEXT: ${contextText}
@@ -137,10 +158,9 @@ LIVE SEARCH: ${searchResults}
 
 STRICT ACCURACY RULES:
 1. Use the SEARCH results to answer real-time questions.
-2. If the search results do not contain the specific answer, say "I couldn't verify that currently" - NEVER GUESS OR HALLUCINATE.
-3. Cite your sources with URLs if they are provided in the search content.
-4. If the user's profile is relevant, tailor the tone, but do not prioritize profile assumptions over search facts.
-5. Your personality: You are a miniature smooth-haired dachshund—sleek, intelligent, and a bit feisty.`;
+2. If the search results do not contain the specific answer, say "I couldn't verify that currently" - NEVER GUESS.
+3. Cite your sources with URLs if they are provided.
+4. Your personality: You are a miniature smooth-haired dachshund—sleek, intelligent, and a bit feisty.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 
