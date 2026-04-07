@@ -1,159 +1,59 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jolene AI</title>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <link rel="stylesheet" href="style.css">
-    <style>
-        :root {
-            --primary-color: #f6821f;
-            --body-bg: #0f172a;
-            --app-bg: rgba(30, 41, 59, 0.7);
-            --border-color: rgba(255, 255, 255, 0.15);
-            --text-color: #f8fafc;
-        }
+import { Env } from "./types";
+import { DurableObject } from "cloudflare:workers";
 
-        body.theme-plain {
-            --body-bg: #f8fafc;
-            --app-bg: #ffffff;
-            --text-color: #1e293b;
-            --border-color: #e2e8f0;
-        }
+const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
+const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
+const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+export class ChatSession extends DurableObject<Env> {
+	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-        body {
-            font-family: -apple-system, system-ui, sans-serif;
-            background: var(--body-bg);
-            color: var(--text-color);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 2rem 1rem;
-            transition: all 0.5s ease;
-        }
+	async fetch(request: Request): Promise<Response> {
+		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "default";
 
-        /* --- LAVA LAMP (The Soul of the UI) --- */
-        .lava-lamp-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; }
-        body.theme-plain .lava-lamp-container { display: none; }
-        .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6; animation: float 15s infinite alternate ease-in-out; }
-        .blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; }
-        .blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
-        @keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(100px, -50px) scale(1.1); } }
+		if (url.pathname === "/api/history") {
+			const { results } = await this.env.jolene_db.prepare(
+				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC"
+			).bind(sessionId).all();
+			return new Response(JSON.stringify({ messages: results }), { headers: { "Content-Type": "application/json" } });
+		}
 
-        header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-        h1 { font-size: 2.8rem; color: #fff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.6); margin-bottom: 0.5rem; }
-        body.theme-plain h1 { color: var(--primary-color); text-shadow: none; }
+		if (url.pathname === "/api/chat" && request.method === "POST") {
+			try {
+				const body = await request.json() as any;
+				let messages = body.messages || [];
+				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-        .controls-row { display: flex; justify-content: center; gap: 12px; margin-top: 1.5rem; }
-        
-        .btn-primary, .btn-secondary { 
-            padding: 10px 20px; border-radius: 12px; cursor: pointer; font-weight: 600; 
-            display: flex; align-items: center; gap: 8px; transition: 0.2s; border: none;
-        }
-        .btn-primary { background: var(--primary-color); color: white; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.3); }
-        .btn-secondary { background: rgba(255,255,255,0.1); color: white; border: 1px solid var(--border-color); backdrop-filter: blur(5px); }
+                // IMAGE LOGIC (With Gateway)
+				if (latestUserMessage.toLowerCase().includes("draw") || latestUserMessage.toLowerCase().includes("generate")) {
+					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMessage }, { gateway: { id: "ai-sec-gateway" } });
+					const imageKey = `generated/${crypto.randomUUID()}.png`;
+					const imageBuffer = await new Response(imageResponse).arrayBuffer();
+					await this.env.DOCUMENTS.put(imageKey, imageBuffer, { httpMetadata: { contentType: "image/png" } });
+					const assistantResponse = `Here is your image:\n\n![Generated Image](${PUBLIC_R2_URL}/${imageKey})`;
+					return new Response(`data: ${JSON.stringify({ response: assistantResponse })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+				}
 
-        /* --- DROPDOWN (The Command Center) --- */
-        .dropdown { position: relative; }
-        .dropdown-content {
-            display: none; position: absolute; right: 0; top: 120%; background: #1e293b;
-            min-width: 240px; border-radius: 16px; border: 1px solid var(--border-color);
-            box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 2000; overflow: hidden;
-            backdrop-filter: blur(20px);
-        }
-        .dropdown-content.show { display: block; }
-        .dropdown-item { padding: 14px 18px; color: white; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .dropdown-item:hover { background: var(--primary-color); }
+				// TEXT LOGIC (With Gateway)
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: { id: "ai-sec-gateway" } });
+				const finalContent = chatRun.response || "I'm not sure how to respond.";
+				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
 
-        /* --- CHAT BOX (The Glass Effect) --- */
-        .chat-container {
-            width: 100%; max-width: 850px; height: calc(100vh - 350px);
-            background: var(--app-bg); border: 1px solid var(--border-color);
-            border-radius: 28px; backdrop-filter: blur(25px); display: flex; flex-direction: column; overflow: hidden;
-            box-shadow: 0 25px 60px rgba(0,0,0,0.4);
-        }
-        #chat-messages { flex: 1; overflow-y: auto; padding: 2.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
-        .message-input { padding: 1.5rem 2rem; background: rgba(0,0,0,0.2); border-top: 1px solid var(--border-color); }
-        
-        textarea {
-            width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
-            color: white; border-radius: 14px; padding: 14px; resize: none; outline: none; font-size: 1rem;
-        }
-    </style>
-</head>
-<body class="theme-fancy">
-    <div class="lava-lamp-container">
-        <div class="blob blob1"></div>
-        <div class="blob blob2"></div>
-    </div>
+			} catch (e: any) {
+				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`);
+			}
+		}
+		return new Response("Not Found", { status: 404 });
+	}
+}
 
-    <header>
-        <h1>Jolene</h1>
-        <p>Your Personal AI Agent</p>
-        <div class="controls-row">
-            <button class="btn-secondary" onclick="clearScreen()"><i class="ph ph-trash"></i> Clear Screen</button>
-            <button class="btn-primary" onclick="newChat()"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
-            <div class="dropdown">
-                <button class="btn-secondary" onclick="toggleSettings()"><i class="ph ph-gear"></i> Settings</button>
-                <div id="settings-dropdown" class="dropdown-content">
-                    <div class="dropdown-item" onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Switch Theme</div>
-                    <div class="dropdown-item" onclick="openSidebar()"><i class="ph ph-database"></i> Memory Sidebar</div>
-                    <div class="dropdown-item" onclick="openHelp()"><i class="ph ph-question"></i> Help Tips</div>
-                    <div class="dropdown-item">
-                        <select id="model-selector" onchange="modelChanged()" style="background:transparent; color:white; border:none; width:100%; cursor:pointer;">
-                            <optgroup label="Llama Models" style="background: #1e293b">
-                                <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
-                                <option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-                            </optgroup>
-                            <optgroup label="Open Source" style="background: #1e293b">
-                                <option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral 7B</option>
-                                <option value="@cf/google/gemma-7b-it">Gemma 7B</option>
-                                <option value="@cf/microsoft/phi-2">Microsoft Phi-2</option>
-                            </optgroup>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </header>
-
-    <div class="chat-container">
-        <div id="chat-messages">
-            <div class="message assistant-message">
-                <div class="message-content">
-                    <p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?</p>
-                </div>
-            </div>
-        </div>
-        <div class="message-input">
-            <div style="display:flex; gap:10px; margin-bottom:12px; align-items:center;">
-                <input type="file" id="file-input" style="color:#cbd5e1; font-size: 0.85rem;">
-                <button class="btn-secondary" onclick="memorizeFile()" style="font-size: 0.8rem; padding: 6px 12px;">Memorize</button>
-            </div>
-            <div style="display:flex; gap:12px;">
-                <textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-                <button onclick="sendMessage()" class="btn-primary" style="border-radius:50%; width:48px; height:48px; padding:0; display:flex; justify-content:center; align-items:center;">
-                    <i class="ph-fill ph-paper-plane-right" style="font-size: 1.4rem;"></i>
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <footer>
-        <p style="margin-top: 2.5rem; color: #64748b; font-size: 0.85rem;">Jolene AI &copy; 2026</p>
-    </footer>
-
-    <script src="chat.js"></script>
-    <script>
-        function toggleSettings() { document.getElementById('settings-dropdown').classList.toggle('show'); }
-        window.onclick = function(e) { if (!e.target.closest('.dropdown')) document.getElementById('settings-dropdown').classList.remove('show'); }
-    </script>
-</body>
-</html>
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
