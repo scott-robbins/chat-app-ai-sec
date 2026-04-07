@@ -88,18 +88,26 @@ function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
 }
 
-// --- SIDEBAR MANAGEMENT ---
+// --- SIDEBAR MANAGEMENT (D1 & KV Labeling) ---
 
 async function updateSidebarContent() {
     try {
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
         
+        // Updated UI to differentiate between KV and D1 for the demo
         kvDisplay.innerHTML = `
-            <p><strong>Profile:</strong> ${profileData.profile}</p>
-            <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.8;">
-                <i class="ph ph-chat-centered-text"></i> Total Messages: ${profileData.messageCount}
-            </p>
+            <div style="margin-bottom: 15px;">
+                <p><strong style="color: var(--primary-color);">Profile (Cloudflare KV):</strong></p>
+                <p style="font-size: 0.9rem; line-height: 1.4; opacity: 0.9;">${profileData.profile}</p>
+            </div>
+            
+            <div style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+                <p><strong style="color: #60a5fa;">Insights (Cloudflare D1 SQL):</strong></p>
+                <p style="font-size: 0.85rem; opacity: 0.9;">
+                    <i class="ph ph-database"></i> Total Messages in Table: <strong>${profileData.messageCount}</strong>
+                </p>
+            </div>
         `;
 
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
@@ -234,6 +242,14 @@ async function sendMessage() {
                     if (dataString === "[DONE]") break;
                     try {
                         const json = JSON.parse(dataString);
+                        
+                        // Functional Trigger: Handle theme updates from AI response
+                        if (json.themeUpdate) {
+                            if (json.themeUpdate === "fancy") document.body.classList.add("theme-fancy");
+                            else document.body.classList.remove("theme-fancy");
+                            localStorage.setItem("chatTheme", json.themeUpdate);
+                        }
+
                         text += json.response || "";
                         renderContent(contentEl, text);
                     } catch (e) {}
