@@ -14,8 +14,9 @@ localStorage.setItem("chatSessionId", sessionId);
 
 function toggleTheme() {
     const isFancy = document.body.classList.contains("theme-fancy");
-    document.body.className = isFancy ? "theme-plain" : "theme-fancy";
-    localStorage.setItem("chatTheme", isFancy ? "plain" : "fancy");
+    const newTheme = isFancy ? "plain" : "fancy";
+    document.body.className = `theme-${newTheme}`;
+    localStorage.setItem("chatTheme", newTheme);
 }
 
 function openSidebar() {
@@ -47,6 +48,7 @@ function modelChanged() {
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text) return;
+    
     const uDiv = document.createElement("div");
     uDiv.innerHTML = `<p style="text-align:right; color:#f6821f; margin-bottom:10px;"><b>You:</b> ${text}</p>`;
     chatMessages.appendChild(uDiv);
