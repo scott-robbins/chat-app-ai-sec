@@ -9,164 +9,54 @@
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+		<link rel="stylesheet" href="style.css">
 
 		<style>
-			:root {
-				--primary-color: #f6821f;
-				--primary-hover: #e67e22;
-				--primary-light: rgba(246, 130, 31, 0.1);
-				--light-bg: #f4f6f8;
-				--app-bg: #ffffff;
-				--border-color: #e2e8f0;
-				--text-color: #1e293b;
-				--text-color-dark: #0f172a;
-				--text-light: #64748b;
-				--user-msg-bg: #f6821f;
-				--user-msg-text: #ffffff;
-				--assistant-msg-bg: #ffffff;
-				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
-			}
-
-			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.9);
-				--light-bg: rgba(15, 23, 42, 0.4);
-				--border-color: rgba(255, 255, 255, 0.1);
-				--text-color: #f8fafc;
-				--text-light: #cbd5e1;
-				--assistant-msg-bg: rgba(30, 41, 59, 0.7);
-				--body-bg: #0f172a;
-			}
-
-			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
-				backdrop-filter: blur(16px);
-				-webkit-backdrop-filter: blur(16px);
-				border: 1px solid rgba(255, 255, 255, 0.15);
-				box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
-			}
-
-			body.theme-fancy #user-input {
-				background-color: rgba(15, 23, 42, 0.5);
-				color: white;
-			}
-
-			body.theme-fancy header h1 {
-				color: #ffffff;
-				text-shadow: 0 2px 10px rgba(246, 130, 31, 0.5);
-			}
-
-			* { box-sizing: border-box; margin: 0; padding: 0; }
-
-			body {
-				font-family: -apple-system, system-ui, sans-serif;
-				color: var(--text-color);
-				background: var(--body-bg);
-				min-height: 100vh;
+			/* --- CLEAN HEADER STYLES --- */
+			header {
 				display: flex;
-				flex-direction: column;
+				justify-content: space-between;
 				align-items: center;
-				padding: 2rem 1rem;
-				transition: background 0.5s ease;
-				overflow-x: hidden;
+				padding: 1rem 2rem;
+				width: 100%;
+				max-width: 900px;
+				margin-bottom: 1rem;
 			}
 
-			/* Lava Lamp Effect */
-			.lava-lamp-container {
-				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-				z-index: -1; overflow: hidden; display: none;
-			}
-			body.theme-fancy .lava-lamp-container { display: block; }
+			.brand-container { position: relative; cursor: pointer; }
+			.brand-container h1 { font-size: 1.5rem; color: #fff; margin: 0; }
 			
-			.blob {
-				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
-				animation: float 15s infinite alternate ease-in-out;
+			/* Dropdown Menu Styling */
+			.dropdown-menu {
+				position: absolute; top: 100%; left: 0; background: var(--app-bg);
+				border: 1px solid var(--border-color); border-radius: 12px;
+				min-width: 200px; display: none; flex-direction: column;
+				box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 3000; margin-top: 10px;
 			}
-			.blob1 { width: 400px; height: 400px; background: #f6821f; top: -100px; left: -100px; }
-			.blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
-			.blob3 { width: 300px; height: 300px; background: #faad3f; top: 40%; left: 30%; animation-delay: 5s; }
-
-			@keyframes float {
-				0% { transform: translate(0, 0) scale(1); }
-				100% { transform: translate(100px, -50px) scale(1.2); }
+			.dropdown-menu.show { display: flex; }
+			.menu-item {
+				padding: 12px 16px; color: var(--text-color); text-decoration: none;
+				display: flex; align-items: center; gap: 10px; transition: background 0.2s;
 			}
+			.menu-item:hover { background: var(--primary-light); color: var(--primary-color); }
 
-			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-			h1 { font-size: 1.75rem; color: var(--primary-color); font-weight: 700; }
-			header p { color: var(--text-light); font-size: 0.95rem; margin-top: 0.25rem; }
-
-			.chat-container {
-				display: flex; flex-direction: column; width: 100%; max-width: 800px;
-				height: calc(100vh - 250px); min-height: 500px; background-color: var(--app-bg);
-				border-radius: 16px; overflow: hidden; border: 1px solid var(--border-color);
-				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+			.icon-actions { display: flex; gap: 12px; align-items: center; }
+			.icon-btn {
+				background: none; border: none; color: var(--text-light);
+				font-size: 1.4rem; cursor: pointer; transition: color 0.2s;
+				display: flex; align-items: center; justify-content: center;
 			}
+			.icon-btn:hover { color: var(--primary-color); }
 
-			#chat-messages {
-				flex: 1; overflow-y: auto; padding: 1.5rem; background-color: var(--light-bg);
-				display: flex; flex-direction: column; gap: 1rem;
+			/* Clean Input Area */
+			.input-wrapper {
+				display: flex; align-items: center; gap: 12px; width: 100%;
+				background: var(--light-bg); border-radius: 24px; padding: 8px 16px;
+				border: 1px solid var(--border-color);
 			}
-
-			.message { padding: 0.85rem 1.2rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
-			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; }
-			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
-
-			.message-input {
-				display: flex; padding: 1rem; background-color: var(--app-bg);
-				border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;
-			}
-
 			#user-input {
-				flex: 1; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
-				border-radius: 12px; min-height: 50px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none;
-			}
-
-			#send-button {
-				padding: 0 1.5rem; height: 50px; background-color: var(--primary-color); color: white;
-				border: none; border-radius: 12px; cursor: pointer; font-size: 1.25rem;
-			}
-
-			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			.btn-secondary { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
-			
-			body.theme-fancy .btn-secondary { color: white; }
-
-			.btn-primary { padding: 6px 12px; border-radius: 6px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-
-			/* SIDEBAR STYLES */
-			.sidebar {
-				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
-				background: var(--app-bg); border-left: 1px solid var(--border-color);
-				box-shadow: -5px 0 15px rgba(0,0,0,0.1); transition: right 0.3s ease-in-out; 
-				z-index: 1000; padding: 25px; display: flex; flex-direction: column; gap: 20px;
-			}
-			.sidebar.open { right: 0; }
-			.sidebar-header { display: flex; justify-content: space-between; align-items: center; }
-			.sidebar-header h2 { font-size: 1.2rem; color: var(--primary-color); }
-			#close-sidebar-btn { background: none; border: none; color: var(--text-light); font-size: 1.5rem; cursor: pointer; }
-			
-			.sidebar-content h3 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin: 15px 0 10px 0; }
-			.memory-card { background: var(--light-bg); padding: 12px; border-radius: 10px; font-size: 0.9rem; line-height: 1.4; border: 1px solid var(--border-color); }
-			
-			.btn-danger { width: 100%; margin-top: auto; padding: 12px; background: #ef4444; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
-
-			/* --- HELP MODAL STYLES --- */
-			.modal-overlay {
-				position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-				background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px);
-				display: none; align-items: center; justify-content: center; z-index: 2000;
-			}
-			.modal-content {
-				width: 90%; max-width: 500px; padding: 2rem; background: var(--app-bg);
-				border: 1px solid var(--border-color); border-radius: 16px; animation: slideUp 0.3s ease-out;
-				color: var(--text-color);
-			}
-			.tip-section { margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; }
-			.tip-section:last-child { border-bottom: none; }
-			.tip-section h4 { color: var(--primary-color); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 8px; }
-			.tip-section code { display: block; background: var(--light-bg); padding: 8px; border-radius: 6px; font-size: 0.85rem; margin-top: 8px; border: 1px solid var(--border-color); }
-			
-			@keyframes slideUp {
-				from { transform: translateY(20px); opacity: 0; }
-				to { transform: translateY(0); opacity: 1; }
+				background: transparent !important; border: none !important;
+				outline: none; box-shadow: none !important; padding: 8px 0;
 			}
 		</style>
 	</head>
@@ -178,96 +68,59 @@
 		</div>
 
 		<header>
-			<h1>Jolene</h1>
-			<p>Your Personal AI Agent</p>
-			
-			<div class="controls-row">
-				<select id="model-selector" class="btn-secondary">
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-				</select>
-				<button id="help-btn" class="btn-secondary" onclick="toggleHelp()"><i class="ph ph-question"></i> Help</button>
-				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
-				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+			<div class="brand-container" onclick="toggleMenu()">
+				<h1>Jolene <i class="ph ph-caret-down" style="font-size: 0.8rem;"></i></h1>
+				<div id="app-menu" class="dropdown-menu">
+					<div class="menu-item" onclick="toggleSidebar()"><i class="ph ph-database"></i> Memory & Files</div>
+					<div class="menu-item" onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Switch Theme</div>
+					<div class="menu-item">
+						<select id="model-selector" style="background:transparent; border:none; color:inherit; font-size:inherit; width:100%;">
+							<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
+							<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+						</select>
+					</div>
+				</div>
+			</div>
+
+			<div class="icon-actions">
+				<button class="icon-btn" onclick="toggleHelp()" title="Help"><i class="ph ph-question"></i></button>
+				<button class="icon-btn" onclick="clearScreen()" title="Clear Screen"><i class="ph ph-trash"></i></button>
+				<button class="icon-btn" onclick="newChat()" style="color: var(--primary-color);" title="New Chat"><i class="ph ph-plus-circle"></i></button>
 			</div>
 		</header>
 
-		<div id="helpModal" class="modal-overlay">
-			<div class="modal-content">
-				<div class="sidebar-header" style="margin-bottom: 20px;">
-					<h2>Tips & Tricks</h2>
-					<button onclick="toggleHelp()" style="background:none; border:none; color:var(--text-light); font-size: 1.5rem; cursor:pointer;">&times;</button>
-				</div>
-				<div class="modal-body">
-					<div class="tip-section">
-						<h4><i class="ph ph-brain"></i> Building Memory</h4>
-						<p>Save facts across all sessions by typing:</p>
-						<code>Save to my profile: [Fact]</code>
-					</div>
-					<div class="tip-section">
-						<h4><i class="ph ph-file-text"></i> Training Jolene</h4>
-						<p>Upload files and click <strong>Memorize</strong> to add them to her knowledge base.</p>
-					</div>
-					<div class="tip-section">
-						<h4><i class="ph ph-paint-brush"></i> Artistic Mode</h4>
-						<p>Ask her to <em>"Generate an image of..."</em> or <em>"Draw..."</em> to use Stable Diffusion.</p>
-					</div>
-				</div>
-				<button class="btn-primary" style="width:100%; justify-content:center; padding:12px;" onclick="toggleHelp()">Got it!</button>
-			</div>
-		</div>
-
 		<div class="chat-container">
-			<div id="chat-messages" class="chat-messages">
-				<div class="message assistant-message">
-					<div class="message-content">
-						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?</p>
-					</div>
+			<div id="chat-messages">
 				</div>
-			</div>
 
-			<div class="message-input">
-				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
-					<input type="file" id="file-input" accept=".txt,.md,.pdf" />
-					<button id="memorize-file-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
+			<div class="message-input" style="border:none; padding: 1.5rem;">
+				<div class="input-wrapper">
+					<label for="file-input" class="icon-btn" title="Upload File">
+						<i class="ph ph-paperclip"></i>
+					</label>
+					<input type="file" id="file-input" style="display:none;" onchange="handleFileSelect()">
+					
+					<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
+					
+					<button id="send-button" class="icon-btn" style="color: var(--primary-color);">
+						<i class="ph-fill ph-paper-plane-right"></i>
+					</button>
 				</div>
-				<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
+				<div id="file-status" style="font-size: 0.7rem; color: var(--primary-color); margin-top: 5px; display: none;"></div>
 			</div>
 		</div>
 
-		<div id="memory-sidebar" class="sidebar">
-			<div class="sidebar-header">
-				<h2>Jolene's Memory</h2>
-				<button id="close-sidebar-btn"><i class="ph ph-x"></i></button>
-			</div>
-			<div class="sidebar-content">
-				<section>
-					<h3><i class="ph ph-user-focus"></i> Profile (KV)</h3>
-					<div id="kv-profile-display" class="memory-card">Loading profile...</div>
-				</section>
-				<section style="margin-top: 30px;">
-					<h3><i class="ph ph-files"></i> Memorized Files (R2)</h3>
-					<ul id="file-list-display" class="file-list"></ul>
-				</section>
-			</div>
-			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe All Knowledge</button>
-		</div>
-
-		<script>
-			function toggleHelp() {
-				const modal = document.getElementById('helpModal');
-				modal.style.display = (modal.style.display === 'flex') ? 'none' : 'flex';
-			}
-
-			// Close modal if user clicks background
-			window.onclick = function(event) {
-				const modal = document.getElementById('helpModal');
-				if (event.target == modal) modal.style.display = "none";
-			}
-		</script>
 		<script src="chat.js"></script>
+		<script>
+			function toggleMenu() {
+				document.getElementById('app-menu').classList.toggle('show');
+			}
+			// Close menu when clicking away
+			window.addEventListener('click', function(e) {
+				if (!document.querySelector('.brand-container').contains(e.target)) {
+					document.getElementById('app-menu').classList.remove('show');
+				}
+			});
+		</script>
 	</body>
 </html>
