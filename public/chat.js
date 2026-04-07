@@ -67,13 +67,12 @@ modelSelector?.addEventListener("change", () => {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 });
 
-// --- DASHBOARD UPDATER (Restored R2 & Vectorize) ---
+// --- DASHBOARD UPDATER ---
 async function updateSidebarContent() {
     try {
         const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const data = await res.json();
         
-        // 1. Update Metrics Cards
         kvDisplay.innerHTML = `
             <div class="dash-card">
                 <p class="dash-label">Global Identity (KV)</p>
@@ -103,7 +102,6 @@ async function updateSidebarContent() {
             </div>
         `;
 
-        // 2. Fetch and Update R2 File List
         const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
         const filesData = await filesRes.json();
         
@@ -182,22 +180,46 @@ function createMessageElement(role) {
     return div;
 }
 
-// Memory Actions
+// --- UPDATED: MULTIMODAL MEMORY ACTIONS ---
 memorizeBtn?.addEventListener("click", async () => {
     const file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
-    memorizeBtn.innerText = "Memorizing...";
+    
+    memorizeBtn.innerText = "Analyzing Memory...";
+    memorizeBtn.disabled = true;
+    typingIndicator?.classList.add("visible");
+
     const formData = new FormData();
     formData.append("file", file);
+
     try {
-        const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
+        const res = await fetch("/api/memorize", { 
+            method: "POST", 
+            headers: { "x-session-id": sessionId }, 
+            body: formData 
+        });
+        
         if (res.ok) {
-            addMessageToChat("assistant", `I've memorized **${file.name}**.`);
+            const data = await res.json();
+            
+            // If it was an image, Jolene should report back her visual analysis
+            const feedbackText = data.description 
+                ? `👁️ **Vision Analysis:** ${data.description}\n\nI've stored this visual memory in my Brain.`
+                : `I've successfully memorized **${file.name}**! I've indexed it into Vectorize for semantic search.`;
+
+            addMessageToChat("assistant", feedbackText);
+            speak(feedbackText);
+            
             fileInput.value = "";
             updateSidebarContent();
         }
-    } catch (e) { alert("Memorize failed"); }
-    finally { memorizeBtn.innerText = "Memorize File"; }
+    } catch (e) { 
+        alert("Memorize failed"); 
+    } finally { 
+        memorizeBtn.innerText = "Memorize File"; 
+        memorizeBtn.disabled = false;
+        typingIndicator?.classList.remove("visible");
+    }
 });
 
 sendButton?.addEventListener("click", sendMessage);
