@@ -27,7 +27,9 @@ let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
-let voiceEnabled = true;
+
+// Default Voice to OFF per your request
+let voiceEnabled = false;
 
 // --- THE VOICE ENGINE ---
 const synth = window.speechSynthesis;
@@ -46,16 +48,25 @@ function speak(text) {
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     
-    // Attempt to find a high-quality female voice
+    // Targeted for your Mac's new Ava Premium voice
     const voices = synth.getVoices();
-    const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female") || v.lang === "en-US");
+    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
+                        voices.find(v => v.name.includes("Ava")) ||
+                        voices.find(v => v.name.includes("Siri")) ||
+                        voices.find(v => v.lang === "en-US");
     
-    if (preferredVoice) utterance.voice = preferredVoice;
+    if (joleneVoice) utterance.voice = joleneVoice;
     
-    utterance.pitch = 1.1; // Giving Jolene a slightly witty/energetic pitch
-    utterance.rate = 1.0;
+    // Personality Tweaks: Zippy Doxie energy
+    utterance.pitch = 1.2; 
+    utterance.rate = 1.1;
     
     synth.speak(utterance);
+}
+
+// Ensure the icon matches the default "OFF" state on load
+if (voiceIcon) {
+    voiceIcon.className = "ph ph-speaker-slash";
 }
 
 // Initial Theme Logic (Local check before server sync)
@@ -121,8 +132,11 @@ async function init() {
         addMessageToChat('assistant', "Hi! I'm Jolene. Ready to start a new session.");
     }
 }
-// Load voices into memory for better utterance performance
-synth.getVoices();
+
+// Load voices into memory for modern browsers
+window.speechSynthesis.onvoiceschanged = () => {
+    synth.getVoices();
+};
 init();
 
 function renderContent(element, content) {
@@ -136,25 +150,27 @@ async function updateSidebarContent() {
         const profileData = await profileRes.json();
         
         kvDisplay.innerHTML = `
-            <div style="margin-bottom: 15px;">
-                <p><strong style="color: var(--primary-color);">Profile (Cloudflare KV):</strong></p>
-                <p style="font-size: 0.9rem; line-height: 1.4; opacity: 0.9;">${profileData.profile}</p>
+            <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px;">
+                <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Global Identity (KV)</p>
+                <p style="font-size: 0.9rem; font-weight: 500; line-height: 1.3;">${profileData.profile}</p>
             </div>
             
-            <div style="border-top: 1px solid var(--border-color); padding: 10px 0;">
-                <p><strong style="color: #60a5fa;">Insights (Cloudflare D1 SQL):</strong></p>
-                <p style="font-size: 0.85rem; opacity: 0.9;">
-                    <i class="ph ph-database"></i> Total Messages: <strong>${profileData.messageCount}</strong>
-                </p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px;">
+                    <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">SQL Logs (D1)</p>
+                    <p style="font-size: 1.2rem; color: #60a5fa; font-weight: 500;">${profileData.messageCount}</p>
+                </div>
+                <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px;">
+                    <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Status</p>
+                    <p style="font-size: 0.9rem; font-weight: 500;"><i class="ph ph-circle-wavy-check" style="color: #22c55e;"></i> Live</p>
+                </div>
             </div>
 
-            <div style="border-top: 1px solid var(--border-color); padding-top: 10px;">
-                <p><strong style="color: #a855f7;">Brain (Cloudflare Vectorize):</strong></p>
-                <p style="font-size: 0.85rem; opacity: 0.9;">
-                    <i class="ph ph-brain"></i> Semantic Indexing: <strong>Active</strong>
-                </p>
-                <p style="font-size: 0.7rem; opacity: 0.6; font-style: italic; margin-top: 4px;">
-                    RAG Contextual Retrieval Enabled
+            <div class="dash-card" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #a855f7;">
+                <p style="font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Brain (Vectorize)</p>
+                <p style="font-size: 0.75rem; opacity: 0.8; font-weight: 500;">
+                    Semantic Indexing: Active<br>
+                    RAG Retrieval: Enabled
                 </p>
             </div>
         `;
@@ -305,7 +321,6 @@ async function sendMessage() {
         chatHistory.push({ role: "assistant", content: text });
         if (sidebar.classList.contains("open")) updateSidebarContent();
         
-        // --- VOICE TRIGGER ---
         speak(text);
         
     } catch (err) {
