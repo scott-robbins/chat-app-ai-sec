@@ -42,12 +42,17 @@ export class ChatSession extends DurableObject<Env> {
 			});
 		}
 
-		// --- R2: LIST ALL FILES (INCLUDING UPLOADS) ---
+		// --- R2: LIST ALL FILES (TOTAL RECALL - INCLUDES SUBDIRECTORIES) ---
 		if (url.pathname === "/api/files") {
-			// Listing all objects in the bucket
+			// .list() is flat by default; it returns all keys regardless of "/"
 			const objects = await this.env.DOCUMENTS.list();
-			// Map the keys so the UI sees full paths like 'uploads/default/file.txt'
-			const files = objects.objects.map(o => o.key);
+			
+			// We return the full key and metadata so the UI can parse folders
+			const files = objects.objects.map(o => ({
+				key: o.key,
+				size: o.size,
+				uploaded: o.uploaded
+			}));
 			
 			return new Response(JSON.stringify({ files }), { 
 				headers: { "Content-Type": "application/json" } 
@@ -74,7 +79,7 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 
-				// Physical Storage (R2) - Stored in uploads/ directory
+				// Physical Storage (R2) - Structured in uploads/
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer(), {
 					httpMetadata: { contentType: file.type || "text/plain" }
 				});
