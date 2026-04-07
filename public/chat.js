@@ -88,24 +88,34 @@ function renderContent(element, content) {
     element.innerHTML = marked.parse(content);
 }
 
-// --- SIDEBAR MANAGEMENT (D1 & KV Labeling) ---
+// --- SIDEBAR MANAGEMENT (D1, KV, & Vectorize Labeling) ---
 
 async function updateSidebarContent() {
     try {
         const profileRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const profileData = await profileRes.json();
         
-        // Updated UI to differentiate between KV and D1 for the demo
+        // Show off the full Cloudflare Storage Trifecta
         kvDisplay.innerHTML = `
             <div style="margin-bottom: 15px;">
                 <p><strong style="color: var(--primary-color);">Profile (Cloudflare KV):</strong></p>
                 <p style="font-size: 0.9rem; line-height: 1.4; opacity: 0.9;">${profileData.profile}</p>
             </div>
             
-            <div style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+            <div style="border-top: 1px solid var(--border-color); padding: 10px 0;">
                 <p><strong style="color: #60a5fa;">Insights (Cloudflare D1 SQL):</strong></p>
                 <p style="font-size: 0.85rem; opacity: 0.9;">
-                    <i class="ph ph-database"></i> Total Messages in Table: <strong>${profileData.messageCount}</strong>
+                    <i class="ph ph-database"></i> Total Messages: <strong>${profileData.messageCount}</strong>
+                </p>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+                <p><strong style="color: #a855f7;">Brain (Cloudflare Vectorize):</strong></p>
+                <p style="font-size: 0.85rem; opacity: 0.9;">
+                    <i class="ph ph-brain"></i> Semantic Indexing: <strong>Active</strong>
+                </p>
+                <p style="font-size: 0.7rem; opacity: 0.6; font-style: italic; margin-top: 4px;">
+                    RAG Contextual Retrieval Enabled
                 </p>
             </div>
         `;
@@ -147,7 +157,7 @@ toggleSidebarBtn?.addEventListener("click", () => {
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
 
 clearVectorBtn?.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to wipe Jolene's file memory? This will delete all files in R2.")) return;
+    if (!confirm("Are you sure you want to wipe Jolene's memory? This clears R2 files and Vectorize indices.")) return;
     
     clearVectorBtn.innerText = "Wiping...";
     try {
@@ -156,7 +166,7 @@ clearVectorBtn?.addEventListener("click", async () => {
             headers: { 'x-session-id': sessionId } 
         });
         if (res.ok) {
-            alert("Memory cleared! Jolene has forgotten your uploaded files.");
+            alert("Memory cleared! Jolene is back to a clean slate.");
             updateSidebarContent();
         }
     } catch (e) {
@@ -186,7 +196,7 @@ memorizeBtn?.addEventListener("click", async () => {
         });
 
         if (res.ok) {
-            addMessageToChat("assistant", `I've successfully memorized **${file.name}**! You can now ask me questions about its content.`);
+            addMessageToChat("assistant", `I've successfully memorized **${file.name}**! I've indexed it into Vectorize for semantic search.`);
             fileInput.value = ""; 
             if (sidebar.classList.contains("open")) updateSidebarContent();
         } else {
@@ -243,7 +253,7 @@ async function sendMessage() {
                     try {
                         const json = JSON.parse(dataString);
                         
-                        // Functional Trigger: Handle theme updates from AI response
+                        // Functional Trigger: Instant UI Theme update via AI response
                         if (json.themeUpdate) {
                             if (json.themeUpdate === "fancy") document.body.classList.add("theme-fancy");
                             else document.body.classList.remove("theme-fancy");
