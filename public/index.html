@@ -7,6 +7,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
+        /* --- CORE JOLENE DESIGN --- */
         :root {
             --primary: #f6821f;
             --body-bg: #0f172a;
@@ -33,48 +34,63 @@
             flex-direction: column;
             align-items: center;
             padding: 2rem 1rem;
-            transition: all 0.5s ease;
+            transition: background 0.5s ease;
         }
 
-        .lava-lamp { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; }
-        .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; animation: float 15s infinite alternate ease-in-out; }
+        /* --- LAVA LAMP --- */
+        .lava-lamp { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; }
+        body.theme-plain .lava-lamp { display: none; }
+        .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; animation: float 15s infinite alternate; }
         .blob1 { width: 450px; height: 450px; background: var(--primary); top: -100px; left: -100px; }
         .blob2 { width: 500px; height: 500px; background: #d95d14; bottom: -150px; right: -100px; }
         @keyframes float { 100% { transform: translate(100px, -50px); } }
 
         header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
-        header h1 { font-size: 3rem; color: #fff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.6); margin-bottom: 0.5rem; }
-
-        .controls { display: flex; justify-content: center; gap: 10px; margin-top: 1.5rem; }
-        button { padding: 10px 20px; border-radius: 12px; cursor: pointer; border: none; font-weight: 600; display: flex; align-items: center; gap: 8px; transition: 0.2s; color: white; }
+        header h1 { font-size: 3rem; color: #fff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.6); margin-bottom: 1rem; }
+        
+        .controls { display: flex; justify-content: center; gap: 12px; }
+        button { 
+            padding: 10px 20px; border-radius: 12px; cursor: pointer; border: none; font-weight: 600; 
+            display: flex; align-items: center; gap: 8px; transition: 0.2s; color: white;
+        }
         .btn-sec { background: rgba(255, 255, 255, 0.1); border: 1px solid var(--border); backdrop-filter: blur(5px); }
         .btn-pri { background: var(--primary); }
 
-        /* DROPDOWN */
+        /* --- DROPDOWN --- */
         .dropdown { position: relative; }
-        .dropdown-menu { display: none; position: absolute; top: 120%; right: 0; background: #1e293b; min-width: 220px; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 15px 40px rgba(0,0,0,0.5); z-index: 1000; overflow: hidden; }
+        .dropdown-menu {
+            display: none; position: absolute; top: 120%; right: 0; background: #1e293b;
+            min-width: 240px; border-radius: 16px; border: 1px solid var(--border);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.5); z-index: 1000; overflow: hidden;
+        }
         .dropdown-menu.show { display: block; }
         .menu-item { padding: 14px 18px; color: #fff; display: flex; align-items: center; gap: 12px; cursor: pointer; }
         .menu-item:hover { background: var(--primary); }
 
-        /* CHAT BOX */
-        .chat-container { width: 100%; max-width: 850px; height: calc(100vh - 350px); background: var(--app-bg); border: 1px solid var(--border); border-radius: 28px; backdrop-filter: blur(20px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.4); }
-        #chat-messages { flex: 1; overflow-y: auto; padding: 2.5rem; display: flex; flex-direction: column; gap: 1rem; }
-        .message-input { padding: 1.5rem; background: rgba(0,0,0,0.1); border-top: 1px solid var(--border); }
+        /* --- CHAT BOX --- */
+        .chat-container {
+            width: 100%; max-width: 850px; height: calc(100vh - 350px);
+            background: var(--app-bg); border: 1px solid var(--border);
+            border-radius: 28px; backdrop-filter: blur(25px); display: flex; flex-direction: column; overflow: hidden;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+        }
+        #chat-messages { flex: 1; overflow-y: auto; padding: 2.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+        .message-input { padding: 1.5rem 2rem; background: rgba(0,0,0,0.2); border-top: 1px solid var(--border); }
+        
+        textarea {
+            width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+            color: #fff; border-radius: 14px; padding: 14px; resize: none; outline: none; font-size: 1rem;
+        }
 
-        /* MODALS & SIDEBAR */
-        .sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: #1e293b; border-left: 1px solid var(--border); transition: 0.4s; padding: 2rem; z-index: 2000; color: white; }
+        /* --- SIDEBAR & MODAL --- */
+        .sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: #1e293b; border-left: 1px solid var(--border); transition: 0.4s; padding: 2rem; z-index: 2000; }
         .sidebar.open { right: 0; box-shadow: -10px 0 30px rgba(0,0,0,0.5); }
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 3000; }
-        .modal-content { background: #1e293b; padding: 2rem; border-radius: 20px; width: 90%; max-width: 450px; border: 1px solid var(--border); color: white; }
+        .modal-content { background: #1e293b; padding: 2rem; border-radius: 20px; width: 90%; border: 1px solid var(--border); }
     </style>
 </head>
 <body class="theme-fancy">
-    <div class="lava-lamp">
-        <div class="blob blob1"></div>
-        <div class="blob blob2"></div>
-    </div>
-
+    <div class="lava-lamp"><div class="blob blob1"></div><div class="blob blob2"></div></div>
     <header>
         <h1>Jolene</h1>
         <div class="controls">
@@ -86,6 +102,14 @@
                     <div class="menu-item" onclick="toggleTheme()"><i class="ph ph-magic-wand"></i> Switch Theme</div>
                     <div class="menu-item" onclick="openSidebar()"><i class="ph ph-database"></i> Memory Sidebar</div>
                     <div class="menu-item" onclick="openHelp()"><i class="ph ph-question"></i> Help & Tips</div>
+                    <div class="menu-item" style="border-top:1px solid #444; padding-top:10px;">
+                        <select id="model-selector" onchange="modelChanged()" style="background:transparent; color:white; border:none; width:100%;">
+                            <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
+                            <option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+                            <option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral 7B</option>
+                            <option value="@cf/google/gemma-7b-it">Gemma 7B</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -93,29 +117,31 @@
 
     <div class="chat-container">
         <div id="chat-messages">
-            <div class="message"><p>Hi there! I'm Jolene. How can I help you today?</p></div>
+            <div class="message"><p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or generate some art. What's on your mind today?</p></div>
         </div>
         <div class="message-input">
-            <input type="file" id="file-input" style="color: #64748b; font-size: 0.8rem; margin-bottom: 10px;">
-            <div style="display:flex; gap:10px;">
-                <textarea id="user-input" placeholder="Message Jolene..." style="flex:1; padding:12px; border-radius:12px; border:1px solid var(--border); background:rgba(255,255,255,0.05); color:white; outline:none; resize:none;"></textarea>
+            <div style="display:flex; gap:10px; margin-bottom:12px; align-items:center;">
+                <input type="file" id="file-input" style="color:#64748b; font-size: 0.8rem;">
+                <button class="btn-sec" onclick="memorizeFile()" style="font-size: 0.8rem; padding: 6px 12px;">Memorize</button>
+            </div>
+            <div style="display:flex; gap:12px;">
+                <textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
                 <button onclick="sendMessage()" class="btn-pri" style="border-radius:50%; width:48px; height:48px; padding:0; justify-content:center;"><i class="ph-fill ph-paper-plane-right"></i></button>
             </div>
         </div>
     </div>
 
     <div id="memory-sidebar" class="sidebar">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
-            <h3>Jolene's Memory</h3>
-            <button onclick="openSidebar()" style="background:none; font-size:1.5rem;">&times;</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; color:white;">
+            <h3>Memory</h3><button onclick="openSidebar()" style="background:none; color:white; font-size:1.5rem;">&times;</button>
         </div>
-        <div id="kv-profile-display" style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">Loading profile...</div>
+        <div id="kv-profile-display" style="color:white;">Loading profile...</div>
     </div>
 
     <div id="help-modal" class="modal">
-        <div class="modal-content">
-            <h3>Jolene Tips</h3>
-            <p style="margin: 1rem 0; opacity:0.8;">- Say "Draw a cat" to generate images.<br>- Upload text files to "memorize" them.<br>- Use settings to change models.</p>
+        <div class="modal-content" style="color:white;">
+            <h3>Jolene Help</h3>
+            <p style="margin:1rem 0;">- Use "Draw" to generate art.<br>- Upload files to "Memorize".<br>- Change models in Settings.</p>
             <button class="btn-pri" onclick="openHelp()" style="width:100%; justify-content:center;">Got it!</button>
         </div>
     </div>
