@@ -1,11 +1,84 @@
-/* --- THEME TRANSITIONS --- */
+/* --- THEME VARIABLES & BASE --- */
+:root {
+    --primary-color: #f6821f;
+    --body-bg: #0f172a;
+    --text-color: #f8fafc;
+    --border-color: rgba(255, 255, 255, 0.15);
+    
+    /* The Glassmorphism Secrets */
+    --app-bg: rgba(30, 41, 59, 0.55); 
+    --assistant-msg-bg: rgba(255, 255, 255, 0.05);
+    --glass-blur: blur(25px);
+}
+
+/* Light Theme Overrides */
+body.theme-plain {
+    --body-bg: #f8fafc;
+    --app-bg: rgba(255, 255, 255, 0.9);
+    --text-color: #1e293b;
+    --border-color: #e2e8f0;
+    --assistant-msg-bg: #f1f5f9;
+}
+
 body {
     transition: background 0.4s ease, color 0.4s ease;
+    margin: 0;
+    padding: 0;
+    background-color: var(--body-bg);
+    color: var(--text-color);
+}
+
+/* --- LAVA LAMP BACKGROUND ENGINE --- */
+.lava-lamp-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+body.theme-plain .lava-lamp-container {
+    display: none;
+}
+
+.blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.6;
+    animation: float 18s infinite alternate ease-in-out;
+}
+.blob1 { width: 450px; height: 450px; background: var(--primary-color); top: -100px; left: -100px; }
+.blob2 { width: 550px; height: 550px; background: #d95d14; bottom: -150px; right: -100px; }
+
+@keyframes float {
+    100% { transform: translate(150px, -80px) scale(1.1); }
+}
+
+/* --- CHAT CONTAINER (The Glass Layer) --- */
+.chat-container {
+    width: 100%;
+    max-width: 850px;
+    height: calc(100vh - 350px);
+    margin: 0 auto;
+    
+    /* Glass Effect */
+    background: var(--app-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    
+    border: 1px solid var(--border-color);
+    border-radius: 28px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 /* --- ANIMATIONS & INDICATORS --- */
-
-/* Thinking Indicator Animation */
 .typing-dots {
     display: flex;
     align-items: center;
@@ -21,7 +94,7 @@ body {
 .typing-dots span {
     width: 8px;
     height: 8px;
-    background: #f6821f; /* Standard Jolene Orange */
+    background: var(--primary-color);
     border-radius: 50%;
     display: inline-block;
     animation: bounce 1.3s infinite ease-in-out;
@@ -35,23 +108,25 @@ body {
     40% { transform: scale(1); }
 }
 
-/* Hide by default */
-#typing-indicator {
-    display: none;
-}
-
-#typing-indicator.visible {
-    display: flex;
-}
+#typing-indicator { display: none; }
+#typing-indicator.visible { display: flex; }
 
 /* --- CHAT BUBBLES --- */
+#chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
 .message {
     padding: 0.85rem 1.2rem;
     max-width: 85%;
     border-radius: 18px;
     font-size: 0.95rem;
     line-height: 1.6;
-    margin-bottom: 5px;
 }
 
 .user-message {
@@ -71,8 +146,6 @@ body {
 }
 
 /* --- MARKDOWN & CONTENT STYLING --- */
-
-/* Ensure generated images fit the chat bubble */
 .message img {
     max-width: 100%;
     border-radius: 12px;
@@ -81,7 +154,6 @@ body {
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
-/* Code block styling */
 pre {
     background: #0d1117 !important;
     padding: 1rem;
@@ -100,7 +172,7 @@ code {
 .sidebar {
     position: fixed;
     top: 0;
-    right: -400px; /* Hidden by default */
+    right: -400px;
     width: 350px;
     height: 100%;
     background: var(--app-bg);
@@ -111,12 +183,10 @@ code {
     padding: 25px;
     display: flex;
     flex-direction: column;
-    backdrop-filter: blur(20px);
+    backdrop-filter: var(--glass-blur);
 }
 
-.sidebar.open {
-    right: 0;
-}
+.sidebar.open { right: 0; }
 
 .sidebar-header {
     display: flex;
@@ -126,18 +196,14 @@ code {
 }
 
 .memory-card {
-    background: var(--light-bg);
+    background: rgba(255, 255, 255, 0.05);
     padding: 15px;
     border-radius: 12px;
     border: 1px solid var(--border-color);
     font-size: 0.9rem;
 }
 
-.file-list {
-    list-style: none;
-    padding: 0;
-}
-
+.file-list { list-style: none; padding: 0; }
 .file-list li {
     display: flex;
     align-items: center;
@@ -155,7 +221,7 @@ code {
     height: 100%;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
-    display: none; /* Controlled by JS */
+    display: none;
     align-items: center;
     justify-content: center;
     z-index: 3000;
@@ -163,8 +229,9 @@ code {
 
 .modal-content {
     background: var(--app-bg);
+    backdrop-filter: var(--glass-blur);
     padding: 2rem;
-    border-radius: 20px;
+    border-radius: 24px;
     width: 90%;
     max-width: 500px;
     border: 1px solid var(--border-color);
@@ -190,19 +257,12 @@ code {
 }
 
 /* --- SCROLLBAR CUSTOMIZATION --- */
-#chat-messages::-webkit-scrollbar {
-    width: 6px;
-}
-
-#chat-messages::-webkit-scrollbar-track {
-    background: transparent;
-}
-
+#chat-messages::-webkit-scrollbar { width: 6px; }
+#chat-messages::-webkit-scrollbar-track { background: transparent; }
 #chat-messages::-webkit-scrollbar-thumb {
     background: rgba(246, 130, 31, 0.2);
     border-radius: 10px;
 }
-
 #chat-messages::-webkit-scrollbar-thumb:hover {
     background: rgba(246, 130, 31, 0.5);
 }
