@@ -15,7 +15,6 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- MEMORIZE ROUTE (Robust Binary Upload) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -25,48 +24,45 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Prepare Multipart Body
-					const imgUploadData = new FormData();
-					
-					// Convert to ArrayBuffer then Uint8Array to ensure binary integrity
-					const arrayBuffer = await file.arrayBuffer();
-					const binaryData = new Uint8Array(arrayBuffer);
-					
-					// We must wrap the binary in a Blob and give it a explicit filename
-					// The Images API specifically looks for the 'file' key
-					const fileBlob = new Blob([binaryData], { type: file.type });
-					imgUploadData.append("file", fileBlob, "upload.png");
-
-					const uploadUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`;
-
-					const cfImage = await fetch(uploadUrl, {
+					// 1. Get Direct Upload URL (V2)
+					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
 						method: "POST",
-						headers: { 
-							"Authorization": `Bearer ${token}`
-							// IMPORTANT: Do NOT set Content-Type header; fetch sets it with boundary
-						},
-						body: imgUploadData
+						headers: { "Authorization": `Bearer ${token}` }
+					});
+					
+					const directData = await directUploadRes.json() as any;
+					if (!directData.success) throw new Error("Could not get upload URL");
+
+					const uploadUrl = directData.result.uploadURL;
+
+					// 2. Upload to that URL
+					const uploadFormData = new FormData();
+					uploadFormData.append("file", file);
+
+					const uploadRes = await fetch(uploadUrl, {
+						method: "POST",
+						body: uploadFormData
 					});
 
-					const imgResult = await cfImage.json() as any;
-
-					if (!cfImage.ok || !imgResult.result) {
-						console.error("CF API Fail:", JSON.stringify(imgResult));
-						const msg = imgResult.errors?.[0]?.message || "Invalid Input Structure";
-						const code = imgResult.errors?.[0]?.code || "Unknown";
-						throw new Error(`Cloudflare Images: ${msg} (Code: ${code})`);
+					const imgResult = await uploadRes.json() as any;
+					if (!imgResult.success) {
+						throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
 					}
 
-					const imageUrl = imgResult.result.variants[0]; 
+					// FIX: Access the first variant and ensure it is fetchable
+					// Typically Cloudflare provides a URL like .../variants/public
+					let imageUrl = imgResult.result.variants[0]; 
 
-					// 2. Vision Call - Now routed through AI Gateway
-					const aiImageRes = await fetch(imageUrl + "/width=800,height=800,fit=scale-down");
+					// 3. Vision Analysis - Fetch the image back for Jolene's brain
+					const aiImageRes = await fetch(imageUrl);
+					if (!aiImageRes.ok) throw new Error("Could not retrieve uploaded image for analysis.");
+					
 					const imageBuffer = await aiImageRes.arrayBuffer();
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image for a searchable memory database." },
+								{ type: "text", text: "Who is in this image? Describe the scene for a memory log." },
 								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
@@ -74,7 +70,7 @@ export class ChatSession extends DurableObject<Env> {
 					
 					const description = vision.response || "Image analyzed.";
 
-					// 3. Indexing
+					// 4. Index for RAG
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
