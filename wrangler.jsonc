@@ -8,7 +8,7 @@
 		"global_fetch_strictly_public"
 	],
 	"vars": {
-		"ACCOUNT_ID": "REPLACE_WITH_YOUR_ACTUAL_ACCOUNT_ID"
+		"ACCOUNT_ID": "3746ba19913534b7653b8af6a1299286"
 	},
 	"assets": {
 		"binding": "ASSETS",
@@ -70,7 +70,7 @@
 	],
 	"triggers": {
 		"crons": [
-			"0 * * * *" // Changed to run every hour for better monitoring demo
+			"0 * * * *" 
 		]
 	}
 }
