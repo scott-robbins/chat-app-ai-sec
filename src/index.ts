@@ -14,8 +14,6 @@ export class ChatSession extends DurableObject<Env> {
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const tavilyKey = (this.env.TAVILY_API_KEY || "").trim();
-			if (!tavilyKey) return "Search failed: Tavily Key missing.";
-
 			const response = await fetch("https://api.tavily.com/search", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -35,9 +33,8 @@ export class ChatSession extends DurableObject<Env> {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
-		const startTime = Date.now();
 
-		// --- MEMORIZE ROUTE (Vision + Images API Fix) ---
+		// --- MEMORIZE ROUTE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -46,38 +43,46 @@ export class ChatSession extends DurableObject<Env> {
 				let imageUrl = "";
 
 				if (file.type.startsWith("image/")) {
-					const imgFormData = new FormData();
-					
-					// FIX: Convert to clean Blob to prevent "8001: Invalid Input"
-					const cleanBlob = new Blob([await file.arrayBuffer()], { type: file.type });
-					imgFormData.append("file", cleanBlob, "upload.png"); 
-					
 					const token = (this.env.IMAGES_TOKEN || "").trim();
 					const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
-					if (token.length < 10) {
-						throw new Error("IMAGES_TOKEN is missing or too short. Check Secrets.");
-					}
+					// Prepare the upload specifically for the v4/images API
+					const imgUploadData = new FormData();
+					
+					// Important: Convert to arrayBuffer then to a Part for the FormData
+					const arrayBuffer = await file.arrayBuffer();
+					const filePart = new Uint8Array(arrayBuffer);
+					
+					// Use a very standard filename to avoid parsing errors
+					imgUploadData.append("file", new Blob([filePart], { type: "image/png" }), "image.png");
 
 					const cfImage = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`, {
 						method: "POST",
-						headers: { "Authorization": `Bearer ${token}` },
-						body: imgFormData
+						headers: { 
+							"Authorization": `Bearer ${token}`
+						},
+						body: imgUploadData
 					});
 
 					const imgResult = await cfImage.json() as any;
+
 					if (!cfImage.ok || !imgResult.result) {
-						throw new Error(`CF Images Error: ${imgResult.errors?.[0]?.message || "Invalid Structure"}`);
+						const msg = imgResult.errors?.[0]?.message || "Invalid Input Structure";
+						throw new Error(`Cloudflare Images: ${msg} (Code: ${imgResult.errors?.[0]?.code})`);
 					}
 
+					// Get the first variant URL
 					imageUrl = imgResult.result.variants[0]; 
+
+					// Now fetch it back resized for Llama Vision
 					const aiImageRes = await fetch(imageUrl + "/width=800,height=800,fit=scale-down");
 					const imageBuffer = await aiImageRes.arrayBuffer();
 
+					// THIS should now show up in AI Gateway
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image for my memory logs." },
+								{ type: "text", text: "Describe this image for a memory database. Be thorough." },
 								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
@@ -101,28 +106,25 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- CHAT ROUTE (With Identity sidecar + Search + Gateway) ---
+		// --- CHAT ROUTE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const latestUserMessage = body.messages[body.messages.length - 1].content;
 				
-				// Identity Sidecar
 				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				const profileUpdate = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Identity: "${currentProfile}"\nFact: "${latestUserMessage}"\nUpdate concisely (150 chars) or return exact.`
+					prompt: `Identity: "${currentProfile}"\nFact: "${latestUserMessage}"\nUpdate concise identity or return exact.`
 				}, { gateway: GATEWAY_ID });
 
 				if (profileUpdate.response && profileUpdate.response !== currentProfile) {
 					await this.env.SETTINGS.put(`global_user_profile`, profileUpdate.response);
 				}
 
-				// Search logic
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need search? YES/NO: ${latestUserMessage}` }, { gateway: GATEWAY_ID });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMessage); }
 
-				// RAG context
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] }, { gateway: GATEWAY_ID });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
@@ -141,14 +143,11 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- PROFILE & HISTORY ---
+		// --- HELPERS ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
-			return new Response(JSON.stringify({ 
-				profile: profile || "No profile.", 
-				messageCount: stats?.count || 0 
-			}), { headers: { "Content-Type": "application/json" } });
+			return new Response(JSON.stringify({ profile: profile || "No profile.", messageCount: stats?.count || 0 }), { headers: { "Content-Type": "application/json" } });
 		}
 
 		if (url.pathname === "/api/history") {
