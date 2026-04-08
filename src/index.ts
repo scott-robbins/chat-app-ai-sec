@@ -11,6 +11,19 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
+	// Helper to safely convert binary data to a string the AI can read
+	private async toBase64(file: File): Promise<string> {
+		const arrayBuffer = await file.arrayBuffer();
+		// We use a smaller 'slice' of the buffer to ensure we stay under the 128k token limit
+		const limitedBuffer = arrayBuffer.byteLength > 100000 ? arrayBuffer.slice(0, 100000) : arrayBuffer;
+		const bytes = new Uint8Array(limitedBuffer);
+		let binary = "";
+		for (let i = 0; i < bytes.byteLength; i++) {
+			binary += String.fromCharCode(bytes[i]);
+		}
+		return btoa(binary);
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -24,7 +37,7 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Upload high-res for storage
+					// 1. Upload high-res for storage (This we know works!)
 					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
 						method: "POST", headers: { "Authorization": `Bearer ${token}` }
 					});
@@ -35,17 +48,14 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					const imageUrl = imgResult.result.variants[0]; 
 
-					// 2. FORCE DATA LIMITS FOR THE AI
-					// We take the first 60KB of the image. This is enough for the AI to "see" 
-					// the dachshunds but small enough to NEVER hit the 128k token limit.
-					const arrayBuffer = await file.slice(0, 61440).arrayBuffer();
-					const uint8Image = new Uint8Array(arrayBuffer);
+					// 2. Prepare for AI Vision using Base64
+					const base64Image = await this.toBase64(file);
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe the two dachshunds here (Jolene is black/tan, Hanna is red)." },
-								{ type: "image", image: [...uint8Image] }
+								{ type: "text", text: "Identify the dogs: Jolene (black/tan) and Hanna (red). Describe what they are doing." },
+								{ type: "image", image: base64Image }
 							]}
 						]
 					}, { gateway: GATEWAY_ID });
@@ -72,8 +82,10 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: body.messages }, { gateway: GATEWAY_ID });
+				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", chatRun.response).run();
+
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
