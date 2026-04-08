@@ -33,11 +33,13 @@ export class ChatSession extends DurableObject<Env> {
 
 		// --- ANALYTICS HELPER ---
 		const logMetric = (action: string, value: number = 1) => {
-			this.env.JOLENE_METRICS.writeDataPoint({
-				blobs: [action, sessionId, CONVERSATION_MODEL],
-				doubles: [value, Date.now() - startTime],
-				indexes: [sessionId]
-			});
+			if (this.env.JOLENE_METRICS) {
+				this.env.JOLENE_METRICS.writeDataPoint({
+					blobs: [action, sessionId, CONVERSATION_MODEL],
+					doubles: [value, Date.now() - startTime],
+					indexes: [sessionId]
+				});
+			}
 		};
 
 		// --- PROACTIVE MONITOR ---
@@ -59,7 +61,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response("OK");
 		}
 
-		// --- MEMORIZE WITH CLOUDFLARE IMAGES ---
+		// --- MEMORIZE WITH CLOUDFLARE IMAGES (ROBUST VERSION) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -77,22 +79,30 @@ export class ChatSession extends DurableObject<Env> {
 						headers: { "Authorization": `Bearer ${this.env.IMAGES_TOKEN}` },
 						body: imgFormData
 					});
+
 					const imgResult = await cfImage.json() as any;
+
+					// VALIDATION: Check if upload actually worked
+					if (!cfImage.ok || !imgResult.result) {
+						const errMsg = imgResult.errors?.[0]?.message || "Check Token Permissions";
+						throw new Error(`Cloudflare Images Error: ${errMsg}`);
+					}
+
 					imageUrl = imgResult.result.variants[0]; 
 
-					// 2. Vision analysis using a low-res variant for stability
+					// 2. Vision analysis - Using CF's Resizing to keep AI context window happy
 					const aiImageRes = await fetch(imageUrl + "/width=800,height=800,fit=scale-down");
 					const blob = await aiImageRes.arrayBuffer();
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image for a searchable memory database." },
+								{ type: "text", text: "Describe this image in detail for a memory database. Be specific about people and text." },
 								{ type: "image", image: [...new Uint8Array(blob)] }
 							]}
 						]
 					});
-					textToIndex = vision.response || "Image uploaded.";
+					textToIndex = vision.response || "Image uploaded successfully.";
 					logMetric("image_processed");
 				} else {
 					textToIndex = await file.text();
@@ -108,7 +118,30 @@ export class ChatSession extends DurableObject<Env> {
 				}]);
 
 				return new Response(JSON.stringify({ description: textToIndex }), { headers: { "Content-Type": "application/json" } });
-			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
+			} catch (err: any) { 
+				return new Response(JSON.stringify({ error: err.message }), { status: 500 }); 
+			}
+		}
+
+		// --- CHAT WITH DASHBOARD DATA ---
+		if (url.pathname === "/api/profile") {
+			const profile = await this.env.SETTINGS.get(`global_user_profile`);
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
+			const lastMsg = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").bind(sessionId).first();
+			const thinkingAbout = lastMsg?.content ? (lastMsg.content as string).substring(0, 35) + "..." : "Ready to assist";
+
+			const recentLogs = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20").bind(sessionId).all();
+			const allText = recentLogs.results.map(r => r.content).join(" ").toLowerCase();
+			const words = allText.match(/\b(\w{5,})\b/g) || [];
+			const counts = words.reduce((acc: any, word) => { acc[word] = (acc[word] || 0) + 1; return acc; }, {});
+			const keywords = Object.entries(counts).sort((a: any, b: any) => (b[1] as number) - (a[1] as number)).slice(0, 5).map(e => e[0]).join(", ");
+
+			return new Response(JSON.stringify({ 
+				profile: profile || "No profile saved.",
+				messageCount: stats?.count || 0,
+				thinkingAbout: thinkingAbout,
+				keywords: keywords || "Analyzing..."
+			}), { headers: { "Content-Type": "application/json" } });
 		}
 
 		// --- CHAT WITH AUTO-IDENTITY & ANALYTICS ---
@@ -127,20 +160,18 @@ export class ChatSession extends DurableObject<Env> {
 					logMetric("identity_updated");
 				}
 
-				// Search logic
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need web search? "YES" or "NO" for: ${latestUserMessage}` });
+				// Search & RAG
+				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need search? "YES/NO": ${latestUserMessage}` });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { 
 					searchResults = await this.searchWeb(latestUserMessage); 
 					logMetric("web_search");
 				}
 
-				// RAG logic
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// Generate Final Response
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
 						{ role: "system", content: `You are Jolene. Identity: ${profileUpdate.response}\nContext: ${contextText}\nSearch: ${searchResults}` },
@@ -156,7 +187,17 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// (Add standard routes for /api/profile, /api/history, /api/files as before)
+		// --- SUPPORTING ROUTES ---
+		if (url.pathname === "/api/history") {
+			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
+			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
+			return new Response(JSON.stringify({ messages: results, theme }), { headers: { "Content-Type": "application/json" } });
+		}
+		if (url.pathname === "/api/files") {
+			const objects = await this.env.DOCUMENTS.list();
+			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
+		}
+
 		return new Response("Not Allowed", { status: 405 });
 	}
 }
