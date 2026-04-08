@@ -47,22 +47,23 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					if (!imgResult.success) throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
 
-					const imageUrl = imgResult.result.variants[0]; 
-
-					// 3. Vision Analysis - CRITICAL FIX: Use Resizing to avoid Token Limit (Error 5021)
-					// We append transformation parameters to the URL to downscale the image for the AI
-					const aiFriendlyUrl = imageUrl.endsWith('/') ? `${imageUrl}width=400` : `${imageUrl}/width=400`;
+					// 3. Vision Analysis - Use the 'public' variant to avoid 5021 Token Error
+					// Cloudflare usually provides variants[0] as the base URL. 
+					// We ensure it ends with /public for a web-ready version.
+					let imageUrl = imgResult.result.variants[0];
+					if (!imageUrl.endsWith('/public')) {
+						imageUrl = imageUrl.endsWith('/') ? `${imageUrl}public` : `${imageUrl}/public`;
+					}
 					
-					const aiImageRes = await fetch(aiFriendlyUrl);
-					if (!aiImageRes.ok) throw new Error("Could not retrieve AI-optimized image variant.");
+					const aiImageRes = await fetch(imageUrl);
+					// Fallback to raw URL if the variant hasn't propagated yet
+					const finalBuffer = aiImageRes.ok ? await aiImageRes.arrayBuffer() : await file.arrayBuffer();
 					
-					const imageBuffer = await aiImageRes.arrayBuffer();
-
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Please describe this image in 2 sentences for a searchable log." },
-								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
+								{ type: "text", text: "Please describe this image. If you see two dachshunds, one is Jolene and one is Hanna. Describe what they are doing." },
+								{ type: "image", image: [...new Uint8Array(finalBuffer)] }
 							]}
 						]
 					}, { gateway: GATEWAY_ID });
@@ -74,7 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
-						metadata: { text: description, fileName: file.name, sessionId, imageUrl } 
+						metadata: { text: description, fileName: file.name, sessionId, imageUrl: imgResult.result.variants[0] } 
 					}]);
 
 					return new Response(JSON.stringify({ description }), { headers: { "Content-Type": "application/json" } });
