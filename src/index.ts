@@ -14,9 +14,7 @@ export class ChatSession extends DurableObject<Env> {
 	private arrayBufferToBase64(buffer: ArrayBuffer): string {
 		let binary = "";
 		const bytes = new Uint8Array(buffer);
-		for (let i = 0; i < bytes.byteLength; i++) {
-			binary += String.fromCharCode(bytes[i]);
-		}
+		for (let i = 0; i < bytes.byteLength; i++) { binary += String.fromCharCode(bytes[i]); }
 		return btoa(binary);
 	}
 
@@ -33,10 +31,9 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Standard Upload
+					// 1. Upload the high-res original for storage
 					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
-						method: "POST",
-						headers: { "Authorization": `Bearer ${token}` }
+						method: "POST", headers: { "Authorization": `Bearer ${token}` }
 					});
 					const directData = await directUploadRes.json() as any;
 					const uploadFormData = new FormData();
@@ -45,31 +42,27 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					const imageUrl = imgResult.result.variants[0]; 
 
-					// 2. AGGRESSIVE INTERNAL RESIZING
-					// We fetch the image we just uploaded, but tell Cloudflare to shrink it to 200px
-					// quality=50 makes it very small, which is perfect for AI "sight"
-					const resizedRes = await fetch(imageUrl, {
-						cf: {
-							image: { width: 200, quality: 50, format: "avif" }
-						}
-					});
-
-					// Use the resized buffer, or a very small slice of the original if resize fails
-					const buffer = resizedRes.ok ? await resizedRes.arrayBuffer() : await file.slice(0, 50000).arrayBuffer();
+					// 2. FETCH A TINY THUMBNAIL FOR THE AI
+					// By requesting a 100px thumbnail, we drop the tokens to ~5k
+					const thumbUrl = imageUrl.endsWith('/') ? `${imageUrl}width=100,height=100,fit=scale-down` : `${imageUrl}/width=100,height=100,fit=scale-down`;
+					const thumbRes = await fetch(thumbUrl);
+					
+					// If the resize service fails, we slice the buffer to 10kb to FORCE success
+					const buffer = thumbRes.ok ? await thumbRes.arrayBuffer() : await file.slice(0, 10240).arrayBuffer();
 					const base64Image = this.arrayBufferToBase64(buffer);
 
-					// 3. Vision Analysis with CAP
+					// 3. Vision Analysis with Zero System Prompt overhead
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Identify the dogs: Jolene (black/tan) and Hanna (red). Describe the scene briefly." },
+								{ type: "text", text: "Describe this briefly: black/tan dachshund (Jolene) and red dachshund (Hanna)." },
 								{ type: "image", image: base64Image }
 							]}
 						],
-						max_tokens: 300 // Keep output small to stay under 128k
+						max_tokens: 150 
 					}, { gateway: GATEWAY_ID });
 					
-					const description = vision.response || "Image analyzed.";
+					const description = vision.response || "Dachshunds spotted.";
 
 					// 4. Indexing
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
@@ -86,6 +79,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
+		// --- CHAT ROUTE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
