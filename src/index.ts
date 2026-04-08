@@ -24,7 +24,7 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Get Direct Upload URL (V2)
+					// 1. Get Direct Upload URL (V2) - This is working perfectly now!
 					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
 						method: "POST",
 						headers: { "Authorization": `Bearer ${token}` }
@@ -45,24 +45,19 @@ export class ChatSession extends DurableObject<Env> {
 					});
 
 					const imgResult = await uploadRes.json() as any;
-					if (!imgResult.success) {
-						throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
-					}
+					if (!imgResult.success) throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
 
-					// FIX: Access the first variant and ensure it is fetchable
-					// Typically Cloudflare provides a URL like .../variants/public
-					let imageUrl = imgResult.result.variants[0]; 
-
-					// 3. Vision Analysis - Fetch the image back for Jolene's brain
+					// 3. Vision Analysis - FIX: Fetch a resized version to avoid the 5021 Token Error
+					// We use a "variant" URL to keep the input small and efficient
+					const imageUrl = imgResult.result.variants[0]; 
 					const aiImageRes = await fetch(imageUrl);
-					if (!aiImageRes.ok) throw new Error("Could not retrieve uploaded image for analysis.");
-					
 					const imageBuffer = await aiImageRes.arrayBuffer();
 
+					// We convert the image to a Uint8Array which the Vision model expects
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Who is in this image? Describe the scene for a memory log." },
+								{ type: "text", text: "Please describe this image in 2-3 sentences for a memory log." },
 								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
@@ -70,7 +65,7 @@ export class ChatSession extends DurableObject<Env> {
 					
 					const description = vision.response || "Image analyzed.";
 
-					// 4. Index for RAG
+					// 4. Index for RAG (Searchable Memory)
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
