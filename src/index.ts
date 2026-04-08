@@ -31,7 +31,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- CLEAN COMMAND CENTER DATA ---
+		// --- COMMAND CENTER API ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
@@ -44,8 +44,8 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(JSON.stringify({ 
 					profile: profile,
 					messageCount: stats?.count || 0,
-					knowledgeAssets: fileList, // This is the new list
-					status: "System Online"
+					knowledgeAssets: fileList,
+					status: "Live"
 				}), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
@@ -56,26 +56,41 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ messages: results, theme }), { headers: { "Content-Type": "application/json" } });
 		}
 
+		// --- MEMORIZE ---
+		if (url.pathname === "/api/memorize" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				const textToIndex = await file.text();
+				const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
+				for (const chunk of chunks) {
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: chunk, fileName: file.name, sessionId } }]);
+				}
+				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
+				return new Response(JSON.stringify({ message: "Stored!" }));
+			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
+		}
+
+		// --- CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
-				const latestUserMessage = messages[messages.length - 1]?.content || "";
+				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMessage).run();
+					.bind(sessionId, "user", latestUserMsg).run();
 
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` });
+				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMsg}` });
 				let searchResults = "";
-				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMessage); }
+				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
-				
-				let sysPrompt = `You are Jolene. IDENTITY: ${globalProfile}. CONTEXT: ${contextText}. SEARCH: ${searchResults}. You are a sharp miniature dachshund.`;
+				let sysPrompt = `You are Jolene. CONTEXT: ${contextText}. SEARCH: ${searchResults}. You are a sharp miniature dachshund.`;
 				messages.unshift({ role: "system", content: sysPrompt });
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
