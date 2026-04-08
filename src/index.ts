@@ -31,7 +31,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const startTime = Date.now();
 
-		// --- ANALYTICS HELPER ---
 		const logMetric = (action: string, value: number = 1) => {
 			if (this.env.JOLENE_METRICS) {
 				this.env.JOLENE_METRICS.writeDataPoint({
@@ -42,26 +41,6 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		};
 
-		// --- PROACTIVE MONITOR ---
-		if (url.pathname === "/api/monitor-task" && request.method === "POST") {
-			const profile = await this.env.SETTINGS.get(`global_user_profile`) || "AI and Technology";
-			const lastNews = await this.env.SETTINGS.get(`last_monitored_news`) || "";
-			const searchResults = await this.searchWeb(`Latest critical breaking news for: ${profile}`);
-			
-			const analysis = await this.env.AI.run(REASONING_MODEL, {
-				prompt: `Last News: "${lastNews}"\nNew Search: "${searchResults}"\nTask: Is this NEW? If yes, 2-sentence alert. If no, "NO_UPDATE".`
-			});
-
-			if (analysis.response && !analysis.response.includes("NO_UPDATE")) {
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", `🔔 **Proactive Alert:** ${analysis.response}`).run();
-				await this.env.SETTINGS.put(`last_monitored_news`, analysis.response);
-				logMetric("proactive_alert");
-			}
-			return new Response("OK");
-		}
-
-		// --- MEMORIZE WITH CLOUDFLARE IMAGES (ROBUST VERSION) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -70,11 +49,14 @@ export class ChatSession extends DurableObject<Env> {
 				let imageUrl = "";
 
 				if (file.type.startsWith("image/")) {
-					// 1. Upload to Cloudflare Images
 					const imgFormData = new FormData();
 					imgFormData.append("file", file);
 					
-					const cfImage = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.env.ACCOUNT_ID}/images/v1`, {
+					// Force the use of dashboard variables
+					const accountId = this.env.ACCOUNT_ID || "3746ba19913534b7653b8af6a1299286";
+					const uploadUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`;
+					
+					const cfImage = await fetch(uploadUrl, {
 						method: "POST",
 						headers: { "Authorization": `Bearer ${this.env.IMAGES_TOKEN}` },
 						body: imgFormData
@@ -82,34 +64,33 @@ export class ChatSession extends DurableObject<Env> {
 
 					const imgResult = await cfImage.json() as any;
 
-					// VALIDATION: Check if upload actually worked
 					if (!cfImage.ok || !imgResult.result) {
-						const errMsg = imgResult.errors?.[0]?.message || "Check Token Permissions";
+						console.error("API Response:", JSON.stringify(imgResult));
+						const errMsg = imgResult.errors?.[0]?.message || "Check API Token permissions.";
 						throw new Error(`Cloudflare Images Error: ${errMsg}`);
 					}
 
 					imageUrl = imgResult.result.variants[0]; 
 
-					// 2. Vision analysis - Using CF's Resizing to keep AI context window happy
+					// Use Cloudflare's built-in resizing variant
 					const aiImageRes = await fetch(imageUrl + "/width=800,height=800,fit=scale-down");
 					const blob = await aiImageRes.arrayBuffer();
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image in detail for a memory database. Be specific about people and text." },
+								{ type: "text", text: "Describe this image in detail for a memory database. Focus on the main subjects." },
 								{ type: "image", image: [...new Uint8Array(blob)] }
 							]}
 						]
 					});
-					textToIndex = vision.response || "Image uploaded successfully.";
+					textToIndex = vision.response || "Image analyzed.";
 					logMetric("image_processed");
 				} else {
 					textToIndex = await file.text();
 					logMetric("document_processed");
 				}
 
-				// 3. Vector Indexing
 				const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [textToIndex] });
 				await this.env.VECTORIZE.insert([{ 
 					id: crypto.randomUUID(), 
@@ -123,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- CHAT WITH DASHBOARD DATA ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
@@ -144,13 +124,11 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- CHAT WITH AUTO-IDENTITY & ANALYTICS ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const latestUserMessage = body.messages[body.messages.length - 1].content;
 				
-				// Identity sidecar
 				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				const profileUpdate = await this.env.AI.run(REASONING_MODEL, {
 					prompt: `Identity: "${currentProfile}"\nNew Fact: "${latestUserMessage}"\nUpdate Identity concisely (150 chars max) or return exactly if no new facts.`
@@ -160,7 +138,6 @@ export class ChatSession extends DurableObject<Env> {
 					logMetric("identity_updated");
 				}
 
-				// Search & RAG
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need search? "YES/NO": ${latestUserMessage}` });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { 
@@ -187,7 +164,6 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- SUPPORTING ROUTES ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
 			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
@@ -206,10 +182,5 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
-	},
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const id = env.CHAT_SESSION.idFromName("global");
-		const obj = env.CHAT_SESSION.get(id);
-		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/monitor-task", { method: "POST" })));
 	}
 } satisfies ExportedHandler<Env>;
