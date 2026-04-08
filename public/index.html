@@ -27,7 +27,6 @@
 				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 			}
 
-			/* --- FANCY THEME (GLASSMORPHISM) --- */
 			body.theme-fancy {
 				--app-bg: rgba(30, 41, 59, 0.4); 
 				--light-bg: transparent; 
@@ -112,15 +111,6 @@
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
-			#typing-indicator { display: none; align-self: flex-start; }
-			#typing-indicator.visible { display: block !important; }
-			
-			.typing-dots { display: flex; align-items: center; gap: 4px; }
-			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
-			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-			.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-
 			.message-input {
 				display: flex; padding: 1.5rem; background-color: transparent;
 				border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;
@@ -135,15 +125,10 @@
 				padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white;
 				border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s;
 			}
-			#send-button:hover { transform: scale(1.05); }
 
 			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
 			
-			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
-
-			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
-
 			.sidebar {
 				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
 				background: var(--app-bg); border-left: 1px solid var(--border-color);
@@ -151,9 +136,7 @@
 				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 20px;
 			}
 			.sidebar.open { right: 0; }
-			.btn-danger { width: 100%; margin-top: auto; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
-			/* --- DASHBOARD STYLES --- */
 			.dash-card {
 				background: rgba(255, 255, 255, 0.05);
 				border: 1px solid var(--border-color);
@@ -169,14 +152,14 @@
 				letter-spacing: 1px;
 				margin-bottom: 4px;
 			}
-			.dash-value {
-				font-size: 0.9rem;
-				font-weight: 500;
-				line-height: 1.3;
-			}
+			.dash-value { font-size: 0.9rem; font-weight: 500; }
 
-			/* Voice Icon Styling */
-			#voice-icon { font-size: 1.1rem; }
+			#file-list-display li {
+				font-size: 0.8rem;
+				padding: 6px;
+				border-bottom: 1px solid rgba(255,255,255,0.05);
+				color: #38bdf8;
+			}
 
 		</style>
 	</head>
@@ -192,41 +175,22 @@
 			<p>Your Personal AI Agent</p>
 			
 			<div class="controls-row">
-				<select id="model-selector" class="btn-secondary">
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
-					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
-				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+				<button id="new-chat-btn" class="btn-secondary" style="background: var(--primary-color); color: white;"><i class="ph ph-plus"></i> New Chat</button>
 			</div>
 		</header>
 
 		<div class="chat-container">
 			<div id="chat-messages">
-				<div class="message assistant-message">
-					<div class="message-content">
-						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
-					</div>
-				</div>
+				<div class="message assistant-message">Hi there! I'm Jolene. How can I help you today?</div>
 			</div>
 			
-			<div id="typing-indicator" class="message assistant-message">
-				<div class="message-content">
-					<div class="typing-dots">
-						<span></span><span></span><span></span>
-					</div>
-				</div>
-			</div>
-
 			<div class="message-input">
 				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
-					<input type="file" id="file-input" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" />
-					<button id="memorize-file-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
+					<input type="file" id="file-input" />
+					<button id="memorize-file-btn" class="btn-secondary">Memorize File</button>
 				</div>
 				<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
 				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
@@ -234,31 +198,97 @@
 		</div>
 
 		<div id="memory-sidebar" class="sidebar">
-			<div class="sidebar-header">
-				<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px;">
-					<h2 style="color: var(--primary-color); font-weight: 700;">Jolene's Command Center</h2>
-					<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
-				</div>
+			<h2 style="color: var(--primary-color); margin-bottom: 20px;">Command Center</h2>
+			
+			<div class="dash-card">
+				<span class="dash-label">Global Identity</span>
+				<div id="kv-profile-display" class="dash-value">Syncing...</div>
 			</div>
-			<div class="sidebar-content">
-				<section id="kv-profile-section">
-					<h3 style="color: var(--primary-color); margin-bottom: 15px;"><i class="ph ph-chart-bar"></i> Live Dashboard</h3>
-					<div id="kv-profile-display">
-						Loading metrics...
-					</div>
-				</section>
-				<section style="margin-top: 30px;">
-					<h3 style="color: var(--primary-color); margin-bottom: 10px;"><i class="ph ph-files"></i> Knowledge Assets (R2)</h3>
-					<ul id="file-list-display" class="file-list" style="list-style:none;"></ul>
-				</section>
+
+			<div class="dash-card">
+				<span class="dash-label">Message Volume</span>
+				<div id="msg-count-display" class="dash-value">0</div>
 			</div>
-			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe System Knowledge</button>
+
+			<div class="dash-card">
+				<span class="dash-label">Knowledge Assets (R2)</span>
+				<ul id="file-list-display" style="list-style:none; padding:0; margin-top:5px;"></ul>
+			</div>
+
+			<button id="close-sidebar-btn" class="btn-secondary" style="margin-top: auto;">Close</button>
 		</div>
 
-		<footer>
-			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
-		</footer>
+		<script>
+			const sessionId = "global";
 
-		<script src="chat.js"></script>
+			// SIDEBAR TOGGLE
+			document.getElementById('toggle-sidebar-btn').onclick = () => {
+				document.getElementById('memory-sidebar').classList.add('open');
+				updateDashboard();
+			};
+			document.getElementById('close-sidebar-btn').onclick = () => {
+				document.getElementById('memory-sidebar').classList.remove('open');
+			};
+
+			async function updateDashboard() {
+				const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
+				const data = await res.json();
+				
+				document.getElementById('kv-profile-display').innerText = data.profile;
+				document.getElementById('msg-count-display').innerText = data.messageCount;
+				
+				const list = document.getElementById('file-list-display');
+				list.innerHTML = '';
+				if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
+					data.knowledgeAssets.forEach(f => list.innerHTML += `<li>📄 ${f}</li>`);
+				} else {
+					list.innerHTML = '<li>No assets loaded</li>';
+				}
+			}
+
+			async function sendMessage() {
+				const input = document.getElementById('user-input');
+				const text = input.value.trim();
+				if(!text) return;
+				
+				appendMsg('user-message', text);
+				input.value = '';
+
+				const res = await fetch('/api/chat', {
+					method: 'POST',
+					body: JSON.stringify({ messages: [{role: 'user', content: text}] }),
+					headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }
+				});
+
+				const reader = res.body.getReader();
+				const decoder = new TextDecoder();
+				let fullText = "";
+				
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					const chunk = decoder.decode(value);
+					const lines = chunk.split('\n');
+					lines.forEach(line => {
+						if (line.startsWith('data: ')) {
+							try { const d = JSON.parse(line.substring(6)); if(d.response) fullText = d.response; } catch(e) {}
+						}
+					});
+				}
+				appendMsg('assistant-message', fullText);
+				updateDashboard();
+			}
+
+			function appendMsg(cls, text) {
+				const div = document.createElement('div');
+				div.className = `message ${cls}`;
+				div.innerText = text;
+				document.getElementById('chat-messages').appendChild(div);
+				document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+			}
+
+			document.getElementById('send-button').onclick = sendMessage;
+			updateDashboard();
+		</script>
 	</body>
 </html>
