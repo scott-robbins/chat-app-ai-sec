@@ -20,6 +20,10 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"ai_gateway": {
+		"binding": "AI_GATEWAY",
+		"id": "ai-sec-gateway" 
+	},
 	"upload_source_maps": true,
 	"vectorize": [
 		{
