@@ -11,7 +11,6 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// Essential for Llama Vision on Workers AI
 	private arrayBufferToBase64(buffer: ArrayBuffer): string {
 		let binary = "";
 		const bytes = new Uint8Array(buffer);
@@ -41,11 +40,11 @@ export class ChatSession extends DurableObject<Env> {
 					});
 					
 					const directData = await directUploadRes.json() as any;
-					if (!directData.success) throw new Error("Could not get upload URL from Cloudflare.");
+					if (!directData.success) throw new Error("Cloudflare Images V2 URL failed.");
 
 					const uploadUrl = directData.result.uploadURL;
 
-					// 2. Upload to Cloudflare Images
+					// 2. Upload
 					const uploadFormData = new FormData();
 					uploadFormData.append("file", file);
 
@@ -55,35 +54,38 @@ export class ChatSession extends DurableObject<Env> {
 					});
 
 					const imgResult = await uploadRes.json() as any;
-					if (!imgResult.success) throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
+					if (!imgResult.success) throw new Error("Image Upload failed.");
 
-					// 3. Vision Analysis - Use the first variant
 					const imageUrl = imgResult.result.variants[0]; 
 					
-					// Fetch image back to send to AI
-					const aiImageRes = await fetch(imageUrl);
-					if (!aiImageRes.ok) throw new Error("Failed to fetch image back for AI analysis.");
+					// 3. Vision Analysis - AGGRESSIVE RESIZING
+					// We use /width=300 to ensure we stay under the 128k token limit
+					const lowResUrl = imageUrl.endsWith('/') ? `${imageUrl}width=300` : `${imageUrl}/width=300`;
+					const aiImageRes = await fetch(lowResUrl);
 					
-					const imageBuffer = await aiImageRes.arrayBuffer();
-					const base64Image = this.arrayBufferToBase64(imageBuffer);
+					// Fallback to original if resizing fails, but preferred is the lowRes
+					const buffer = aiImageRes.ok ? await aiImageRes.arrayBuffer() : await file.arrayBuffer();
+					const base64Image = this.arrayBufferToBase64(buffer);
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image. If you see two dachshunds, one is Jolene (black/tan) and one is Hanna (red)." },
+								{ type: "text", text: "Briefly describe this image. One dog is Jolene (black/tan) and one is Hanna (red)." },
 								{ type: "image", image: base64Image }
 							]}
-						]
+						],
+						// NEW: Cap the output tokens to prevent the 128k overflow
+						max_tokens: 512 
 					}, { gateway: GATEWAY_ID });
 					
-					const description = vision.response || "Image analyzed.";
+					const description = vision.response || "Analysis complete.";
 
-					// 4. Index for RAG
+					// 4. Indexing
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
-						metadata: { text: description, fileName: file.name, sessionId, imageUrl } 
+						metadata: { text: description, fileName: file.name, sessionId, imageUrl: imgResult.result.variants[0] } 
 					}]);
 
 					return new Response(JSON.stringify({ description }), { headers: { "Content-Type": "application/json" } });
@@ -93,7 +95,6 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- CHAT ROUTE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -120,7 +121,6 @@ export class ChatSession extends DurableObject<Env> {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		// FIXED: passing 'request' instead of 'id' here
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
