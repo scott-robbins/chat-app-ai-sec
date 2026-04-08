@@ -33,52 +33,43 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Get Direct Upload URL
+					// 1. Standard Upload
 					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
 						method: "POST",
 						headers: { "Authorization": `Bearer ${token}` }
 					});
-					
 					const directData = await directUploadRes.json() as any;
-					if (!directData.success) throw new Error("Cloudflare Images V2 URL failed.");
-
-					const uploadUrl = directData.result.uploadURL;
-
-					// 2. Upload
 					const uploadFormData = new FormData();
 					uploadFormData.append("file", file);
+					const uploadRes = await fetch(directData.result.uploadURL, { method: "POST", body: uploadFormData });
+					const imgResult = await uploadRes.json() as any;
+					const imageUrl = imgResult.result.variants[0]; 
 
-					const uploadRes = await fetch(uploadUrl, {
-						method: "POST",
-						body: uploadFormData
+					// 2. AGGRESSIVE INTERNAL RESIZING
+					// We fetch the image we just uploaded, but tell Cloudflare to shrink it to 200px
+					// quality=50 makes it very small, which is perfect for AI "sight"
+					const resizedRes = await fetch(imageUrl, {
+						cf: {
+							image: { width: 200, quality: 50, format: "avif" }
+						}
 					});
 
-					const imgResult = await uploadRes.json() as any;
-					if (!imgResult.success) throw new Error("Image Upload failed.");
-
-					const imageUrl = imgResult.result.variants[0]; 
-					
-					// 3. Vision Analysis - AGGRESSIVE RESIZING
-					// We use /width=300 to ensure we stay under the 128k token limit
-					const lowResUrl = imageUrl.endsWith('/') ? `${imageUrl}width=300` : `${imageUrl}/width=300`;
-					const aiImageRes = await fetch(lowResUrl);
-					
-					// Fallback to original if resizing fails, but preferred is the lowRes
-					const buffer = aiImageRes.ok ? await aiImageRes.arrayBuffer() : await file.arrayBuffer();
+					// Use the resized buffer, or a very small slice of the original if resize fails
+					const buffer = resizedRes.ok ? await resizedRes.arrayBuffer() : await file.slice(0, 50000).arrayBuffer();
 					const base64Image = this.arrayBufferToBase64(buffer);
 
+					// 3. Vision Analysis with CAP
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Briefly describe this image. One dog is Jolene (black/tan) and one is Hanna (red)." },
+								{ type: "text", text: "Identify the dogs: Jolene (black/tan) and Hanna (red). Describe the scene briefly." },
 								{ type: "image", image: base64Image }
 							]}
 						],
-						// NEW: Cap the output tokens to prevent the 128k overflow
-						max_tokens: 512 
+						max_tokens: 300 // Keep output small to stay under 128k
 					}, { gateway: GATEWAY_ID });
 					
-					const description = vision.response || "Analysis complete.";
+					const description = vision.response || "Image analyzed.";
 
 					// 4. Indexing
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
@@ -91,20 +82,16 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(JSON.stringify({ description }), { headers: { "Content-Type": "application/json" } });
 				}
 			} catch (err: any) { 
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { "Content-Type": "application/json" } }); 
+				return new Response(JSON.stringify({ error: err.message }), { status: 500 }); 
 			}
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
-					messages: body.messages 
-				}, { gateway: GATEWAY_ID });
-
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: body.messages }, { gateway: GATEWAY_ID });
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", chatRun.response).run();
-
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
