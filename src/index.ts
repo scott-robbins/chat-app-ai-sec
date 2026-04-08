@@ -41,6 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		};
 
+		// --- MEMORIZE WITH CLOUDFLARE IMAGES ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -49,38 +50,41 @@ export class ChatSession extends DurableObject<Env> {
 				let imageUrl = "";
 
 				if (file.type.startsWith("image/")) {
+					// 1. Upload to Cloudflare Images
 					const imgFormData = new FormData();
 					imgFormData.append("file", file);
 					
-					// Force the use of dashboard variables
+					// Ensure we are using the dashboard secret
+					const token = this.env.IMAGES_TOKEN;
 					const accountId = this.env.ACCOUNT_ID || "3746ba19913534b7653b8af6a1299286";
-					const uploadUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`;
-					
-					const cfImage = await fetch(uploadUrl, {
+
+					const cfImage = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`, {
 						method: "POST",
-						headers: { "Authorization": `Bearer ${this.env.IMAGES_TOKEN}` },
+						headers: { 
+							"Authorization": `Bearer ${token}`.trim() 
+						},
 						body: imgFormData
 					});
 
 					const imgResult = await cfImage.json() as any;
 
 					if (!cfImage.ok || !imgResult.result) {
-						console.error("API Response:", JSON.stringify(imgResult));
-						const errMsg = imgResult.errors?.[0]?.message || "Check API Token permissions.";
-						throw new Error(`Cloudflare Images Error: ${errMsg}`);
+						console.error("DEBUG IMAGES FAIL:", JSON.stringify(imgResult));
+						const msg = imgResult.errors?.[0]?.message || "Authentication failed";
+						throw new Error(`Cloudflare Images Error: ${msg}`);
 					}
 
 					imageUrl = imgResult.result.variants[0]; 
 
-					// Use Cloudflare's built-in resizing variant
+					// 2. Vision analysis using the public variant
 					const aiImageRes = await fetch(imageUrl + "/width=800,height=800,fit=scale-down");
-					const blob = await aiImageRes.arrayBuffer();
+					const imageBuffer = await aiImageRes.arrayBuffer();
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image in detail for a memory database. Focus on the main subjects." },
-								{ type: "image", image: [...new Uint8Array(blob)] }
+								{ type: "text", text: "Describe this image in detail. Focus on people and the relationship between subjects." },
+								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
 					});
@@ -91,6 +95,7 @@ export class ChatSession extends DurableObject<Env> {
 					logMetric("document_processed");
 				}
 
+				// 3. Vectorize Indexing
 				const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [textToIndex] });
 				await this.env.VECTORIZE.insert([{ 
 					id: crypto.randomUUID(), 
@@ -104,6 +109,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
+		// --- DASHBOARD DATA ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
@@ -124,6 +130,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
+		// --- CHAT WITH IDENTITY LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -131,14 +138,14 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				const profileUpdate = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Identity: "${currentProfile}"\nNew Fact: "${latestUserMessage}"\nUpdate Identity concisely (150 chars max) or return exactly if no new facts.`
+					prompt: `Identity: "${currentProfile}"\nNew Fact: "${latestUserMessage}"\nUpdate Identity concisely (150 chars max) or return exactly.`
 				});
 				if (profileUpdate.response && profileUpdate.response !== currentProfile) {
 					await this.env.SETTINGS.put(`global_user_profile`, profileUpdate.response);
 					logMetric("identity_updated");
 				}
 
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need search? "YES/NO": ${latestUserMessage}` });
+				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need search? YES/NO: ${latestUserMessage}` });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { 
 					searchResults = await this.searchWeb(latestUserMessage); 
@@ -164,6 +171,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
+		// --- SUPPORTING ROUTES ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
 			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
@@ -182,5 +190,10 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
+	},
+	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		const id = env.CHAT_SESSION.idFromName("global");
+		const obj = env.CHAT_SESSION.get(id);
+		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/monitor-task", { method: "POST" })));
 	}
 } satisfies ExportedHandler<Env>;
