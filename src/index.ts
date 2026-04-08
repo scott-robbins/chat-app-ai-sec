@@ -6,12 +6,11 @@ const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
-const GATEWAY_ID = "ai-sec-gateway";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- TAVILY SEARCH (RESTORED) ---
+	// --- TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -67,7 +66,7 @@ export class ChatSession extends DurableObject<Env> {
 				// 1. Check if we need Search
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { 
 					prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` 
-				}, { gateway: GATEWAY_ID });
+				});
 				
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { 
@@ -75,7 +74,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// 2. Get Context from Vector DB
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] }, { gateway: GATEWAY_ID });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
@@ -89,7 +88,8 @@ You are a sharp, smart miniature dachshund. Use search for real-time facts.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
+				// 3. Final Completion
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				const finalContent = chatRun.response || "I'm thinking...";
 				
 				// Save Assistant Msg
@@ -106,7 +106,7 @@ You are a sharp, smart miniature dachshund. Use search for real-time facts.`;
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url); // Critical: defined before use
+		const url = new URL(request.url);
 		if (!url.pathname.startsWith("/api/")) {
 			return env.ASSETS.fetch(request);
 		}
