@@ -51,8 +51,10 @@ export class ChatSession extends DurableObject<Env> {
 					const token = (this.env.IMAGES_TOKEN || "").trim();
 					const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
-					// DEBUG CHECK: Chat will tell us if token is truly empty
-					if (token.length < 5) throw new Error("CRITICAL: IMAGES_TOKEN is empty or too short. Check GitHub/Dashboard Secrets.");
+					// CRITICAL: If the token is missing, we stop here and tell you why
+					if (token.length < 10) {
+						throw new Error("IMAGES_TOKEN is missing or too short. Ensure it is set as a Secret in both GitHub and Cloudflare.");
+					}
 
 					const cfImage = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`, {
 						method: "POST",
@@ -63,7 +65,7 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await cfImage.json() as any;
 					if (!cfImage.ok || !imgResult.result) {
 						const apiCode = imgResult.errors?.[0]?.code || "No Code";
-						throw new Error(`Cloudflare API Reject (Code: ${apiCode}). Ensure token has 'Images:Edit' permission.`);
+						throw new Error(`Cloudflare API Reject (Code: ${apiCode}). Ensure token has 'Images:Edit' permission and is targeting Account: ${accountId.substring(0, 6)}...`);
 					}
 
 					imageUrl = imgResult.result.variants[0]; 
@@ -73,7 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image for a memory database." },
+								{ type: "text", text: "Describe this image for a searchable memory database." },
 								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
@@ -108,7 +110,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// (Include Profile and History logic as per previous version)
+		// (Include standard Profile/History routes here)
 		return new Response("OK");
 	}
 }
