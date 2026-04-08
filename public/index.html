@@ -1,177 +1,264 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jolene AI</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f8fafc; margin: 0; display: flex; height: 100vh; overflow: hidden; }
-        
-        /* Command Center Sidebar */
-        #sidebar { width: 320px; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border-right: 1px solid rgba(255,255,255,0.1); padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-        .dashboard-card { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 16px; }
-        .card-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; display: block; }
-        .card-value { font-size: 13px; line-height: 1.5; color: #e2e8f0; }
-        #file-list { list-style: none; padding: 0; margin: 8px 0 0 0; font-size: 12px; color: #38bdf8; }
-        #file-list li { margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Jolene AI</title>
+		
+		<script src="https://unpkg.com/@phosphor-icons/web"></script>
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
-        /* Main Chat */
-        #main { flex: 1; display: flex; flex-direction: column; background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); position: relative; }
-        #header { padding: 20px; text-align: center; }
-        #header h1 { margin: 0; font-size: 24px; letter-spacing: -1px; }
-        #controls { display: flex; justify-content: center; gap: 10px; margin-top: 15px; }
-        .btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 12px; transition: 0.2s; }
-        .btn:hover { background: rgba(255,255,255,0.1); }
-        .btn-orange { background: #f97316; color: white; border: none; font-weight: 600; }
+		<style>
+			:root {
+				--primary-color: #f6821f;
+				--primary-hover: #e67e22;
+				--primary-light: rgba(246, 130, 31, 0.1);
+				--light-bg: #f4f6f8;
+				--app-bg: #ffffff;
+				--border-color: #e2e8f0;
+				--text-color: #1e293b;
+				--text-color-dark: #0f172a;
+				--text-light: #64748b;
+				--user-msg-bg: #f6821f;
+				--user-msg-text: #ffffff;
+				--assistant-msg-bg: #ffffff;
+				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
+			}
 
-        #chat-window { flex: 1; overflow-y: auto; padding: 40px; display: flex; flex-direction: column; gap: 20px; }
-        .msg { max-width: 70%; padding: 16px 20px; border-radius: 16px; line-height: 1.6; font-size: 14px; position: relative; }
-        .user { align-self: flex-end; background: #f97316; color: white; border-bottom-right-radius: 4px; }
-        .assistant { align-self: flex-start; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-bottom-left-radius: 4px; }
+			/* --- FANCY THEME (GLASSMORPHISM) --- */
+			body.theme-fancy {
+				--app-bg: rgba(30, 41, 59, 0.4); 
+				--light-bg: transparent; 
+				--border-color: rgba(255, 255, 255, 0.1);
+				--text-color: #f8fafc;
+				--text-light: #cbd5e1;
+				--assistant-msg-bg: rgba(255, 255, 255, 0.05);
+				--body-bg: #0f172a;
+			}
 
-        #input-container { padding: 30px; background: linear-gradient(transparent, #0f172a); }
-        .input-wrapper { max-width: 800px; margin: 0 auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; padding: 8px 16px; }
-        input { flex: 1; background: none; border: none; color: white; padding: 12px; font-size: 15px; outline: none; }
-        
-        #upload-area { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; font-size: 12px; }
-    </style>
-</head>
-<body>
+			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
+				backdrop-filter: blur(25px) saturate(180%);
+				-webkit-backdrop-filter: blur(25px) saturate(180%);
+				border: 1px solid rgba(255, 255, 255, 0.2);
+				box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+				background-color: var(--app-bg);
+			}
 
-<aside id="sidebar">
-    <h2 style="color: #f97316; margin: 0;">Jolene's Command Center</h2>
-    
-    <div class="dashboard-card">
-        <span class="card-label">Global Identity (KV)</span>
-        <div id="identity-val" class="card-value">Syncing...</div>
-    </div>
+			body.theme-fancy #user-input {
+				background-color: rgba(0, 0, 0, 0.2);
+				color: white;
+				border: 1px solid rgba(255, 255, 255, 0.1);
+			}
 
-    <div class="dashboard-card">
-        <span class="card-label">Knowledge Assets (R2)</span>
-        <ul id="file-list"><li>No files indexed</li></ul>
-    </div>
+			body.theme-fancy header h1 {
+				color: #ffffff;
+				text-shadow: 0 0 20px rgba(246, 130, 31, 0.4);
+			}
 
-    <div class="dashboard-card" style="display: flex; justify-content: space-between;">
-        <div><span class="card-label">Messages</span><div id="msg-count" class="card-value">0</div></div>
-        <div><span class="card-label">Status</span><div style="color: #22c55e;" class="card-value">● Live</div></div>
-    </div>
-</aside>
+			* { box-sizing: border-box; margin: 0; padding: 0; }
 
-<main id="main">
-    <div id="header">
-        <h1>Jolene</h1>
-        <div id="controls">
-            <button class="btn">Llama 3.2 Vision (11B)</button>
-            <button class="btn">✨ Theme</button>
-            <button class="btn">🔊 Voice</button>
-            <button class="btn">📁 Memory</button>
-            <button class="btn">🗑️ Clear Screen</button>
-        </div>
-        <button class="btn btn-orange" style="margin-top: 20px;">+ New Chat</button>
-    </div>
+			body {
+				font-family: -apple-system, system-ui, sans-serif;
+				color: var(--text-color);
+				background: var(--body-bg);
+				min-height: 100vh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				padding: 2rem 1rem;
+				transition: background 0.5s ease;
+				overflow-x: hidden;
+			}
 
-    <div id="chat-window">
-        <div class="msg assistant">Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</div>
-    </div>
+			.lava-lamp-container {
+				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+				z-index: -1; overflow: hidden; display: none;
+				pointer-events: none;
+			}
+			body.theme-fancy .lava-lamp-container { display: block; }
+			
+			.blob {
+				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5;
+				animation: float 15s infinite alternate ease-in-out;
+			}
+			.blob1 { width: 500px; height: 500px; background: #f6821f; top: -100px; left: -100px; }
+			.blob2 { width: 600px; height: 600px; background: #d95d14; bottom: -150px; right: -100px; }
+			.blob3 { width: 400px; height: 400px; background: #faad3f; top: 30%; left: 60%; animation-delay: -5s; }
 
-    <div id="input-container">
-        <div class="input-wrapper" style="flex-direction: column; align-items: stretch; background: none; border: none;">
-            <div id="upload-area">
-                <input type="file" id="file-input" style="display: none;" onchange="updateFileName()">
-                <button class="btn" onclick="document.getElementById('file-input').click()">Choose File</button>
-                <span id="file-name" style="color: #94a3b8;">No file chosen</span>
-                <button class="btn btn-orange" onclick="memorizeFile()">🔗 Memorize File</button>
-            </div>
-            <div class="input-wrapper">
-                <input type="text" id="user-input" placeholder="Message Jolene..." onkeypress="if(event.key==='Enter') sendMessage()">
-                <button class="btn-orange" style="border-radius: 50%; width: 32px; height: 32px; border: none; cursor: pointer;" onclick="sendMessage()">➔</button>
-            </div>
-        </div>
-    </div>
-</main>
+			@keyframes float {
+				0% { transform: translate(0, 0) scale(1); }
+				100% { transform: translate(120px, -60px) scale(1.1); }
+			}
 
-<script>
-    const sessionId = "global";
+			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
+			h1 { font-size: 2rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
+			header p { color: var(--text-light); font-size: 1rem; margin-top: 0.25rem; opacity: 0.8; }
 
-    async function updateDashboard() {
-        try {
-            const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
-            const data = await res.json();
-            document.getElementById('identity-val').innerText = data.profile;
-            document.getElementById('msg-count').innerText = data.messageCount;
-            
-            const list = document.getElementById('file-list');
-            list.innerHTML = '';
-            if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
-                data.knowledgeAssets.forEach(f => list.innerHTML += `<li>📄 ${f}</li>`);
-            } else { list.innerHTML = '<li>No files indexed</li>'; }
-        } catch(e) {}
-    }
+			.chat-container {
+				display: flex; flex-direction: column; width: 100%; max-width: 850px;
+				height: calc(100vh - 280px); min-height: 500px; background-color: var(--app-bg);
+				border-radius: 24px; overflow: hidden; border: 1px solid var(--border-color);
+				transition: all 0.3s ease;
+			}
 
-    function updateFileName() {
-        const file = document.getElementById('file-input').files[0];
-        document.getElementById('file-name').innerText = file ? file.name : "No file chosen";
-    }
+			#chat-messages {
+				flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg);
+				display: flex; flex-direction: column; gap: 1.5rem;
+			}
 
-    async function memorizeFile() {
-        const file = document.getElementById('file-input').files[0];
-        if (!file) return alert("Select a file first");
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        const btn = document.querySelector('button[onclick="memorizeFile()"]');
-        btn.innerText = "Processing...";
-        
-        await fetch('/api/memorize', { method: 'POST', body: formData, headers: { 'x-session-id': sessionId } });
-        btn.innerText = "🔗 Memorize File";
-        updateDashboard();
-    }
+			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
+			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
+			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
-    async function sendMessage() {
-        const input = document.getElementById('user-input');
-        const text = input.value.trim();
-        if(!text) return;
-        
-        appendMsg('user', text);
-        input.value = '';
+			#typing-indicator { display: none; align-self: flex-start; }
+			#typing-indicator.visible { display: block !important; }
+			
+			.typing-dots { display: flex; align-items: center; gap: 4px; }
+			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
+			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+			.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
-        const res = await fetch('/api/chat', {
-            method: 'POST',
-            body: JSON.stringify({ messages: [{role: 'user', content: text}] }),
-            headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }
-        });
+			.message-input {
+				display: flex; padding: 1.5rem; background-color: transparent;
+				border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;
+			}
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = "";
-        
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-            lines.forEach(line => {
-                if (line.startsWith('data: ')) {
-                    try { const d = JSON.parse(line.substring(6)); if(d.response) fullText = d.response; } catch(e) {}
-                }
-            });
-        }
-        appendMsg('assistant', fullText);
-        updateDashboard();
-    }
+			#user-input {
+				flex: 1; padding: 1rem; border: 1px solid var(--border-color);
+				border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none;
+			}
 
-    function appendMsg(role, text) {
-        const win = document.getElementById('chat-window');
-        const div = document.createElement('div');
-        div.className = `msg ${role}`;
-        div.innerText = text;
-        win.appendChild(div);
-        win.scrollTop = win.scrollHeight;
-    }
+			#send-button {
+				padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white;
+				border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s;
+			}
+			#send-button:hover { transform: scale(1.05); }
 
-    updateDashboard();
-    setInterval(updateDashboard, 30000);
-</script>
-</body>
+			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
+			
+			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
+
+			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
+
+			.sidebar {
+				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
+				background: var(--app-bg); border-left: 1px solid var(--border-color);
+				transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 20px;
+			}
+			.sidebar.open { right: 0; }
+			.btn-danger { width: 100%; margin-top: auto; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+			/* --- DASHBOARD STYLES --- */
+			.dash-card {
+				background: rgba(255, 255, 255, 0.05);
+				border: 1px solid var(--border-color);
+				border-radius: 12px;
+				padding: 12px;
+				margin-bottom: 10px;
+			}
+			.dash-label {
+				font-size: 0.65rem;
+				font-weight: 800;
+				color: var(--primary-color);
+				text-transform: uppercase;
+				letter-spacing: 1px;
+				margin-bottom: 4px;
+			}
+			.dash-value {
+				font-size: 0.9rem;
+				font-weight: 500;
+				line-height: 1.3;
+			}
+
+			/* Voice Icon Styling */
+			#voice-icon { font-size: 1.1rem; }
+
+		</style>
+	</head>
+	<body class="theme-fancy">
+		<div class="lava-lamp-container">
+			<div class="blob blob1"></div>
+			<div class="blob blob2"></div>
+			<div class="blob blob3"></div>
+		</div>
+
+		<header>
+			<h1>Jolene</h1>
+			<p>Your Personal AI Agent</p>
+			
+			<div class="controls-row">
+				<select id="model-selector" class="btn-secondary">
+					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
+					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
+					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
+				</select>
+				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
+				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
+				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+			</div>
+		</header>
+
+		<div class="chat-container">
+			<div id="chat-messages">
+				<div class="message assistant-message">
+					<div class="message-content">
+						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
+					</div>
+				</div>
+			</div>
+			
+			<div id="typing-indicator" class="message assistant-message">
+				<div class="message-content">
+					<div class="typing-dots">
+						<span></span><span></span><span></span>
+					</div>
+				</div>
+			</div>
+
+			<div class="message-input">
+				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
+					<input type="file" id="file-input" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" />
+					<button id="memorize-file-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
+				</div>
+				<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
+				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
+			</div>
+		</div>
+
+		<div id="memory-sidebar" class="sidebar">
+			<div class="sidebar-header">
+				<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px;">
+					<h2 style="color: var(--primary-color); font-weight: 700;">Jolene's Command Center</h2>
+					<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
+				</div>
+			</div>
+			<div class="sidebar-content">
+				<section id="kv-profile-section">
+					<h3 style="color: var(--primary-color); margin-bottom: 15px;"><i class="ph ph-chart-bar"></i> Live Dashboard</h3>
+					<div id="kv-profile-display">
+						Loading metrics...
+					</div>
+				</section>
+				<section style="margin-top: 30px;">
+					<h3 style="color: var(--primary-color); margin-bottom: 10px;"><i class="ph ph-files"></i> Knowledge Assets (R2)</h3>
+					<ul id="file-list-display" class="file-list" style="list-style:none;"></ul>
+				</section>
+			</div>
+			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe System Knowledge</button>
+		</div>
+
+		<footer>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
+		</footer>
+
+		<script src="chat.js"></script>
+	</body>
 </html>
