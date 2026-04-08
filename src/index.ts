@@ -31,13 +31,13 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- COMMAND CENTER API ---
+		// --- COMMAND CENTER API (REAL FILES FROM R2) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				// Fetch actual file list from R2
+				// List actual files from R2
 				const storage = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
 				const fileList = storage.objects.map(o => o.key.split('/').pop());
 
