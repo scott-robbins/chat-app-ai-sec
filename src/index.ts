@@ -3,11 +3,14 @@ import { DurableObject } from "cloudflare:workers";
 
 const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
 const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct"; 
+const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
+const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
+	// --- ADVANCED TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -22,8 +25,8 @@ export class ChatSession extends DurableObject<Env> {
 				})
 			});
 			const data = await response.json() as any;
-			if (data.answer) return `SUMMARY: ${data.answer}`;
-			return data.results.map((r: any) => r.content).join("\n\n");
+			if (data.answer) return `VERIFIED FACTUAL SUMMARY: ${data.answer}`;
+			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -31,38 +34,13 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- PROACTIVE MONITOR ROUTE (Triggered by Cron) ---
-		if (url.pathname === "/api/monitor-task" && request.method === "POST") {
-			const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Technology and AI";
-			const lastNews = await this.env.SETTINGS.get(`last_monitored_news`) || "";
-			
-			// 1. Search for latest updates based on user profile
-			const searchResults = await this.searchWeb(`Latest critical breaking news for: ${profile}`);
-			
-			// 2. Reasoning: Is this NEW information?
-			const analysis = await this.env.AI.run(REASONING_MODEL, {
-				prompt: `Last News Seen: "${lastNews}"\nNew Search Results: "${searchResults}"\n\nTask: Is there a significant NEW development here? If yes, write a 2-sentence alert. If no, reply "NO_UPDATE".`
-			});
-
-			if (analysis.response && !analysis.response.includes("NO_UPDATE")) {
-				const alert = `🔔 **Jolene Proactive Alert:**\n\n${analysis.response}`;
-				
-				// Save to D1 so it appears in chat history
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", alert).run();
-				
-				// Update KV so we don't alert on this again
-				await this.env.SETTINGS.put(`last_monitored_news`, analysis.response);
-			}
-			return new Response("Monitor Complete");
-		}
-
 		// --- DASHBOARD ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const lastMsg = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").bind(sessionId).first();
 			const thinkingAbout = lastMsg?.content ? (lastMsg.content as string).substring(0, 35) + "..." : "Ready to assist";
+
 			const recentLogs = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20").bind(sessionId).all();
 			const allText = recentLogs.results.map(r => r.content).join(" ").toLowerCase();
 			const words = allText.match(/\b(\w{5,})\b/g) || [];
@@ -77,30 +55,79 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- STANDARD CHAT & HISTORY ROUTES ---
+		// --- STANDARD API ROUTES ---
 		if (url.pathname === "/api/history") {
 			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
 			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
 			return new Response(JSON.stringify({ messages: results, theme }), { headers: { "Content-Type": "application/json" } });
 		}
 
+		if (url.pathname === "/api/save-theme" && request.method === "POST") {
+			const { theme } = await request.json() as any;
+			await this.env.SETTINGS.put(`global_theme`, theme);
+			return new Response("OK");
+		}
+
+		if (url.pathname === "/api/files") {
+			const objects = await this.env.DOCUMENTS.list();
+			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
+		}
+
+		// --- MEMORIZE (TEXT ONLY FOR NOW) ---
+		if (url.pathname === "/api/memorize" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				const textToIndex = await file.text();
+
+				const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
+				for (const chunk of chunks) {
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					await this.env.VECTORIZE.insert([{ 
+						id: crypto.randomUUID(), 
+						values: emb.data[0], 
+						metadata: { text: chunk, fileName: file.name, sessionId } 
+					}]);
+				}
+				
+				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
+				return new Response(JSON.stringify({ message: "Stored!" }), { headers: { "Content-Type": "application/json" } });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+			}
+		}
+
+		// --- CHAT WITH AUTO-PROFILE UPDATER ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
+				// 1. SAVE USER MSG
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
+				// 2. BACKGROUND: UPDATE USER IDENTITY (KV)
 				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "No profile yet.";
 				const profileUpdater = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Current Identity: "${currentProfile}"\nMessage: "${latestUserMessage}"\nUpdate identity with new facts. Concise.`
+					prompt: `You are a background identity monitor. 
+					Current Identity: "${currentProfile}"
+					Latest Message: "${latestUserMessage}"
+					
+					TASK: If the message contains specific facts about the user (name, age, likes, job, location, goals), update the Identity to include them. 
+					- Keep it concise (under 150 chars). 
+					- If no new facts, output the Current Identity exactly. 
+					- DO NOT add conversational filler.
+					
+					Updated Identity:`
 				});
+
 				if (profileUpdater.response && profileUpdater.response !== currentProfile) {
 					await this.env.SETTINGS.put(`global_user_profile`, profileUpdater.response);
 				}
 
+				// 3. SEARCH & CONTEXT
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMessage); }
@@ -110,28 +137,29 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 				contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				let sysPrompt = `You are Jolene, a sharp AI agent. Identity: ${currentProfile}\nContext: ${contextText}\nSearch: ${searchResults}`;
+				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
+				
+				let sysPrompt = `You are Jolene, a sharp AI agent.
+IDENTITY: ${globalProfile}
+CONTEXT: ${contextText}
+SEARCH: ${searchResults}
+
+RULES: 
+1. Use search for real-time facts. 
+2. Reference the user's Identity naturally if relevant.
+3. You are a sleek, smart miniature dachshund.`;
+
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				const finalContent = chatRun.response || "I'm thinking...";
+				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
 
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
-
-		// R2 and Theme routes remain the same...
-		if (url.pathname === "/api/save-theme" && request.method === "POST") {
-			const { theme } = await request.json() as any;
-			await this.env.SETTINGS.put(`global_theme`, theme);
-			return new Response("OK");
-		}
-		if (url.pathname === "/api/files") {
-			const objects = await this.env.DOCUMENTS.list();
-			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
-		}
-
+		
 		return new Response("Not allowed", { status: 405 });
 	}
 }
@@ -146,7 +174,6 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const id = env.CHAT_SESSION.idFromName("global");
 		const obj = env.CHAT_SESSION.get(id);
-		// Trigger the Monitor Task
-		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/monitor-task", { method: "POST" })));
+		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/cron-briefing", { method: "POST" })));
 	}
 } satisfies ExportedHandler<Env>;
