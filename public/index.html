@@ -1,116 +1,177 @@
-import { Env, ChatMessage } from "./types";
-import { DurableObject } from "cloudflare:workers";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jolene AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f8fafc; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Command Center Sidebar */
+        #sidebar { width: 320px; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border-right: 1px solid rgba(255,255,255,0.1); padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+        .dashboard-card { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 16px; }
+        .card-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; display: block; }
+        .card-value { font-size: 13px; line-height: 1.5; color: #e2e8f0; }
+        #file-list { list-style: none; padding: 0; margin: 8px 0 0 0; font-size: 12px; color: #38bdf8; }
+        #file-list li { margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
-const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct"; 
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+        /* Main Chat */
+        #main { flex: 1; display: flex; flex-direction: column; background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); position: relative; }
+        #header { padding: 20px; text-align: center; }
+        #header h1 { margin: 0; font-size: 24px; letter-spacing: -1px; }
+        #controls { display: flex; justify-content: center; gap: 10px; margin-top: 15px; }
+        .btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 12px; transition: 0.2s; }
+        .btn:hover { background: rgba(255,255,255,0.1); }
+        .btn-orange { background: #f97316; color: white; border: none; font-weight: 600; }
 
-export class ChatSession extends DurableObject<Env> {
-	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
+        #chat-window { flex: 1; overflow-y: auto; padding: 40px; display: flex; flex-direction: column; gap: 20px; }
+        .msg { max-width: 70%; padding: 16px 20px; border-radius: 16px; line-height: 1.6; font-size: 14px; position: relative; }
+        .user { align-self: flex-end; background: #f97316; color: white; border-bottom-right-radius: 4px; }
+        .assistant { align-self: flex-start; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-bottom-left-radius: 4px; }
 
-	async searchWeb(query: string): Promise<string> {
-		try {
-			const response = await fetch("https://api.tavily.com/search", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					api_key: this.env.TAVILY_API_KEY,
-					query: query,
-					search_depth: "advanced",
-					include_answer: true,
-					max_results: 5
-				})
-			});
-			const data = await response.json() as any;
-			if (data.answer) return `VERIFIED FACTUAL SUMMARY: ${data.answer}`;
-			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
-		} catch (e) { return "Search failed."; }
-	}
+        #input-container { padding: 30px; background: linear-gradient(transparent, #0f172a); }
+        .input-wrapper { max-width: 800px; margin: 0 auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; padding: 8px 16px; }
+        input { flex: 1; background: none; border: none; color: white; padding: 12px; font-size: 15px; outline: none; }
+        
+        #upload-area { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; font-size: 12px; }
+    </style>
+</head>
+<body>
 
-	async fetch(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "global";
+<aside id="sidebar">
+    <h2 style="color: #f97316; margin: 0;">Jolene's Command Center</h2>
+    
+    <div class="dashboard-card">
+        <span class="card-label">Global Identity (KV)</span>
+        <div id="identity-val" class="card-value">Syncing...</div>
+    </div>
 
-		// --- COMMAND CENTER API ---
-		if (url.pathname === "/api/profile") {
-			try {
-				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
-				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
-				
-				// Fetch actual file list from R2
-				const storage = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
-				const fileList = storage.objects.map(o => o.key.split('/').pop());
+    <div class="dashboard-card">
+        <span class="card-label">Knowledge Assets (R2)</span>
+        <ul id="file-list"><li>No files indexed</li></ul>
+    </div>
 
-				return new Response(JSON.stringify({ 
-					profile: profile,
-					messageCount: stats?.count || 0,
-					knowledgeAssets: fileList,
-					status: "Live"
-				}), { headers: { "Content-Type": "application/json" } });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
-		}
+    <div class="dashboard-card" style="display: flex; justify-content: space-between;">
+        <div><span class="card-label">Messages</span><div id="msg-count" class="card-value">0</div></div>
+        <div><span class="card-label">Status</span><div style="color: #22c55e;" class="card-value">● Live</div></div>
+    </div>
+</aside>
 
-		if (url.pathname === "/api/history") {
-			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
-			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
-			return new Response(JSON.stringify({ messages: results, theme }), { headers: { "Content-Type": "application/json" } });
-		}
+<main id="main">
+    <div id="header">
+        <h1>Jolene</h1>
+        <div id="controls">
+            <button class="btn">Llama 3.2 Vision (11B)</button>
+            <button class="btn">✨ Theme</button>
+            <button class="btn">🔊 Voice</button>
+            <button class="btn">📁 Memory</button>
+            <button class="btn">🗑️ Clear Screen</button>
+        </div>
+        <button class="btn btn-orange" style="margin-top: 20px;">+ New Chat</button>
+    </div>
 
-		// --- MEMORIZE ---
-		if (url.pathname === "/api/memorize" && request.method === "POST") {
-			try {
-				const formData = await request.formData();
-				const file = formData.get("file") as File;
-				const textToIndex = await file.text();
-				const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
-				for (const chunk of chunks) {
-					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: chunk, fileName: file.name, sessionId } }]);
-				}
-				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: "Stored!" }));
-			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
-		}
+    <div id="chat-window">
+        <div class="msg assistant">Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</div>
+    </div>
 
-		// --- CHAT ---
-		if (url.pathname === "/api/chat" && request.method === "POST") {
-			try {
-				const body = await request.json() as any;
-				let messages = body.messages || [];
-				const latestUserMsg = messages[messages.length - 1]?.content || "";
+    <div id="input-container">
+        <div class="input-wrapper" style="flex-direction: column; align-items: stretch; background: none; border: none;">
+            <div id="upload-area">
+                <input type="file" id="file-input" style="display: none;" onchange="updateFileName()">
+                <button class="btn" onclick="document.getElementById('file-input').click()">Choose File</button>
+                <span id="file-name" style="color: #94a3b8;">No file chosen</span>
+                <button class="btn btn-orange" onclick="memorizeFile()">🔗 Memorize File</button>
+            </div>
+            <div class="input-wrapper">
+                <input type="text" id="user-input" placeholder="Message Jolene..." onkeypress="if(event.key==='Enter') sendMessage()">
+                <button class="btn-orange" style="border-radius: 50%; width: 32px; height: 32px; border: none; cursor: pointer;" onclick="sendMessage()">➔</button>
+            </div>
+        </div>
+    </div>
+</main>
 
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMsg).run();
+<script>
+    const sessionId = "global";
 
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMsg}` });
-				let searchResults = "";
-				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
+    async function updateDashboard() {
+        try {
+            const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
+            const data = await res.json();
+            document.getElementById('identity-val').innerText = data.profile;
+            document.getElementById('msg-count').innerText = data.messageCount;
+            
+            const list = document.getElementById('file-list');
+            list.innerHTML = '';
+            if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
+                data.knowledgeAssets.forEach(f => list.innerHTML += `<li>📄 ${f}</li>`);
+            } else { list.innerHTML = '<li>No files indexed</li>'; }
+        } catch(e) {}
+    }
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
-				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
+    function updateFileName() {
+        const file = document.getElementById('file-input').files[0];
+        document.getElementById('file-name').innerText = file ? file.name : "No file chosen";
+    }
 
-				let sysPrompt = `You are Jolene. CONTEXT: ${contextText}. SEARCH: ${searchResults}. You are a sharp miniature dachshund.`;
-				messages.unshift({ role: "system", content: sysPrompt });
+    async function memorizeFile() {
+        const file = document.getElementById('file-input').files[0];
+        if (!file) return alert("Select a file first");
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const btn = document.querySelector('button[onclick="memorizeFile()"]');
+        btn.innerText = "Processing...";
+        
+        await fetch('/api/memorize', { method: 'POST', body: formData, headers: { 'x-session-id': sessionId } });
+        btn.innerText = "🔗 Memorize File";
+        updateDashboard();
+    }
 
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-				
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatRun.response).run();
+    async function sendMessage() {
+        const input = document.getElementById('user-input');
+        const text = input.value.trim();
+        if(!text) return;
+        
+        appendMsg('user', text);
+        input.value = '';
 
-				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
-		}
-		
-		return new Response("OK");
-	}
-}
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            body: JSON.stringify({ messages: [{role: 'user', content: text}] }),
+            headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }
+        });
 
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
-	}
-} satisfies ExportedHandler<Env>;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "";
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+            lines.forEach(line => {
+                if (line.startsWith('data: ')) {
+                    try { const d = JSON.parse(line.substring(6)); if(d.response) fullText = d.response; } catch(e) {}
+                }
+            });
+        }
+        appendMsg('assistant', fullText);
+        updateDashboard();
+    }
+
+    function appendMsg(role, text) {
+        const win = document.getElementById('chat-window');
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        div.innerText = text;
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 30000);
+</script>
+</body>
+</html>
