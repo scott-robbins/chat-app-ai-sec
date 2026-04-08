@@ -11,7 +11,7 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// Helper to convert Buffer to Base64 for the AI model
+	// Essential for Llama Vision on Workers AI
 	private arrayBufferToBase64(buffer: ArrayBuffer): string {
 		let binary = "";
 		const bytes = new Uint8Array(buffer);
@@ -41,7 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 					});
 					
 					const directData = await directUploadRes.json() as any;
-					if (!directData.success) throw new Error("Could not get upload URL");
+					if (!directData.success) throw new Error("Could not get upload URL from Cloudflare.");
 
 					const uploadUrl = directData.result.uploadURL;
 
@@ -57,21 +57,20 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					if (!imgResult.success) throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
 
+					// 3. Vision Analysis - Use the first variant
 					const imageUrl = imgResult.result.variants[0]; 
-
-					// 3. Vision Analysis - FIX: Use Resizing + Base64 to stay under token limit
-					// We fetch a 400px wide version to keep token count low
-					const aiFriendlyUrl = imageUrl.endsWith('/') ? `${imageUrl}width=400` : `${imageUrl}/width=400`;
 					
-					const aiImageRes = await fetch(aiFriendlyUrl);
-					const imageBuffer = aiImageRes.ok ? await aiImageRes.arrayBuffer() : await file.arrayBuffer();
+					// Fetch image back to send to AI
+					const aiImageRes = await fetch(imageUrl);
+					if (!aiImageRes.ok) throw new Error("Failed to fetch image back for AI analysis.");
 					
+					const imageBuffer = await aiImageRes.arrayBuffer();
 					const base64Image = this.arrayBufferToBase64(imageBuffer);
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Identify the dogs in this image. One is Jolene (black and tan dachshund) and one is Hanna (red dachshund). Describe what they are doing." },
+								{ type: "text", text: "Describe this image. If you see two dachshunds, one is Jolene (black/tan) and one is Hanna (red)." },
 								{ type: "image", image: base64Image }
 							]}
 						]
@@ -84,13 +83,13 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
-						metadata: { text: description, fileName: file.name, sessionId, imageUrl: imgResult.result.variants[0] } 
+						metadata: { text: description, fileName: file.name, sessionId, imageUrl } 
 					}]);
 
 					return new Response(JSON.stringify({ description }), { headers: { "Content-Type": "application/json" } });
 				}
 			} catch (err: any) { 
-				return new Response(JSON.stringify({ error: err.message }), { status: 500 }); 
+				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { "Content-Type": "application/json" } }); 
 			}
 		}
 
@@ -121,6 +120,7 @@ export class ChatSession extends DurableObject<Env> {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(id);
+		// FIXED: passing 'request' instead of 'id' here
+		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
