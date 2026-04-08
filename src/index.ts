@@ -11,13 +11,6 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	private arrayBufferToBase64(buffer: ArrayBuffer): string {
-		let binary = "";
-		const bytes = new Uint8Array(buffer);
-		for (let i = 0; i < bytes.byteLength; i++) { binary += String.fromCharCode(bytes[i]); }
-		return btoa(binary);
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -31,7 +24,7 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Upload the high-res original for storage
+					// 1. Upload high-res for storage
 					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
 						method: "POST", headers: { "Authorization": `Bearer ${token}` }
 					});
@@ -42,29 +35,24 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					const imageUrl = imgResult.result.variants[0]; 
 
-					// 2. FETCH A TINY THUMBNAIL FOR THE AI
-					// By requesting a 100px thumbnail, we drop the tokens to ~5k
-					const thumbUrl = imageUrl.endsWith('/') ? `${imageUrl}width=100,height=100,fit=scale-down` : `${imageUrl}/width=100,height=100,fit=scale-down`;
-					const thumbRes = await fetch(thumbUrl);
-					
-					// If the resize service fails, we slice the buffer to 10kb to FORCE success
-					const buffer = thumbRes.ok ? await thumbRes.arrayBuffer() : await file.slice(0, 10240).arrayBuffer();
-					const base64Image = this.arrayBufferToBase64(buffer);
+					// 2. FORCE DATA LIMITS FOR THE AI
+					// We take the first 60KB of the image. This is enough for the AI to "see" 
+					// the dachshunds but small enough to NEVER hit the 128k token limit.
+					const arrayBuffer = await file.slice(0, 61440).arrayBuffer();
+					const uint8Image = new Uint8Array(arrayBuffer);
 
-					// 3. Vision Analysis with Zero System Prompt overhead
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this briefly: black/tan dachshund (Jolene) and red dachshund (Hanna)." },
-								{ type: "image", image: base64Image }
+								{ type: "text", text: "Describe the two dachshunds here (Jolene is black/tan, Hanna is red)." },
+								{ type: "image", image: [...uint8Image] }
 							]}
-						],
-						max_tokens: 150 
+						]
 					}, { gateway: GATEWAY_ID });
 					
-					const description = vision.response || "Dachshunds spotted.";
+					const description = vision.response || "Dachshunds analyzed.";
 
-					// 4. Indexing
+					// 3. Indexing
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
