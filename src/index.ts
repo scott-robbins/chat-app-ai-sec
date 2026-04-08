@@ -6,7 +6,9 @@ const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
-const GATEWAY_ID = "ai-sec-gateway"; // Your AI Gateway Slug
+
+// UPDATED: Using the full account path to force Gateway logging
+const GATEWAY_ID = "3746ba19913534b7653b8af6a1299286/ai-sec-gateway"; 
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -158,9 +160,8 @@ RULES: 1. Use search for real-time facts. 2. Reference the user's Identity natur
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	},
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
