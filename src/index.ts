@@ -24,7 +24,7 @@ export class ChatSession extends DurableObject<Env> {
 				const accountId = (this.env.ACCOUNT_ID || FALLBACK_ACCOUNT_ID).trim();
 
 				if (file.type.startsWith("image/")) {
-					// 1. Get Direct Upload URL (V2) - This is working perfectly now!
+					// 1. Get Direct Upload URL
 					const directUploadRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2/direct_upload`, {
 						method: "POST",
 						headers: { "Authorization": `Bearer ${token}` }
@@ -35,7 +35,7 @@ export class ChatSession extends DurableObject<Env> {
 
 					const uploadUrl = directData.result.uploadURL;
 
-					// 2. Upload to that URL
+					// 2. Upload to Cloudflare Images
 					const uploadFormData = new FormData();
 					uploadFormData.append("file", file);
 
@@ -47,17 +47,21 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					if (!imgResult.success) throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
 
-					// 3. Vision Analysis - FIX: Fetch a resized version to avoid the 5021 Token Error
-					// We use a "variant" URL to keep the input small and efficient
 					const imageUrl = imgResult.result.variants[0]; 
-					const aiImageRes = await fetch(imageUrl);
+
+					// 3. Vision Analysis - CRITICAL FIX: Use Resizing to avoid Token Limit (Error 5021)
+					// We append transformation parameters to the URL to downscale the image for the AI
+					const aiFriendlyUrl = imageUrl.endsWith('/') ? `${imageUrl}width=400` : `${imageUrl}/width=400`;
+					
+					const aiImageRes = await fetch(aiFriendlyUrl);
+					if (!aiImageRes.ok) throw new Error("Could not retrieve AI-optimized image variant.");
+					
 					const imageBuffer = await aiImageRes.arrayBuffer();
 
-					// We convert the image to a Uint8Array which the Vision model expects
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Please describe this image in 2-3 sentences for a memory log." },
+								{ type: "text", text: "Please describe this image in 2 sentences for a searchable log." },
 								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
@@ -65,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 					
 					const description = vision.response || "Image analyzed.";
 
-					// 4. Index for RAG (Searchable Memory)
+					// 4. Index for Search
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
