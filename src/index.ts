@@ -6,9 +6,7 @@ const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
-
-// UPDATED: Using the full account path to force Gateway logging
-const GATEWAY_ID = "3746ba19913534b7653b8af6a1299286/ai-sec-gateway"; 
+const GATEWAY_ID = "ai-sec-gateway"; // Standard slug is safer for code execution
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -94,7 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 				
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: "Stored!" }), { headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({ message: "Stored!" }), { headers: { "Type": "application/json" } });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
 			}
@@ -116,7 +114,6 @@ export class ChatSession extends DurableObject<Env> {
 				const profileUpdater = await this.env.AI.run(REASONING_MODEL, {
 					prompt: `Current Identity: "${currentProfile}"
 					Latest Message: "${latestUserMessage}"
-					
 					TASK: Does this message contain new, personal facts about the user?
 					- If YES, output the new consolidated Identity (under 150 chars).
 					- If NO new facts or just a question, output the word "SKIP".`
@@ -160,8 +157,9 @@ RULES: 1. Use search for real-time facts. 2. Reference the user's Identity natur
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		const url = new URL(request.url);
 		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	},
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
