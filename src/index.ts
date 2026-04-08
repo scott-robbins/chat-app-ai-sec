@@ -6,6 +6,7 @@ const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const GATEWAY_ID = "ai-sec-gateway"; // Your AI Gateway Slug
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -73,7 +74,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- MEMORIZE (TEXT ONLY FOR NOW) ---
+		// --- MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -82,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const chunks = textToIndex.split(/\n/).filter(c => c.trim().length > 0);
 				for (const chunk of chunks) {
-					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
@@ -97,7 +98,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- CHAT WITH AUTO-PROFILE UPDATER ---
+		// --- CHAT WITH SELECTIVE-PROFILE UPDATER ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -108,34 +109,29 @@ export class ChatSession extends DurableObject<Env> {
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// 2. BACKGROUND: UPDATE USER IDENTITY (KV)
+				// 2. BACKGROUND: UPDATE USER IDENTITY (ONLY IF NEW FACTS EXIST)
 				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "No profile yet.";
 				const profileUpdater = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `You are a background identity monitor. 
-					Current Identity: "${currentProfile}"
+					prompt: `Current Identity: "${currentProfile}"
 					Latest Message: "${latestUserMessage}"
 					
-					TASK: If the message contains specific facts about the user (name, age, likes, job, location, goals), update the Identity to include them. 
-					- Keep it concise (under 150 chars). 
-					- If no new facts, output the Current Identity exactly. 
-					- DO NOT add conversational filler.
-					
-					Updated Identity:`
-				});
+					TASK: Does this message contain new, personal facts about the user?
+					- If YES, output the new consolidated Identity (under 150 chars).
+					- If NO new facts or just a question, output the word "SKIP".`
+				}, { gateway: GATEWAY_ID });
 
-				if (profileUpdater.response && profileUpdater.response !== currentProfile) {
+				if (profileUpdater.response && !profileUpdater.response.includes("SKIP")) {
 					await this.env.SETTINGS.put(`global_user_profile`, profileUpdater.response);
 				}
 
 				// 3. SEARCH & CONTEXT
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` });
+				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` }, { gateway: GATEWAY_ID });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMessage); }
 
-				let contextText = "";
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] }, { gateway: GATEWAY_ID });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
-				contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
+				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
@@ -143,14 +139,10 @@ export class ChatSession extends DurableObject<Env> {
 IDENTITY: ${globalProfile}
 CONTEXT: ${contextText}
 SEARCH: ${searchResults}
-
-RULES: 
-1. Use search for real-time facts. 
-2. Reference the user's Identity naturally if relevant.
-3. You are a sleek, smart miniature dachshund.`;
+RULES: 1. Use search for real-time facts. 2. Reference the user's Identity naturally if relevant. 3. You are a sleek, smart miniature dachshund.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
 				const finalContent = chatRun.response || "I'm thinking...";
 				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
