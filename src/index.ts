@@ -11,6 +11,16 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
+	// Helper to convert Buffer to Base64 for the AI model
+	private arrayBufferToBase64(buffer: ArrayBuffer): string {
+		let binary = "";
+		const bytes = new Uint8Array(buffer);
+		for (let i = 0; i < bytes.byteLength; i++) {
+			binary += String.fromCharCode(bytes[i]);
+		}
+		return btoa(binary);
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -47,30 +57,29 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await uploadRes.json() as any;
 					if (!imgResult.success) throw new Error(`Upload Failed: ${imgResult.errors?.[0]?.message}`);
 
-					// 3. Vision Analysis - Use the 'public' variant to avoid 5021 Token Error
-					// Cloudflare usually provides variants[0] as the base URL. 
-					// We ensure it ends with /public for a web-ready version.
-					let imageUrl = imgResult.result.variants[0];
-					if (!imageUrl.endsWith('/public')) {
-						imageUrl = imageUrl.endsWith('/') ? `${imageUrl}public` : `${imageUrl}/public`;
-					}
+					const imageUrl = imgResult.result.variants[0]; 
+
+					// 3. Vision Analysis - FIX: Use Resizing + Base64 to stay under token limit
+					// We fetch a 400px wide version to keep token count low
+					const aiFriendlyUrl = imageUrl.endsWith('/') ? `${imageUrl}width=400` : `${imageUrl}/width=400`;
 					
-					const aiImageRes = await fetch(imageUrl);
-					// Fallback to raw URL if the variant hasn't propagated yet
-					const finalBuffer = aiImageRes.ok ? await aiImageRes.arrayBuffer() : await file.arrayBuffer();
+					const aiImageRes = await fetch(aiFriendlyUrl);
+					const imageBuffer = aiImageRes.ok ? await aiImageRes.arrayBuffer() : await file.arrayBuffer();
 					
+					const base64Image = this.arrayBufferToBase64(imageBuffer);
+
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Please describe this image. If you see two dachshunds, one is Jolene and one is Hanna. Describe what they are doing." },
-								{ type: "image", image: [...new Uint8Array(finalBuffer)] }
+								{ type: "text", text: "Identify the dogs in this image. One is Jolene (black and tan dachshund) and one is Hanna (red dachshund). Describe what they are doing." },
+								{ type: "image", image: base64Image }
 							]}
 						]
 					}, { gateway: GATEWAY_ID });
 					
 					const description = vision.response || "Image analyzed.";
 
-					// 4. Index for Search
+					// 4. Index for RAG
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [description] }, { gateway: GATEWAY_ID });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
@@ -112,6 +121,6 @@ export class ChatSession extends DurableObject<Env> {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
+		return env.CHAT_SESSION.get(id).fetch(id);
 	}
 } satisfies ExportedHandler<Env>;
