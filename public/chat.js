@@ -41,45 +41,6 @@ function speak(text) {
     synth.speak(utterance);
 }
 
-// --- IMAGE PRE-PROCESSOR (Prevents Token Overflow) ---
-async function resizeImage(file) {
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                let width = img.width;
-                let height = img.height;
-                const MAX_DIM = 800; // Optimized for Vision Models
-
-                if (width > height) {
-                    if (width > MAX_DIM) {
-                        height *= MAX_DIM / width;
-                        width = MAX_DIM;
-                    }
-                } else {
-                    if (height > MAX_DIM) {
-                        width *= MAX_DIM / height;
-                        height = MAX_DIM;
-                    }
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                canvas.toBlob((blob) => {
-                    resolve(new File([blob], file.name, { type: 'image/jpeg' }));
-                }, 'image/jpeg', 0.8);
-            };
-            img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
 // --- UI LISTENERS ---
 voiceToggleBtn?.addEventListener("click", () => {
     voiceEnabled = !voiceEnabled;
@@ -226,21 +187,19 @@ function createMessageElement(role) {
     return div;
 }
 
-// --- UPDATED: MEMORIZE WITH AUTO-RESIZER ---
+// --- MEMORIZE WITH CLOUDFLARE IMAGES OFF-LOADING ---
 memorizeBtn?.addEventListener("click", async () => {
     let file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
     
-    memorizeBtn.innerText = "Analyzing Memory...";
+    // Safety check for large files before uploading to Worker
+    if (file.size > 10 * 1024 * 1024) {
+        return alert("File is too large! Please keep it under 10MB.");
+    }
+
+    memorizeBtn.innerText = "Uploading to Brain...";
     memorizeBtn.disabled = true;
     typingIndicator?.classList.add("visible");
-
-    // If it's an image, resize it first to prevent Token Overflow (Error 5021)
-    if (file.type.startsWith("image/")) {
-        console.log("Original Size:", file.size);
-        file = await resizeImage(file);
-        console.log("Resized Size:", file.size);
-    }
 
     const formData = new FormData();
     formData.append("file", file);
