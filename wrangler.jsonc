@@ -3,7 +3,13 @@
 	"name": "chat-app-ai-sec",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-10-08",
-	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"vars": {
+		"ACCOUNT_ID": "REPLACE_WITH_YOUR_ACTUAL_ACCOUNT_ID"
+	},
 	"assets": {
 		"binding": "ASSETS",
 		"directory": "./public"
@@ -39,12 +45,14 @@
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_classes": ["ChatSession"]
+			"new_classes": [
+				"ChatSession"
+			]
 		}
 	],
 	"kv_namespaces": [
 		{
-			"binding": "SETTINGS", 
+			"binding": "SETTINGS",
 			"id": "726f5ce7227c42a997fa509fc947f139"
 		}
 	],
@@ -54,8 +62,15 @@
 			"bucket_name": "chat-docs"
 		}
 	],
-	// NEW: Added Cron Trigger logic
+	"analytics_engine_datasets": [
+		{
+			"binding": "JOLENE_METRICS",
+			"dataset": "jolene_activity"
+		}
+	],
 	"triggers": {
-		"crons": ["0 13 * * *"] 
+		"crons": [
+			"0 * * * *" // Changed to run every hour for better monitoring demo
+		]
 	}
 }
