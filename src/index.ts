@@ -31,17 +31,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const startTime = Date.now();
 
-		const logMetric = (action: string, value: number = 1) => {
-			if (this.env.JOLENE_METRICS) {
-				this.env.JOLENE_METRICS.writeDataPoint({
-					blobs: [action, sessionId, CONVERSATION_MODEL],
-					doubles: [value, Date.now() - startTime],
-					indexes: [sessionId]
-				});
-			}
-		};
-
-		// --- MEMORIZE WITH CLOUDFLARE IMAGES ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -50,18 +39,21 @@ export class ChatSession extends DurableObject<Env> {
 				let imageUrl = "";
 
 				if (file.type.startsWith("image/")) {
-					// 1. Upload to Cloudflare Images
 					const imgFormData = new FormData();
 					imgFormData.append("file", file);
 					
-					// Ensure we are using the dashboard secret
-					const token = this.env.IMAGES_TOKEN;
-					const accountId = this.env.ACCOUNT_ID || "3746ba19913534b7653b8af6a1299286";
+					// Clean the token and ID
+					const token = (this.env.IMAGES_TOKEN || "").trim();
+					const accountId = (this.env.ACCOUNT_ID || "3746ba19913534b7653b8af6a1299286").trim();
 
-					const cfImage = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`, {
+					const uploadUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1`;
+					
+					// IMPORTANT: Do NOT set Content-Type header manually here.
+					// Let the fetch API generate the boundary for the FormData.
+					const cfImage = await fetch(uploadUrl, {
 						method: "POST",
 						headers: { 
-							"Authorization": `Bearer ${token}`.trim() 
+							"Authorization": `Bearer ${token}`
 						},
 						body: imgFormData
 					});
@@ -69,33 +61,30 @@ export class ChatSession extends DurableObject<Env> {
 					const imgResult = await cfImage.json() as any;
 
 					if (!cfImage.ok || !imgResult.result) {
-						console.error("DEBUG IMAGES FAIL:", JSON.stringify(imgResult));
-						const msg = imgResult.errors?.[0]?.message || "Authentication failed";
-						throw new Error(`Cloudflare Images Error: ${msg}`);
+						console.error("Images API Error:", imgResult);
+						const apiMsg = imgResult.errors?.[0]?.message || "Unknown Auth Error";
+						const apiCode = imgResult.errors?.[0]?.code || "N/A";
+						throw new Error(`Cloudflare Images Error: ${apiMsg} (Code: ${apiCode}) for ID: ${accountId.substring(0, 6)}...`);
 					}
 
 					imageUrl = imgResult.result.variants[0]; 
 
-					// 2. Vision analysis using the public variant
 					const aiImageRes = await fetch(imageUrl + "/width=800,height=800,fit=scale-down");
 					const imageBuffer = await aiImageRes.arrayBuffer();
 
 					const vision = await this.env.AI.run(CONVERSATION_MODEL, {
 						messages: [
 							{ role: "user", content: [
-								{ type: "text", text: "Describe this image in detail. Focus on people and the relationship between subjects." },
+								{ type: "text", text: "Describe this image for a memory database." },
 								{ type: "image", image: [...new Uint8Array(imageBuffer)] }
 							]}
 						]
 					});
-					textToIndex = vision.response || "Image analyzed.";
-					logMetric("image_processed");
+					textToIndex = vision.response || "Analyzed.";
 				} else {
 					textToIndex = await file.text();
-					logMetric("document_processed");
 				}
 
-				// 3. Vectorize Indexing
 				const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [textToIndex] });
 				await this.env.VECTORIZE.insert([{ 
 					id: crypto.randomUUID(), 
@@ -109,77 +98,24 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- DASHBOARD DATA ---
+		// --- SUPPORTING ROUTES ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const lastMsg = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").bind(sessionId).first();
 			const thinkingAbout = lastMsg?.content ? (lastMsg.content as string).substring(0, 35) + "..." : "Ready to assist";
 
-			const recentLogs = await this.env.jolene_db.prepare("SELECT content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20").bind(sessionId).all();
-			const allText = recentLogs.results.map(r => r.content).join(" ").toLowerCase();
-			const words = allText.match(/\b(\w{5,})\b/g) || [];
-			const counts = words.reduce((acc: any, word) => { acc[word] = (acc[word] || 0) + 1; return acc; }, {});
-			const keywords = Object.entries(counts).sort((a: any, b: any) => (b[1] as number) - (a[1] as number)).slice(0, 5).map(e => e[0]).join(", ");
-
 			return new Response(JSON.stringify({ 
-				profile: profile || "No profile saved.",
+				profile: profile || "No profile.",
 				messageCount: stats?.count || 0,
-				thinkingAbout: thinkingAbout,
-				keywords: keywords || "Analyzing..."
+				thinkingAbout: thinkingAbout
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- CHAT WITH IDENTITY LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
-			try {
-				const body = await request.json() as any;
-				const latestUserMessage = body.messages[body.messages.length - 1].content;
-				
-				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
-				const profileUpdate = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Identity: "${currentProfile}"\nNew Fact: "${latestUserMessage}"\nUpdate Identity concisely (150 chars max) or return exactly.`
-				});
-				if (profileUpdate.response && profileUpdate.response !== currentProfile) {
-					await this.env.SETTINGS.put(`global_user_profile`, profileUpdate.response);
-					logMetric("identity_updated");
-				}
-
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Need search? YES/NO: ${latestUserMessage}` });
-				let searchResults = "";
-				if (searchIntent.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(latestUserMessage); 
-					logMetric("web_search");
-				}
-
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
-				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
-
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
-					messages: [
-						{ role: "system", content: `You are Jolene. Identity: ${profileUpdate.response}\nContext: ${contextText}\nSearch: ${searchResults}` },
-						...body.messages
-					]
-				});
-
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatRun.response).run();
-
-				logMetric("chat_processed", chatRun.response.length);
-				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
-		}
-
-		// --- SUPPORTING ROUTES ---
-		if (url.pathname === "/api/history") {
-			const { results } = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC").bind(sessionId).all();
-			const theme = await this.env.SETTINGS.get(`global_theme`) || "fancy";
-			return new Response(JSON.stringify({ messages: results, theme }), { headers: { "Content-Type": "application/json" } });
-		}
-		if (url.pathname === "/api/files") {
-			const objects = await this.env.DOCUMENTS.list();
-			return new Response(JSON.stringify({ files: objects.objects.map(o => ({ key: o.key })) }), { headers: { "Content-Type": "application/json" } });
+			const body = await request.json() as any;
+			const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: body.messages });
+			return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 		}
 
 		return new Response("Not Allowed", { status: 405 });
@@ -190,10 +126,5 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
-	},
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const id = env.CHAT_SESSION.idFromName("global");
-		const obj = env.CHAT_SESSION.get(id);
-		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/monitor-task", { method: "POST" })));
 	}
 } satisfies ExportedHandler<Env>;
