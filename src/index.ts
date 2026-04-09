@@ -11,7 +11,6 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -35,17 +34,47 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- BRIEFING ROUTE ---
-		if (url.pathname === "/api/cron-briefing") {
+		// --- DASHBOARD: REAL-TIME R2 FILE LISTING ---
+		if (url.pathname === "/api/profile") {
 			try {
-				const interests = "MMA/UFC, Boston Celtics, New England Patriots, Cloudflare news, major US politics, and premium streaming movies/TV (no network TV)";
-				const newsContext = await this.searchWeb(`Latest news on ${interests}`);
-				const briefingPrompt = `You are Jolene. Generate an executive morning briefing based on: ${newsContext}.`;
-				const briefing = await this.env.AI.run(REASONING_MODEL, { prompt: briefingPrompt });
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", `☀️ **MORNING BRIEFING**\n\n${briefing.response}`).run();
-				return new Response("OK");
-			} catch (e) { return new Response("Error", { status: 500 }); }
+				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
+				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
+				
+				// Fetch actual file list from R2 bucket
+				const storage = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
+				const fileList = storage.objects.map(o => o.key.split('/').pop());
+
+				return new Response(JSON.stringify({ 
+					profile: profile,
+					messageCount: stats?.count || 0,
+					knowledgeAssets: fileList,
+					status: "Live"
+				}), { headers: { "Content-Type": "application/json" } });
+			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
+		}
+
+		// --- MEMORIZE: LEARN FROM UPLOADS ---
+		if (url.pathname === "/api/memorize" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				const textToIndex = await file.text();
+
+				// 1. Convert text to "Memory Vectors"
+				const chunks = textToIndex.split(/\n\n/).filter(c => c.trim().length > 0);
+				for (const chunk of chunks) {
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					await this.env.VECTORIZE.insert([{ 
+						id: crypto.randomUUID(), 
+						values: emb.data[0], 
+						metadata: { text: chunk, fileName: file.name, sessionId } 
+					}]);
+				}
+				
+				// 2. Archive the raw file in R2
+				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
+				return new Response(JSON.stringify({ message: "Knowledge Absorbed!" }));
+			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
@@ -54,52 +83,31 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// 1. IMAGE INTENT
-				const lowerMsg = latestUserMsg.toLowerCase();
-				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
-					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
-					const fileName = `gen-${Date.now()}.png`;
-					await this.env.DOCUMENTS.put(`images/${fileName}`, imageResponse);
-					const imageUrl = `${PUBLIC_R2_URL}/images/${fileName}`;
-					const msg = `I have generated that image for you. You can view it here: ${imageUrl}`;
-					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
-				}
-
-				// 2. SEARCH & CONTEXT
-				// We force the reasoning model to ignore its "I can't browse" training
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `You have access to a real-time search tool. Does this user request require search? "YES" or "NO" only. User: ${latestUserMsg}` 
-				});
-				
-				let searchResults = "";
-				if (searchIntent.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(latestUserMsg); 
-				}
-
+				// 1. Search Vector Memory (Learning from your files)
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
+
+				// 2. Search the Web (Real-time facts)
+				const searchIntent = await this.env.AI.run(REASONING_MODEL, { 
+					prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMsg}` 
+				});
+				let searchResults = "";
+				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
+
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				// --- RESTORED SYSTEM PROMPT ---
-				let sysPrompt = `You are Jolene, a highly sophisticated AI agent.
-CAPABILITIES:
-- You HAVE access to real-time internet search results (provided below).
-- You HAVE access to an image generation model.
-- You are professional, polished, and direct.
+				let sysPrompt = `You are Jolene, a sophisticated AI.
+IDENTITY: ${globalProfile}
+YOUR MEMORY (FROM UPLOADED FILES): ${contextText}
+LATEST SEARCH: ${searchResults}
 
-SEARCH DATA: ${searchResults}
-USER IDENTITY: ${globalProfile}
-DOC CONTEXT: ${contextText}
-
-If search data is provided above, you MUST use it to answer the question. Never say "I don't have access to real-time data" if the search data is present.`;
+Use your MEMORY to understand the user's personality and specific interests. 
+Always favor information found in YOUR MEMORY over general AI knowledge.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatRun.response).run();
-
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
@@ -114,10 +122,5 @@ export default {
 		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
-	},
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const id = env.CHAT_SESSION.idFromName("global");
-		const obj = env.CHAT_SESSION.get(id);
-		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/cron-briefing", { method: "POST" })));
 	}
 } satisfies ExportedHandler<Env>;
