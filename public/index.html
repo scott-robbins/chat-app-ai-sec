@@ -271,7 +271,6 @@
 		</footer>
 
 		<script>
-			// --- CONFIG & STATE ---
 			const sessionId = "global";
 			let isTyping = false;
 
@@ -282,6 +281,15 @@
 			};
 			document.getElementById('close-sidebar-btn').onclick = () => {
 				document.getElementById('memory-sidebar').classList.remove('open');
+			};
+
+			document.getElementById('clear-screen-btn').onclick = () => {
+				document.getElementById('chat-messages').innerHTML = '';
+				appendMessage('assistant-message', "Screen cleared. How can I help you now?");
+			};
+
+			document.getElementById('theme-toggle-btn').onclick = () => {
+				document.body.classList.toggle('theme-fancy');
 			};
 
 			// --- DASHBOARD SYNC ---
@@ -313,21 +321,27 @@
 				if (!fileInput.files[0]) return alert("Select a file first");
 				
 				const btn = document.getElementById('memorize-file-btn');
+				const originalHtml = btn.innerHTML;
 				btn.innerHTML = '<i class="ph ph-circle-notch"></i> Memorizing...';
 				
 				const formData = new FormData();
 				formData.append('file', fileInput.files[0]);
 
-				const res = await fetch('/api/memorize', {
-					method: 'POST',
-					body: formData,
-					headers: { 'x-session-id': sessionId }
-				});
+				try {
+					const res = await fetch('/api/memorize', {
+						method: 'POST',
+						body: formData,
+						headers: { 'x-session-id': sessionId }
+					});
 
-				if (res.ok) {
-					btn.innerHTML = '<i class="ph ph-check"></i> Memorized!';
-					setTimeout(() => btn.innerHTML = '<i class="ph ph-paperclip"></i> Memorize File', 2000);
-					updateDashboard();
+					if (res.ok) {
+						btn.innerHTML = '<i class="ph ph-check"></i> Memorized!';
+						setTimeout(() => btn.innerHTML = originalHtml, 2000);
+						updateDashboard();
+					}
+				} catch (e) {
+					btn.innerHTML = originalHtml;
+					alert("Upload failed.");
 				}
 			};
 
@@ -341,35 +355,40 @@
 				input.value = '';
 				showTyping(true);
 
-				const res = await fetch('/api/chat', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-					body: JSON.stringify({ messages: [{ role: 'user', content }] })
-				});
+				try {
+					const res = await fetch('/api/chat', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+						body: JSON.stringify({ messages: [{ role: 'user', content }] })
+					});
 
-				const reader = res.body.getReader();
-				const decoder = new TextDecoder();
-				let assistantText = "";
+					const reader = res.body.getReader();
+					const decoder = new TextDecoder();
+					let assistantText = "";
 
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					
-					const chunk = decoder.decode(value);
-					const lines = chunk.split('\n');
-					for (const line of lines) {
-						if (line.startsWith('data: ')) {
-							try {
-								const data = JSON.parse(line.substring(6));
-								if (data.response) assistantText = data.response;
-							} catch (e) {}
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						
+						const chunk = decoder.decode(value);
+						const lines = chunk.split('\n');
+						for (const line of lines) {
+							if (line.startsWith('data: ')) {
+								try {
+									const data = JSON.parse(line.substring(6));
+									if (data.response) assistantText = data.response;
+								} catch (e) {}
+							}
 						}
 					}
+					
+					showTyping(false);
+					appendMessage('assistant-message', assistantText);
+					updateDashboard();
+				} catch (e) {
+					showTyping(false);
+					appendMessage('assistant-message', "I encountered an error. Please try again.");
 				}
-				
-				showTyping(false);
-				appendMessage('assistant-message', assistantText);
-				updateDashboard();
 			}
 
 			function appendMessage(cls, text) {
