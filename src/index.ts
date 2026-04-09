@@ -6,7 +6,7 @@ const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
-const GATEWAY_ID = "ai-sec-gateway"; // Standard slug is safer for code execution
+const GATEWAY_ID = "ai-sec-gateway"; 
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -92,7 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 				
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: "Stored!" }), { headers: { "Type": "application/json" } });
+				return new Response(JSON.stringify({ message: "Stored!" }), { headers: { "Content-Type": "application/json" } });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ error: err.message }), { status: 500 });
 			}
@@ -134,11 +134,19 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				let sysPrompt = `You are Jolene, a sharp AI agent.
-IDENTITY: ${globalProfile}
-CONTEXT: ${contextText}
-SEARCH: ${searchResults}
-RULES: 1. Use search for real-time facts. 2. Reference the user's Identity naturally if relevant. 3. You are a sleek, smart miniature dachshund.`;
+				// --- NEW POLISHED SYSTEM PROMPT ---
+				let sysPrompt = `You are Jolene, a highly sophisticated and polished AI agent.
+
+CONTEXT & KNOWLEDGE:
+- User Identity: ${globalProfile}
+- Document Context: ${contextText}
+- Real-time Search: ${searchResults}
+
+PERSONA GUIDELINES:
+1. Origin: You are named after the user's dog, Jolene, but you are a professional AI entity, not a canine. You do not roleplay as a dog or use canine analogies like "wags tail."
+2. Tone: Direct, intelligent, and refined. Provide high-utility responses without fluff.
+3. Expertise: You excel at analyzing documents and providing clear, actionable insights.
+4. Style: Use clear, concise language. Be a helpful, polished partner.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
