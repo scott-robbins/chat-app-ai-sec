@@ -11,6 +11,7 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
+	// --- ADVANCED TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -34,7 +35,31 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- DASHBOARD ANALYTICS ---
+		// --- 1. NEW: CRON BRIEFING ROUTE ---
+		if (url.pathname === "/api/cron-briefing") {
+			try {
+				const interests = "MMA/UFC, Boston Celtics, New England Patriots, Cloudflare news, major US politics, and premium streaming movies/TV series (excluding NBC, ABC, CBS)";
+				const newsContext = await this.searchWeb(`Latest news on ${interests}`);
+				
+				const briefingPrompt = `You are Jolene, a polished executive assistant. 
+				Generate a morning briefing based on this news: ${newsContext}. 
+				Focus on these interests: ${interests}. 
+				Keep it sophisticated, direct, and formatted with clean headers. No dog references.`;
+
+				const briefing = await this.env.AI.run(REASONING_MODEL, { prompt: briefingPrompt }, { gateway: GATEWAY_ID });
+				const finalBriefing = `☀️ **GOOD MORNING BRIEFING**\n\n${briefing.response}`;
+
+				// Save to D1 so it's in your chat history when you wake up
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", finalBriefing).run();
+
+				return new Response("Briefing success");
+			} catch (e) {
+				return new Response("Briefing failed", { status: 500 });
+			}
+		}
+
+		// --- 2. DASHBOARD ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			const profile = await this.env.SETTINGS.get(`global_user_profile`);
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
@@ -44,21 +69,19 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers: { "Content-Type": "application/json" } });
 		}
 
+		// --- 3. CHAT LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMessage = messages[messages.length - 1]?.content || "";
 
-				// Save User Msg to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// 1. IMAGE INTENT DETECTION (Strict Check)
+				// IMAGE INTENT
 				const imageKeywords = ["generate an image", "draw a", "picture of", "render a"];
-				const isImageRequest = imageKeywords.some(k => latestUserMessage.toLowerCase().includes(k));
-
-				if (isImageRequest) {
+				if (imageKeywords.some(k => latestUserMessage.toLowerCase().includes(k))) {
 					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMessage });
 					const fileName = `jolene-gen-${Date.now()}.png`;
 					await this.env.DOCUMENTS.put(`images/${fileName}`, imageResponse);
@@ -71,7 +94,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: assistantResponse })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// 2. STANDARD CHAT LOGIC
+				// STANDARD CHAT
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMessage] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
@@ -80,11 +103,11 @@ export class ChatSession extends DurableObject<Env> {
 				let sysPrompt = `You are Jolene, a highly sophisticated AI agent. 
 				Context: ${contextText}. Reference files only if relevant. 
 				Persona: You are professional, direct, and polished. You are named after a dog but are a digital entity.
-				Capability: You can generate images if asked explicitly using words like "draw" or "generate image".`;
+				Capability: You can generate images if asked explicitly.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-				const finalContent = chatRun.response || "I am analyzing the request...";
+				const finalContent = chatRun.response || "Analyzing...";
 				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
@@ -105,5 +128,11 @@ export default {
 		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
+	},
+	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		const id = env.CHAT_SESSION.idFromName("global");
+		const obj = env.CHAT_SESSION.get(id);
+		// Trigger the 9am Briefing via internal DO call
+		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/cron-briefing", { method: "POST" })));
 	}
 } satisfies ExportedHandler<Env>;
