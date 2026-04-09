@@ -98,7 +98,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- CHAT WITH SELECTIVE-PROFILE UPDATER ---
+		// --- CHAT WITH SELECTIVE-PROFILE UPDATER & IMAGE GENERATION ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -109,7 +109,26 @@ export class ChatSession extends DurableObject<Env> {
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMessage).run();
 
-				// 2. BACKGROUND: UPDATE USER IDENTITY (ONLY IF NEW FACTS EXIST)
+				// 2. CHECK FOR IMAGE GENERATION INTENT
+				const lowerMsg = latestUserMessage.toLowerCase();
+				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
+					// Generate Image
+					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMessage });
+					const fileName = `gen-${Date.now()}.png`;
+					
+					// Upload to R2
+					await this.env.DOCUMENTS.put(`images/${fileName}`, imageResponse);
+					const imageUrl = `${PUBLIC_R2_URL}/images/${fileName}`;
+					const assistantResponse = `I have generated that image for you. You can view it here: ${imageUrl}`;
+
+					// Save Assistant Record
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "assistant", assistantResponse).run();
+
+					return new Response(`data: ${JSON.stringify({ response: assistantResponse })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// 3. BACKGROUND: UPDATE USER IDENTITY (ONLY IF NEW FACTS EXIST)
 				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "No profile yet.";
 				const profileUpdater = await this.env.AI.run(REASONING_MODEL, {
 					prompt: `Current Identity: "${currentProfile}"
@@ -123,7 +142,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.SETTINGS.put(`global_user_profile`, profileUpdater.response);
 				}
 
-				// 3. SEARCH & CONTEXT
+				// 4. SEARCH & CONTEXT
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { prompt: `Does this require real-time info? "YES" or "NO" only. User: ${latestUserMessage}` }, { gateway: GATEWAY_ID });
 				let searchResults = "";
 				if (searchIntent.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMessage); }
@@ -134,7 +153,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				// --- NEW POLISHED SYSTEM PROMPT ---
+				// --- POLISHED SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene, a highly sophisticated and polished AI agent.
 
 CONTEXT & KNOWLEDGE:
