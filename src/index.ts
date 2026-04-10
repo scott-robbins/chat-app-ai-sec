@@ -56,31 +56,42 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- 1. DASHBOARD: ANALYTICS & RECURSIVE R2 LISTING (UPDATED) ---
+		// --- 1. DASHBOARD: ANALYTICS & RECURSIVE R2 LISTING ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				// RECURSIVE LISTING: No prefix, scans the whole bucket
 				const storage = await this.env.DOCUMENTS.list();
 				
-				// Filter out directories and clean up the path for the UI
-				const fileList = storage.objects
+				// Return both the clean name and the full key so the UI can handle deletions
+				const assets = storage.objects
 					.map(o => o.key)
 					.filter(key => !key.endsWith('/')) 
-					.map(key => key.split('/').pop() || key);
+					.map(key => ({
+						name: key.split('/').pop() || key,
+						key: key
+					}));
 
 				return new Response(JSON.stringify({ 
 					profile: profile,
 					messageCount: stats?.count || 0,
-					knowledgeAssets: fileList,
+					knowledgeAssets: assets,
 					status: "Live"
 				}), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. SAFE WIPE ROUTE (Identity & History Only) ---
+		// --- 2. DELETE INDIVIDUAL R2 FILE ---
+		if (url.pathname === "/api/delete-file" && request.method === "POST") {
+			try {
+				const { key } = await request.json() as any;
+				await this.env.DOCUMENTS.delete(key);
+				return new Response(JSON.stringify({ message: "File deleted successfully" }));
+			} catch (e) { return new Response(JSON.stringify({ error: "Delete failed" }), { status: 500 }); }
+		}
+
+		// --- 3. SAFE WIPE ROUTE (Identity & History Only) ---
 		if (url.pathname === "/api/wipe-knowledge" && request.method === "POST") {
 			try {
 				await this.env.SETTINGS.delete(`global_user_profile`);
@@ -89,13 +100,13 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 3. MANUAL BRIEFING TRIGGER ---
+		// --- 4. MANUAL BRIEFING TRIGGER ---
 		if (url.pathname === "/api/cron-briefing") {
 			const result = await this.runMorningBriefing(sessionId);
 			return result ? new Response(result) : new Response("Failed", { status: 500 });
 		}
 
-		// --- 4. MEMORIZE: LEARNING FROM UPLOADS ---
+		// --- 5. MEMORIZE: LEARNING FROM UPLOADS ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -117,7 +128,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 5. CHAT WITH IMAGE, SEARCH, AND MEMORY ---
+		// --- 6. CHAT WITH IMAGE, SEARCH, AND MEMORY ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
