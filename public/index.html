@@ -148,18 +148,19 @@
 				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
 				background: var(--app-bg); border-left: 1px solid var(--border-color);
 				transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 20px;
+				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 15px;
+				overflow-y: auto;
 			}
 			.sidebar.open { right: 0; }
-			.btn-danger { width: 100%; margin-top: auto; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
 			/* --- DASHBOARD STYLES --- */
 			.dash-card {
-				background: rgba(255, 255, 255, 0.05);
+				background: rgba(255, 255, 255, 0.08);
 				border: 1px solid var(--border-color);
 				border-radius: 12px;
 				padding: 12px;
-				margin-bottom: 10px;
+				margin-bottom: 8px;
 			}
 			.dash-label {
 				font-size: 0.65rem;
@@ -168,18 +169,31 @@
 				text-transform: uppercase;
 				letter-spacing: 1px;
 				margin-bottom: 4px;
+				display: block;
 			}
 			.dash-value {
-				font-size: 0.9rem;
+				font-size: 0.85rem;
 				font-weight: 500;
 				line-height: 1.3;
+				word-break: break-word;
+			}
+			.dash-desc {
+				font-size: 0.7rem;
+				color: var(--text-light);
+				margin-top: 4px;
+				font-style: italic;
 			}
 
+			#file-list-display {
+				margin-top: 10px;
+				padding: 0;
+			}
 			#file-list-display li {
-				font-size: 0.8rem;
-				padding: 6px;
+				font-size: 0.75rem;
+				padding: 6px 0;
 				border-bottom: 1px solid rgba(255,255,255,0.05);
 				color: #38bdf8;
+				list-style: none;
 			}
 
 		</style>
@@ -240,28 +254,36 @@
 		<div id="memory-sidebar" class="sidebar">
 			<div class="sidebar-header">
 				<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px;">
-					<h2 style="color: var(--primary-color); font-weight: 700;">Jolene's Command Center</h2>
+					<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
 					<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 				</div>
 			</div>
 			<div class="sidebar-content">
-				<section id="kv-profile-section">
-					<h3 style="color: var(--primary-color); margin-bottom: 15px;"><i class="ph ph-chart-bar"></i> Live Dashboard</h3>
-					<div class="dash-card">
-						<span class="dash-label">Global Identity</span>
-						<div id="kv-profile-display" class="dash-value">Loading profile...</div>
-					</div>
-					<div class="dash-card">
-						<span class="dash-label">Message Volume</span>
-						<div id="msg-count-display" class="dash-value">0</div>
-					</div>
-				</section>
-				<section style="margin-top: 30px;">
-					<h3 style="color: var(--primary-color); margin-bottom: 10px;"><i class="ph ph-files"></i> Knowledge Assets (R2)</h3>
-					<ul id="file-list-display" class="file-list" style="list-style:none;">
-						<li>No assets loaded</li>
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare KV: User Profile</span>
+					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
+					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
+				</div>
+
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
+					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
+					<div class="dash-desc">Relational database tracking chat history and interaction frequency.</div>
+				</div>
+
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
+					<div class="dash-value" id="vector-status">Active Index</div>
+					<div class="dash-desc">Stores text embeddings from files for semantic search and "learning."</div>
+				</div>
+
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare R2: Knowledge Assets</span>
+					<ul id="file-list-display">
+						<li>Scanning storage...</li>
 					</ul>
-				</section>
+					<div class="dash-desc">Object storage for raw uploaded documents and generated images.</div>
+				</div>
 			</div>
 			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe System Knowledge</button>
 		</div>
@@ -337,8 +359,11 @@
 					const data = await res.json();
 					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('msg-count-display').innerText = data.messageCount;
+					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
+					
+					// Checking for the 'knowledgeAssets' key specifically from our index.ts profile route
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
 						data.knowledgeAssets.forEach(f => {
 							const li = document.createElement('li');
@@ -346,9 +371,12 @@
 							list.appendChild(li);
 						});
 					} else {
-						list.innerHTML = '<li>No assets loaded</li>';
+						list.innerHTML = '<li>No assets in R2 storage.</li>';
 					}
-				} catch (e) { console.error("Dashboard error:", e); }
+				} catch (e) { 
+					console.error("Dashboard error:", e); 
+					document.getElementById('file-list-display').innerHTML = '<li>Error connecting to storage.</li>';
+				}
 			}
 
 			// --- FILE MEMORIZE ---
