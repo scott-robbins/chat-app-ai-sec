@@ -183,17 +183,19 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// --- IMPROVED SEARCH INTENT & EXECUTION ---
+				// --- SEARCH INTENT WITH CONTEXT ---
+				const contextSnippet = messages.slice(-3).map(m => `${m.role}: ${m.content}`).join("\n");
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Does the following request require real-time information (e.g., weather, sports scores, current news)? Respond only with "YES" or "NO". Request: "${latestUserMsg}"` 
+					prompt: `Review the conversation history:\n${contextSnippet}\n\nDoes the user's last request require updated real-time information (e.g., weather, sports scores, current news)? Respond only with "YES" or "NO". Request: "${latestUserMsg}"` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(latestUserMsg); 
+					// We tell Tavily to search for the specific topic based on the context
+					searchResults = await this.searchWeb(`${latestUserMsg} (Current context: Boston Celtics and general sports scores)`); 
 				}
 
-				// --- SYSTEM PROMPT (FIXED PERSONA & SEARCH INJECTION) ---
+				// --- SYSTEM PROMPT (FIXED PERSONA, DATE, & SEARCH INJECTION) ---
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
 				let sysPrompt = `You are Jolene, a sophisticated and direct professional AI assistant. 
 Tone: Helpful, straightforward, and professional. 
@@ -204,7 +206,10 @@ KNOWLEDGE SOURCES:
 2. YOUR MEMORY (From uploaded files): ${contextText || "No relevant files found."}
 3. USER PROFILE: ${globalProfile}
 
-If SEARCH DATA is provided, you must use it to answer current event questions (like scores or weather) accurately.`;
+Instructions:
+- Use SEARCH DATA to verify sports schedules and weather.
+- Today is Friday, April 10, 2026. Use this to determine if games are "tonight" or "today".
+- If SEARCH DATA is provided, you must use it to answer current event questions accurately.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
