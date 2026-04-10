@@ -26,7 +26,7 @@ export class ChatSession extends DurableObject<Env> {
 				})
 			});
 			const data = await response.json() as any;
-			if (data.answer) return `VERIFIED FACTUAL SUMMARY: ${data.answer}`;
+			if (data.answer) return `VERIFIED REAL-TIME DATA: ${data.answer}`;
 			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
@@ -143,29 +143,29 @@ export class ChatSession extends DurableObject<Env> {
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
 
-				// --- STRICT IDENTITY MANAGEMENT MODULE ---
 				const kvProfileKey = `global_user_profile`;
 				const currentProfileString = await this.env.SETTINGS.get(kvProfileKey) || "New User Profile";
 
+				// --- IDENTITY MANAGEMENT MODULE ---
 				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
 					messages: [
 						{ 
 							role: 'system', 
-							content: 'You are an identity management module. Your job is to consolidate new user facts into a clean, comma-separated string. DO NOT provide reasoning. DO NOT talk about your process. Output ONLY the consolidated fact string, or "NONE" if there is nothing new. Keep existing identity facts (Name, Title) if they remain true.' 
+							content: 'You are an identity management module. Your job is to consolidate new user facts into a clean, comma-separated string. DO NOT provide reasoning. Output ONLY the consolidated fact string, or "NONE" if there is nothing new.' 
 						},
 						{ 
 							role: 'user', 
-							content: `Current consolidated identity string: "${currentProfileString}"\n\nNew user input: "${latestUserMsg}"` 
+							content: `Current Profile: "${currentProfileString}"\n\nNew input: "${latestUserMsg}"` 
 						}
 					]
 				}, { gateway: GATEWAY_ID });
 
 				const cleanedCheck = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
-
-				if (cleanedCheck && cleanedCheck !== "NONE" && !cleanedCheck.includes("Analyzing the message")) {
+				if (cleanedCheck && cleanedCheck !== "NONE" && !cleanedCheck.includes("Analyzing")) {
 					await this.env.SETTINGS.put(kvProfileKey, cleanedCheck);
 				}
 
+				// --- IMAGE LOGIC ---
 				const lowerMsg = latestUserMsg.toLowerCase();
 				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
 					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
@@ -173,39 +173,42 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.DOCUMENTS.put(`images/${fileName}`, imageResponse);
 					const imageUrl = `${PUBLIC_R2_URL}/images/${fileName}`;
 					const msg = `I have generated that image for you. You can view it here: ${imageUrl}`;
-					
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "assistant", msg).run();
 					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- MEMORY RETRIEVAL ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] }, { gateway: GATEWAY_ID });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				const searchIntent = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Does this require real-time info? YES/NO. User: ${latestUserMsg}` 
+				// --- IMPROVED SEARCH INTENT & EXECUTION ---
+				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
+					prompt: `Does the following request require real-time information (e.g., weather, sports scores, current news)? Respond only with "YES" or "NO". Request: "${latestUserMsg}"` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
-				if (searchIntent.response?.includes("YES")) { 
+				if (searchCheck.response?.includes("YES")) { 
 					searchResults = await this.searchWeb(latestUserMsg); 
 				}
 
+				// --- SYSTEM PROMPT (FIXED PERSONA & SEARCH INJECTION) ---
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
-				
-				// --- REFINED PERSONALITY PROMPT (Fixed Persona) ---
-				let sysPrompt = `You are Jolene, a sophisticated and direct AI assistant. 
-                Maintain a professional, helpful, and straightforward tone. 
-                Do not adopt any personas related to animals or pets. 
-                
-                USER IDENTITY: ${globalProfile}
-                SEARCH DATA: ${searchResults}
-                YOUR MEMORY: ${contextText}`;
+				let sysPrompt = `You are Jolene, a sophisticated and direct professional AI assistant. 
+Tone: Helpful, straightforward, and professional. 
+Constraint: Never adopt an animal persona.
+
+KNOWLEDGE SOURCES:
+1. SEARCH DATA (Primary for current events/weather): ${searchResults || "No real-time data found."}
+2. YOUR MEMORY (From uploaded files): ${contextText || "No relevant files found."}
+3. USER PROFILE: ${globalProfile}
+
+If SEARCH DATA is provided, you must use it to answer current event questions (like scores or weather) accurately.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
-				const finalContent = chatRun.response || "Analyzing...";
+				const finalContent = chatRun.response || "I am analyzing that for you now...";
 				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
