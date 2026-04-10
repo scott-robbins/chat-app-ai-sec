@@ -56,7 +56,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- 1. DASHBOARD: ANALYTICS & FULL R2 PATHS (FIXED) ---
+		// --- 1. DASHBOARD: ANALYTICS & FULL R2 PATHS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
@@ -64,7 +64,6 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const storage = await this.env.DOCUMENTS.list();
 				
-				// We send the FULL KEY so the directory structure is visible (e.g. uploads/uuid/file.png)
 				const assets = storage.objects
 					.map(o => o.key)
 					.filter(key => !key.endsWith('/'));
@@ -72,10 +71,20 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(JSON.stringify({ 
 					profile: profile,
 					messageCount: stats?.count || 0,
-					knowledgeAssets: assets, // Now an array of strings to avoid [object Object]
+					knowledgeAssets: assets,
 					status: "Live"
 				}), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
+		}
+
+		// --- NEW: HISTORY FETCH ROUTE ---
+		if (url.pathname === "/api/history") {
+			try {
+				const messages = await this.env.jolene_db.prepare(
+					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC"
+				).bind(sessionId).all();
+				return new Response(JSON.stringify(messages.results), { headers: { "Content-Type": "application/json" } });
+			} catch (e) { return new Response("History load failed", { status: 500 }); }
 		}
 
 		// --- 2. DELETE INDIVIDUAL R2 FILE ---
@@ -131,8 +140,22 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
+				// Save User Msg
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
+
+				// --- NEW: AUTO-UPDATE PROFILE IN KV ---
+				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "New User Profile";
+				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
+					prompt: `Analyze this message: "${latestUserMsg}". 
+					If the user provides new personal facts (interests, favorite teams, job, name), output an updated consolidated profile string.
+					Current Profile: ${currentProfile}
+					If no new facts are provided, output exactly "NONE".`
+				});
+
+				if (profileCheck.response && !profileCheck.response.includes("NONE")) {
+					await this.env.SETTINGS.put(`global_user_profile`, profileCheck.response);
+				}
 
 				const lowerMsg = latestUserMsg.toLowerCase();
 				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
