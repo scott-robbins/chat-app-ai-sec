@@ -182,6 +182,7 @@
 				color: var(--text-light);
 				margin-top: 4px;
 				font-style: italic;
+				margin-bottom: 4px;
 			}
 
 			#file-list-display {
@@ -276,20 +277,20 @@
 			<div class="sidebar-content">
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
+					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
 				</div>
 
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
 					<div class="dash-desc">Relational database tracking chat history and interaction frequency.</div>
+					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
 				</div>
 
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-					<div class="dash-value" id="vector-status">Active Index</div>
 					<div class="dash-desc">Stores text embeddings from files for semantic search and "learning."</div>
+					<div class="dash-value" id="vector-status">Active Index</div>
 				</div>
 
 				<div class="dash-card">
