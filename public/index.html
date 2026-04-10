@@ -285,7 +285,7 @@
 					<div class="dash-desc">Object storage for raw uploaded documents and generated images.</div>
 				</div>
 			</div>
-			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Wipe System Knowledge</button>
+			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
 		</div>
 
 		<footer>
@@ -320,6 +320,25 @@
 
 			document.getElementById('theme-toggle-btn').onclick = () => {
 				document.body.classList.toggle('theme-fancy');
+			};
+
+			// --- SAFE WIPE HANDLER ---
+			document.getElementById('clear-vector-btn').onclick = async () => {
+				if(!confirm("This will reset your profile identity and chat history. Your R2 files and Vectorize memory will remain untouched. Proceed?")) return;
+				
+				try {
+					const res = await fetch('/api/wipe-knowledge', {
+						method: 'POST',
+						headers: { 'x-session-id': sessionId }
+					});
+					
+					if(res.ok) {
+						alert("Identity and history reset successfully.");
+						location.reload(); 
+					}
+				} catch (e) {
+					alert("Failed to reset identity.");
+				}
 			};
 
 			// --- VOICE TOGGLE ---
@@ -363,7 +382,6 @@
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
 					
-					// Checking for the 'knowledgeAssets' key specifically from our index.ts profile route
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
 						data.knowledgeAssets.forEach(f => {
 							const li = document.createElement('li');
