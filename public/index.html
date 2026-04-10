@@ -194,7 +194,22 @@
 				border-bottom: 1px solid rgba(255,255,255,0.05);
 				color: #38bdf8;
 				list-style: none;
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
 			}
+
+			.delete-file-btn {
+				background: none;
+				border: none;
+				color: #ef4444;
+				cursor: pointer;
+				font-size: 1rem;
+				opacity: 0.6;
+				transition: opacity 0.2s;
+				padding: 4px;
+			}
+			.delete-file-btn:hover { opacity: 1; }
 
 		</style>
 	</head>
@@ -279,10 +294,10 @@
 
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare R2: Knowledge Assets</span>
+					<div class="dash-desc">Object storage for raw uploaded documents and generated images.</div>
 					<ul id="file-list-display">
 						<li>Scanning storage...</li>
 					</ul>
-					<div class="dash-desc">Object storage for raw uploaded documents and generated images.</div>
 				</div>
 			</div>
 			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
@@ -385,7 +400,13 @@
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
 						data.knowledgeAssets.forEach(f => {
 							const li = document.createElement('li');
-							li.innerText = "📄 " + f;
+							// Backend returns full path strings
+							li.innerHTML = `
+								<span>📄 ${f}</span>
+								<button class="delete-file-btn" onclick="deleteFile('${f}')">
+									<i class="ph ph-trash"></i>
+								</button>
+							`;
 							list.appendChild(li);
 						});
 					} else {
@@ -394,6 +415,24 @@
 				} catch (e) { 
 					console.error("Dashboard error:", e); 
 					document.getElementById('file-list-display').innerHTML = '<li>Error connecting to storage.</li>';
+				}
+			}
+
+			async function deleteFile(key) {
+				if(!confirm(`Are you sure you want to delete ${key}?`)) return;
+				try {
+					const res = await fetch('/api/delete-file', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+						body: JSON.stringify({ key })
+					});
+					if(res.ok) {
+						updateDashboard();
+					} else {
+						alert("Delete failed.");
+					}
+				} catch (e) {
+					alert("Error deleting file.");
 				}
 			}
 
