@@ -77,7 +77,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- NEW: HISTORY FETCH ROUTE ---
+		// --- HISTORY FETCH ROUTE ---
 		if (url.pathname === "/api/history") {
 			try {
 				const messages = await this.env.jolene_db.prepare(
@@ -194,7 +194,14 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
 				
-				let sysPrompt = `You are Jolene, a sophisticated AI agent.\nSEARCH DATA: ${searchResults}\nUSER IDENTITY: ${globalProfile}\nYOUR MEMORY: ${contextText}`;
+				// --- REFINED PERSONALITY PROMPT (Fixed Persona) ---
+				let sysPrompt = `You are Jolene, a sophisticated and direct AI assistant. 
+                Maintain a professional, helpful, and straightforward tone. 
+                Do not adopt any personas related to animals or pets. 
+                
+                USER IDENTITY: ${globalProfile}
+                SEARCH DATA: ${searchResults}
+                YOUR MEMORY: ${contextText}`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
