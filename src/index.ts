@@ -31,7 +31,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search failed."; }
 	}
 
-	// --- ENCAPSULATED BRIEFING LOGIC (The Fix) ---
+	// --- ENCAPSULATED BRIEFING LOGIC ---
 	async runMorningBriefing(sessionId: string) {
 		try {
 			const interests = "MMA/UFC, Boston Celtics, New England Patriots, Cloudflare news, major US politics, and premium streaming movies/TV series (no NBC/ABC/CBS)";
@@ -42,7 +42,6 @@ export class ChatSession extends DurableObject<Env> {
 			const briefing = await this.env.AI.run(REASONING_MODEL, { prompt: briefingPrompt }, { gateway: GATEWAY_ID });
 			const finalBriefing = `☀️ **GOOD MORNING BRIEFING**\n\n${briefing.response}`;
 
-			// Save directly to the database so it appears in your history
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, "assistant", finalBriefing).run();
 
@@ -75,13 +74,25 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MANUAL BRIEFING TRIGGER (For testing) ---
+		// --- 2. SAFE WIPE ROUTE (Identity & History Only) ---
+		if (url.pathname === "/api/wipe-knowledge" && request.method === "POST") {
+			try {
+				// Clear KV Profile
+				await this.env.SETTINGS.delete(`global_user_profile`);
+				// Clear D1 Chat History
+				await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+				
+				return new Response(JSON.stringify({ message: "Identity and History cleared. R2 and Vectorize preserved." }));
+			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
+		}
+
+		// --- 3. MANUAL BRIEFING TRIGGER ---
 		if (url.pathname === "/api/cron-briefing") {
 			const result = await this.runMorningBriefing(sessionId);
 			return result ? new Response(result) : new Response("Failed", { status: 500 });
 		}
 
-		// --- 3. MEMORIZE: LEARNING FROM UPLOADS ---
+		// --- 4. MEMORIZE: LEARNING FROM UPLOADS ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -103,7 +114,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT WITH IMAGE, SEARCH, AND MEMORY ---
+		// --- 5. CHAT WITH IMAGE, SEARCH, AND MEMORY ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -178,7 +189,6 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const id = env.CHAT_SESSION.idFromName("global");
 		const obj = env.CHAT_SESSION.get(id);
-		// CALL THE LOGIC DIRECTLY (Fixing the internal fetch failure)
 		ctx.waitUntil(obj.runMorningBriefing("global"));
 	}
 } satisfies ExportedHandler<Env>;
