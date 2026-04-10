@@ -140,21 +140,30 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Save User Msg
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
 
-				// --- NEW: AUTO-UPDATE PROFILE IN KV ---
-				const currentProfile = await this.env.SETTINGS.get(`global_user_profile`) || "New User Profile";
-				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Analyze this message: "${latestUserMsg}". 
-					If the user provides new personal facts (interests, favorite teams, job, name), output an updated consolidated profile string.
-					Current Profile: ${currentProfile}
-					If no new facts are provided, output exactly "NONE".`
-				});
+				// --- STRICT IDENTITY MANAGEMENT MODULE ---
+				const kvProfileKey = `global_user_profile`;
+				const currentProfileString = await this.env.SETTINGS.get(kvProfileKey) || "New User Profile";
 
-				if (profileCheck.response && !profileCheck.response.includes("NONE")) {
-					await this.env.SETTINGS.put(`global_user_profile`, profileCheck.response);
+				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
+					messages: [
+						{ 
+							role: 'system', 
+							content: 'You are an identity management module. Your job is to consolidate new user facts into a clean, comma-separated string. DO NOT provide reasoning. DO NOT talk about your process. Output ONLY the consolidated fact string, or "NONE" if there is nothing new. Keep existing identity facts (Name, Title) if they remain true.' 
+						},
+						{ 
+							role: 'user', 
+							content: `Current consolidated identity string: "${currentProfileString}"\n\nNew user input: "${latestUserMsg}"` 
+						}
+					]
+				}, { gateway: GATEWAY_ID });
+
+				const cleanedCheck = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
+
+				if (cleanedCheck && cleanedCheck !== "NONE" && !cleanedCheck.includes("Analyzing the message")) {
+					await this.env.SETTINGS.put(kvProfileKey, cleanedCheck);
 				}
 
 				const lowerMsg = latestUserMsg.toLowerCase();
@@ -183,7 +192,7 @@ export class ChatSession extends DurableObject<Env> {
 					searchResults = await this.searchWeb(latestUserMsg); 
 				}
 
-				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
+				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
 				
 				let sysPrompt = `You are Jolene, a sophisticated AI agent.\nSEARCH DATA: ${searchResults}\nUSER IDENTITY: ${globalProfile}\nYOUR MEMORY: ${contextText}`;
 
