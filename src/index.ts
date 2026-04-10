@@ -56,7 +56,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- 1. DASHBOARD: ANALYTICS & RECURSIVE R2 LISTING ---
+		// --- 1. DASHBOARD: ANALYTICS & FULL R2 PATHS (FIXED) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
@@ -64,19 +64,15 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const storage = await this.env.DOCUMENTS.list();
 				
-				// Return both the clean name and the full key so the UI can handle deletions
+				// We send the FULL KEY so the directory structure is visible (e.g. uploads/uuid/file.png)
 				const assets = storage.objects
 					.map(o => o.key)
-					.filter(key => !key.endsWith('/')) 
-					.map(key => ({
-						name: key.split('/').pop() || key,
-						key: key
-					}));
+					.filter(key => !key.endsWith('/'));
 
 				return new Response(JSON.stringify({ 
 					profile: profile,
 					messageCount: stats?.count || 0,
-					knowledgeAssets: assets,
+					knowledgeAssets: assets, // Now an array of strings to avoid [object Object]
 					status: "Live"
 				}), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
@@ -91,12 +87,12 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: "Delete failed" }), { status: 500 }); }
 		}
 
-		// --- 3. SAFE WIPE ROUTE (Identity & History Only) ---
+		// --- 3. SAFE WIPE ROUTE ---
 		if (url.pathname === "/api/wipe-knowledge" && request.method === "POST") {
 			try {
 				await this.env.SETTINGS.delete(`global_user_profile`);
 				await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-				return new Response(JSON.stringify({ message: "Identity and History cleared. R2 and Vectorize preserved." }));
+				return new Response(JSON.stringify({ message: "Identity and History cleared." }));
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
@@ -106,7 +102,7 @@ export class ChatSession extends DurableObject<Env> {
 			return result ? new Response(result) : new Response("Failed", { status: 500 });
 		}
 
-		// --- 5. MEMORIZE: LEARNING FROM UPLOADS ---
+		// --- 5. MEMORIZE: LEARN FROM UPLOADS ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -128,7 +124,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 6. CHAT WITH IMAGE, SEARCH, AND MEMORY ---
+		// --- 6. CHAT LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -156,7 +152,7 @@ export class ChatSession extends DurableObject<Env> {
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `You have access to a real-time search tool. Does this user request require search? "YES" or "NO" only. User: ${latestUserMsg}` 
+					prompt: `Does this require real-time info? YES/NO. User: ${latestUserMsg}` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
@@ -166,17 +162,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				let sysPrompt = `You are Jolene, a highly sophisticated AI agent.
-CAPABILITIES:
-- You HAVE access to real-time internet search results.
-- You HAVE access to memory from the user's uploaded files.
-- You ARE professional, polished, and direct.
-
-SEARCH DATA: ${searchResults}
-USER IDENTITY: ${globalProfile}
-YOUR MEMORY: ${contextText}
-
-Favor information found in YOUR MEMORY to understand the user's specific personality and interests.`;
+				let sysPrompt = `You are Jolene, a sophisticated AI agent.\nSEARCH DATA: ${searchResults}\nUSER IDENTITY: ${globalProfile}\nYOUR MEMORY: ${contextText}`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
