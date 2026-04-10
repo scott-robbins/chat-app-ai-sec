@@ -273,6 +273,7 @@
 		<script>
 			const sessionId = "global";
 			let isTyping = false;
+			let voiceEnabled = false;
 
 			// --- UI TOGGLES ---
 			document.getElementById('toggle-sidebar-btn').onclick = () => {
@@ -288,7 +289,6 @@
 				appendMessage('assistant-message', "Screen cleared. How can I help you now?");
 			};
 
-			// --- NEW CHAT FIX ---
 			document.getElementById('new-chat-btn').onclick = () => {
 				const chatMessages = document.getElementById('chat-messages');
 				chatMessages.innerHTML = ''; 
@@ -300,15 +300,43 @@
 				document.body.classList.toggle('theme-fancy');
 			};
 
+			// --- VOICE TOGGLE ---
+			document.getElementById('voice-toggle-btn').onclick = () => {
+				voiceEnabled = !voiceEnabled;
+				const icon = document.getElementById('voice-icon');
+				const btn = document.getElementById('voice-toggle-btn');
+				if (voiceEnabled) {
+					icon.className = 'ph ph-speaker-high';
+					btn.style.borderColor = 'var(--primary-color)';
+					appendMessage('assistant-message', "System: Voice output enabled.");
+				} else {
+					icon.className = 'ph ph-speaker-slash';
+					btn.style.borderColor = 'var(--border-color)';
+					window.speechSynthesis.cancel();
+					appendMessage('assistant-message', "System: Voice output disabled.");
+				}
+			};
+
+			function speakText(text) {
+				if (!voiceEnabled) return;
+				const cleanText = text.replace(/[#*`_]/g, '');
+				const utterance = new SpeechSynthesisUtterance(cleanText);
+				window.speechSynthesis.speak(utterance);
+			}
+
+			// --- MODEL SWITCHER ---
+			document.getElementById('model-selector').onchange = (e) => {
+				const modelName = e.target.options[e.target.selectedIndex].text;
+				appendMessage('assistant-message', `System: Switching to ${modelName}. Ready.`);
+			};
+
 			// --- DASHBOARD SYNC ---
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
-					
 					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('msg-count-display').innerText = data.messageCount;
-					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
@@ -327,30 +355,23 @@
 			document.getElementById('memorize-file-btn').onclick = async () => {
 				const fileInput = document.getElementById('file-input');
 				if (!fileInput.files[0]) return alert("Select a file first");
-				
 				const btn = document.getElementById('memorize-file-btn');
 				const originalHtml = btn.innerHTML;
 				btn.innerHTML = '<i class="ph ph-circle-notch"></i> Memorizing...';
-				
 				const formData = new FormData();
 				formData.append('file', fileInput.files[0]);
-
 				try {
 					const res = await fetch('/api/memorize', {
 						method: 'POST',
 						body: formData,
 						headers: { 'x-session-id': sessionId }
 					});
-
 					if (res.ok) {
 						btn.innerHTML = '<i class="ph ph-check"></i> Memorized!';
 						setTimeout(() => btn.innerHTML = originalHtml, 2000);
 						updateDashboard();
 					}
-				} catch (e) {
-					btn.innerHTML = originalHtml;
-					alert("Upload failed.");
-				}
+				} catch (e) { btn.innerHTML = originalHtml; alert("Upload failed."); }
 			};
 
 			// --- CHAT LOGIC ---
@@ -358,26 +379,24 @@
 				const input = document.getElementById('user-input');
 				const content = input.value.trim();
 				if (!content || isTyping) return;
-
 				appendMessage('user-message', content);
 				input.value = '';
 				showTyping(true);
-
 				try {
 					const res = await fetch('/api/chat', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ messages: [{ role: 'user', content }] })
+						body: JSON.stringify({ 
+							messages: [{ role: 'user', content }],
+							model: document.getElementById('model-selector').value 
+						})
 					});
-
 					const reader = res.body.getReader();
 					const decoder = new TextDecoder();
 					let assistantText = "";
-
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
-						
 						const chunk = decoder.decode(value);
 						const lines = chunk.split('\n');
 						for (const line of lines) {
@@ -389,13 +408,13 @@
 							}
 						}
 					}
-					
 					showTyping(false);
 					appendMessage('assistant-message', assistantText);
+					if (voiceEnabled) speakText(assistantText);
 					updateDashboard();
 				} catch (e) {
 					showTyping(false);
-					appendMessage('assistant-message', "I encountered an error. Please try again.");
+					appendMessage('assistant-message', "Error. Please try again.");
 				}
 			}
 
@@ -403,7 +422,11 @@
 				const container = document.getElementById('chat-messages');
 				const div = document.createElement('div');
 				div.className = `message ${cls}`;
-				div.innerText = text;
+				if (cls === 'assistant-message') {
+					div.innerHTML = marked.parse(text);
+				} else {
+					div.innerText = text;
+				}
 				container.appendChild(div);
 				container.scrollTop = container.scrollHeight;
 			}
@@ -415,8 +438,6 @@
 
 			document.getElementById('send-button').onclick = sendMessage;
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
-
-			// Initial Load
 			updateDashboard();
 		</script>
 	</body>
