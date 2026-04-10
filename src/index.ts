@@ -31,6 +31,28 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search failed."; }
 	}
 
+	// --- ENCAPSULATED BRIEFING LOGIC (The Fix) ---
+	async runMorningBriefing(sessionId: string) {
+		try {
+			const interests = "MMA/UFC, Boston Celtics, New England Patriots, Cloudflare news, major US politics, and premium streaming movies/TV series (no NBC/ABC/CBS)";
+			const newsContext = await this.searchWeb(`Latest news on ${interests}`);
+			
+			const briefingPrompt = `You are Jolene. Generate a polished executive morning briefing based on this news: ${newsContext}. Focus on: ${interests}. Keep it professional, direct, and formatted with headers.`;
+
+			const briefing = await this.env.AI.run(REASONING_MODEL, { prompt: briefingPrompt }, { gateway: GATEWAY_ID });
+			const finalBriefing = `☀️ **GOOD MORNING BRIEFING**\n\n${briefing.response}`;
+
+			// Save directly to the database so it appears in your history
+			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+				.bind(sessionId, "assistant", finalBriefing).run();
+
+			return finalBriefing;
+		} catch (e) {
+			console.error("Briefing Error:", e);
+			return null;
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -41,7 +63,6 @@ export class ChatSession extends DurableObject<Env> {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				// List actual files from R2 bucket
 				const storage = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
 				const fileList = storage.objects.map(o => o.key.split('/').pop());
 
@@ -54,22 +75,10 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. CRON BRIEFING ROUTE ---
+		// --- 2. MANUAL BRIEFING TRIGGER (For testing) ---
 		if (url.pathname === "/api/cron-briefing") {
-			try {
-				const interests = "MMA/UFC, Boston Celtics, New England Patriots, Cloudflare news, major US politics, and premium streaming movies/TV series (no NBC/ABC/CBS)";
-				const newsContext = await this.searchWeb(`Latest news on ${interests}`);
-				
-				const briefingPrompt = `You are Jolene. Generate a polished executive morning briefing based on: ${newsContext}. Focus on these interests: ${interests}.`;
-
-				const briefing = await this.env.AI.run(REASONING_MODEL, { prompt: briefingPrompt }, { gateway: GATEWAY_ID });
-				const finalBriefing = `☀️ **GOOD MORNING BRIEFING**\n\n${briefing.response}`;
-
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", finalBriefing).run();
-
-				return new Response("Briefing success");
-			} catch (e) { return new Response("Briefing failed", { status: 500 }); }
+			const result = await this.runMorningBriefing(sessionId);
+			return result ? new Response(result) : new Response("Failed", { status: 500 });
 		}
 
 		// --- 3. MEMORIZE: LEARNING FROM UPLOADS ---
@@ -101,11 +110,9 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Save User Msg
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
 
-				// A. CHECK FOR IMAGE INTENT
 				const lowerMsg = latestUserMsg.toLowerCase();
 				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
 					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
@@ -119,12 +126,10 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// B. VECTOR MEMORY RETRIEVAL (Learning from your files)
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] }, { gateway: GATEWAY_ID });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// C. WEB SEARCH
 				const searchIntent = await this.env.AI.run(REASONING_MODEL, { 
 					prompt: `You have access to a real-time search tool. Does this user request require search? "YES" or "NO" only. User: ${latestUserMsg}` 
 				}, { gateway: GATEWAY_ID });
@@ -136,7 +141,6 @@ export class ChatSession extends DurableObject<Env> {
 
 				const globalProfile = await this.env.SETTINGS.get(`global_user_profile`) || "";
 				
-				// --- POLISHED SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene, a highly sophisticated AI agent.
 CAPABILITIES:
 - You HAVE access to real-time internet search results.
@@ -174,6 +178,7 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const id = env.CHAT_SESSION.idFromName("global");
 		const obj = env.CHAT_SESSION.get(id);
-		ctx.waitUntil(obj.fetch(new Request("http://jolene.internal/api/cron-briefing", { method: "POST" })));
+		// CALL THE LOGIC DIRECTLY (Fixing the internal fetch failure)
+		ctx.waitUntil(obj.runMorningBriefing("global"));
 	}
 } satisfies ExportedHandler<Env>;
