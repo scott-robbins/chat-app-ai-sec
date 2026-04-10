@@ -198,7 +198,7 @@
 				justify-content: space-between;
 				align-items: center;
 			}
-
+			
 			.delete-file-btn {
 				background: none;
 				border: none;
@@ -400,7 +400,6 @@
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
 						data.knowledgeAssets.forEach(f => {
 							const li = document.createElement('li');
-							// Backend returns full path strings
 							li.innerHTML = `
 								<span>📄 ${f}</span>
 								<button class="delete-file-btn" onclick="deleteFile('${f}')">
@@ -434,6 +433,21 @@
 				} catch (e) {
 					alert("Error deleting file.");
 				}
+			}
+
+			// --- HISTORY LOAD ON REFRESH ---
+			async function loadHistory() {
+				try {
+					const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
+					const messages = await res.json();
+					const container = document.getElementById('chat-messages');
+					
+					if (messages.length > 0) container.innerHTML = '';
+					
+					messages.forEach(msg => {
+						appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
+					});
+				} catch (e) { console.error("History load failed", e); }
 			}
 
 			// --- FILE MEMORIZE ---
@@ -523,7 +537,10 @@
 
 			document.getElementById('send-button').onclick = sendMessage;
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
+			
+			// Initial Load
 			updateDashboard();
+			loadHistory();
 		</script>
 	</body>
 </html>
