@@ -288,6 +288,14 @@
 				appendMessage('assistant-message', "Screen cleared. How can I help you now?");
 			};
 
+			// --- NEW CHAT FIX ---
+			document.getElementById('new-chat-btn').onclick = () => {
+				const chatMessages = document.getElementById('chat-messages');
+				chatMessages.innerHTML = ''; 
+				appendMessage('assistant-message', "New session started. I'm Jolene, ready to assist with your documents, sports updates, or image generation. What's on your agenda?");
+				chatMessages.scrollTop = 0;
+			};
+
 			document.getElementById('theme-toggle-btn').onclick = () => {
 				document.body.classList.toggle('theme-fancy');
 			};
