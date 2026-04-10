@@ -56,14 +56,20 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// --- 1. DASHBOARD: ANALYTICS & R2 FILE LISTING ---
+		// --- 1. DASHBOARD: ANALYTICS & RECURSIVE R2 LISTING (UPDATED) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				const storage = await this.env.DOCUMENTS.list({ prefix: `uploads/${sessionId}/` });
-				const fileList = storage.objects.map(o => o.key.split('/').pop());
+				// RECURSIVE LISTING: No prefix, scans the whole bucket
+				const storage = await this.env.DOCUMENTS.list();
+				
+				// Filter out directories and clean up the path for the UI
+				const fileList = storage.objects
+					.map(o => o.key)
+					.filter(key => !key.endsWith('/')) 
+					.map(key => key.split('/').pop() || key);
 
 				return new Response(JSON.stringify({ 
 					profile: profile,
@@ -77,11 +83,8 @@ export class ChatSession extends DurableObject<Env> {
 		// --- 2. SAFE WIPE ROUTE (Identity & History Only) ---
 		if (url.pathname === "/api/wipe-knowledge" && request.method === "POST") {
 			try {
-				// Clear KV Profile
 				await this.env.SETTINGS.delete(`global_user_profile`);
-				// Clear D1 Chat History
 				await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-				
 				return new Response(JSON.stringify({ message: "Identity and History cleared. R2 and Vectorize preserved." }));
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
