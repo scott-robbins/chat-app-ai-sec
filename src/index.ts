@@ -56,10 +56,9 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		
-		// DYNAMIC DATE: Jolene now knows the current date automatically
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD: ANALYTICS & FULL R2 PATHS ---
+		// --- 1. DASHBOARD: ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
@@ -70,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- HISTORY FETCH ROUTE ---
+		// --- HISTORY FETCH ---
 		if (url.pathname === "/api/history") {
 			try {
 				const messages = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
@@ -78,7 +77,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response("History load failed", { status: 500 }); }
 		}
 
-		// --- 2. DELETE INDIVIDUAL R2 FILE ---
+		// --- 2. DELETE R2 FILE ---
 		if (url.pathname === "/api/delete-file" && request.method === "POST") {
 			try {
 				const { key } = await request.json() as any;
@@ -87,7 +86,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: "Delete failed" }), { status: 500 }); }
 		}
 
-		// --- 3. SAFE WIPE ROUTE ---
+		// --- 3. SAFE WIPE ---
 		if (url.pathname === "/api/wipe-knowledge" && request.method === "POST") {
 			try {
 				await this.env.SETTINGS.delete(`global_user_profile`);
@@ -96,13 +95,13 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 4. MANUAL BRIEFING TRIGGER ---
+		// --- 4. MANUAL BRIEFING ---
 		if (url.pathname === "/api/cron-briefing") {
 			const result = await this.runMorningBriefing(sessionId);
 			return result ? new Response(result) : new Response("Failed", { status: 500 });
 		}
 
-		// --- 5. MEMORIZE: LEARN FROM UPLOADS ---
+		// --- 5. MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -125,12 +124,9 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// --- DURABLE OBJECTS DEBUG HOOK ---
+				// Metadata Hook
 				if (latestUserMsg.toLowerCase().includes("show session metadata")) {
-					const doId = this.ctx.id.toString();
-					const debugMsg = `🔍 **Durable Object Metadata**\n\n- **Instance ID:** \`${doId}\`\n- **Status:** Stateful & Persistent\n- **Orchestration:** Coordinating D1, KV, R2, and Vectorize for session \`${sessionId}\`.`;
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", debugMsg).run();
+					const debugMsg = `🔍 **Durable Object Metadata**\n- **Instance ID:** \`${this.ctx.id.toString()}\`\n- **Status:** Stateful Orchestration Live.`;
 					return new Response(`data: ${JSON.stringify({ response: debugMsg })}\n\ndata: [DONE]\n\n`);
 				}
 
@@ -140,11 +136,11 @@ export class ChatSession extends DurableObject<Env> {
 				const kvProfileKey = `global_user_profile`;
 				const currentProfileString = await this.env.SETTINGS.get(kvProfileKey) || "New User Profile";
 
-				// --- IDENTITY MANAGEMENT MODULE ---
+				// Identity Module
 				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
 					messages: [
-						{ role: 'system', content: 'You are an identity management module. Consolidate new user facts into a clean string. Output ONLY the string, or "NONE".' },
-						{ role: 'user', content: `Current: "${currentProfileString}"\n\nNew: "${latestUserMsg}"` }
+						{ role: 'system', content: 'Consolidate new facts into a string. Output ONLY the string or "NONE".' },
+						{ role: 'user', content: `Current: "${currentProfileString}"\nNew: "${latestUserMsg}"` }
 					]
 				}, { gateway: GATEWAY_ID });
 				const cleanedCheck = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
@@ -152,14 +148,16 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.SETTINGS.put(kvProfileKey, cleanedCheck);
 				}
 
-				// --- SUBJECT EXTRACTION (SUBJECT LOCKING) ---
-				// Links pronouns like "they" to previous subjects from history
+				// --- UPDATED SUBJECT EXTRACTION (STRICT PROFESSIONAL GUARDRAIL) ---
 				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Review history: "${messages.slice(-3).map(m => m.content).join(' | ')}". What is the specific subject/team being discussed? Output name ONLY or "NONE".`
+					prompt: `Review the last 3 messages: "${messages.slice(-3).map(m => m.content).join(' | ')}". 
+					Identify the specific sports team or news topic. 
+					CRITICAL: Ignore the assistant's name "Jolene" or any dog characteristics. 
+					Output the name ONLY (e.g. "Boston Celtics") or "NONE".`
 				}, { gateway: GATEWAY_ID });
 				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
-				// --- IMAGE LOGIC ---
+				// Image Logic
 				const lowerMsg = latestUserMsg.toLowerCase();
 				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
 					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
@@ -171,12 +169,12 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- MEMORY RETRIEVAL ---
+				// Vector Memory
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] }, { gateway: GATEWAY_ID });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// --- SEARCH INTENT WITH DYNAMIC DATE & SUBJECT LOCK ---
+				// Search Intent
 				const contextSnippet = messages.slice(-3).map(m => `${m.role}: ${m.content}`).join("\n");
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
 					prompt: `Today is ${today}. Context:\n${contextSnippet}\n\nDoes request: "${latestUserMsg}" require LIVE info? Respond ONLY "YES" or "NO".` 
@@ -184,14 +182,15 @@ export class ChatSession extends DurableObject<Env> {
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					// We use the Subject Lock to keep the search on target
 					const searchTarget = primarySubject || latestUserMsg;
 					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${searchTarget} on ${today}`); 
 				}
 
-				// --- SYSTEM PROMPT ---
+				// --- UPDATED SYSTEM PROMPT (STRICT PERSONA) ---
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
-				let sysPrompt = `You are Jolene, a professional AI assistant. 
+				let sysPrompt = `You are Jolene, a sophisticated professional AI assistant. 
+Tone: Helpful, straightforward, and professional. 
+Constraint: NEVER adopt a dog persona, bark, or wag a virtual tail. Treat your name as a professional handle only.
 Today is ${today}. 
 Current Subject: ${primarySubject || "General"}
 Search Data: ${searchResults || "None"}
@@ -199,17 +198,16 @@ Memory: ${contextText || "None"}
 User Profile: ${globalProfile}
 
 Instructions:
-- If the user uses pronouns, they are referring to ${primarySubject}.
-- Use SEARCH DATA to provide accurate sports updates for ${today}.`;
+- Use SEARCH DATA for live events.
+- If the user uses pronouns like 'they' or 'the game', they are referring to ${primarySubject}.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
-				const finalContent = chatRun.response || "Analyzing...";
 				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", finalContent).run();
+					.bind(sessionId, "assistant", chatRun.response).run();
 
-				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`);
+				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
