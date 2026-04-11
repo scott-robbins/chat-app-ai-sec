@@ -192,32 +192,34 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// --- SEARCH INTENT WITH CONTEXT ---
+				// --- SEARCH INTENT WITH CONTEXT & LIVE SCORE LOGIC ---
 				const contextSnippet = messages.slice(-3).map(m => `${m.role}: ${m.content}`).join("\n");
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Review the conversation history:\n${contextSnippet}\n\nDoes the user's last request require updated real-time information (e.g., weather, sports scores, current news)? Respond only with "YES" or "NO". Request: "${latestUserMsg}"` 
+					prompt: `Review the conversation history:\n${contextSnippet}\n\nToday is Friday, April 10, 2026. Does the user's request: "${latestUserMsg}" require updated real-time information (e.g., weather, LIVE sports scores happening RIGHT NOW, current news)? Respond only with "YES" or "NO".` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(`${latestUserMsg} (Current context: Boston Celtics and general sports scores)`); 
+					// For sports/live queries, we force live play-by-play keywords
+					searchResults = await this.searchWeb(`${latestUserMsg} live score play-by-play Friday April 10 2026`); 
 				}
 
 				// --- SYSTEM PROMPT (FIXED PERSONA, DATE, & SEARCH INJECTION) ---
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
 				let sysPrompt = `You are Jolene, a sophisticated and direct professional AI assistant. 
 Tone: Helpful, straightforward, and professional. 
-Constraint: Never adopt an animal persona.
 
 KNOWLEDGE SOURCES:
-1. SEARCH DATA (Primary for current events/weather): ${searchResults || "No real-time data found."}
+1. SEARCH DATA (Primary for LIVE events/weather): ${searchResults || "No real-time data found."}
 2. YOUR MEMORY (From uploaded files): ${contextText || "No relevant files found."}
 3. USER PROFILE: ${globalProfile}
 
 Instructions:
+- TODAY IS: Friday, April 10, 2026. 
 - Use SEARCH DATA to verify sports schedules and weather.
-- Today is Friday, April 10, 2026. Use this to determine if games are "tonight" or "today".
-- If SEARCH DATA is provided, you must use it to answer current event questions accurately.`;
+- CRITICAL: If a game is scheduled for today but hasn't started, do not report a final score. 
+- Look for "Live," "Q1," "Halftime," or "Final" markers in the SEARCH DATA before reporting a result.
+- If SEARCH DATA is provided, you must prioritize it to answer current event questions accurately.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
