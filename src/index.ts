@@ -55,34 +55,25 @@ export class ChatSession extends DurableObject<Env> {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
+		
+		// DYNAMIC DATE: Automatically stays current without code updates
+		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
 		// --- 1. DASHBOARD: ANALYTICS & FULL R2 PATHS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
-				
 				const storage = await this.env.DOCUMENTS.list();
-				
-				const assets = storage.objects
-					.map(o => o.key)
-					.filter(key => !key.endsWith('/'));
-
-				return new Response(JSON.stringify({ 
-					profile: profile,
-					messageCount: stats?.count || 0,
-					knowledgeAssets: assets,
-					status: "Live"
-				}), { headers: { "Content-Type": "application/json" } });
+				const assets = storage.objects.map(o => o.key).filter(key => !key.endsWith('/'));
+				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live" }), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
 		// --- HISTORY FETCH ROUTE ---
 		if (url.pathname === "/api/history") {
 			try {
-				const messages = await this.env.jolene_db.prepare(
-					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC"
-				).bind(sessionId).all();
+				const messages = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
 				return new Response(JSON.stringify(messages.results), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response("History load failed", { status: 500 }); }
 		}
@@ -117,17 +108,11 @@ export class ChatSession extends DurableObject<Env> {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
-
 				const chunks = textToIndex.split(/\n\n/).filter(c => c.trim().length > 0);
 				for (const chunk of chunks) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] }, { gateway: GATEWAY_ID });
-					await this.env.VECTORIZE.insert([{ 
-						id: crypto.randomUUID(), 
-						values: emb.data[0], 
-						metadata: { text: chunk, fileName: file.name, sessionId } 
-					}]);
+					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: chunk, fileName: file.name, sessionId } }]);
 				}
-				
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: "Knowledge Absorbed!" }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
@@ -158,21 +143,21 @@ export class ChatSession extends DurableObject<Env> {
 				// --- IDENTITY MANAGEMENT MODULE ---
 				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
 					messages: [
-						{ 
-							role: 'system', 
-							content: 'You are an identity management module. Your job is to consolidate new user facts into a clean, comma-separated string. DO NOT provide reasoning. Output ONLY the consolidated fact string, or "NONE" if there is nothing new.' 
-						},
-						{ 
-							role: 'user', 
-							content: `Current Profile: "${currentProfileString}"\n\nNew input: "${latestUserMsg}"` 
-						}
+						{ role: 'system', content: 'You are an identity management module. Consolidate new user facts into a clean string. Output ONLY the string, or "NONE".' },
+						{ role: 'user', content: `Current: "${currentProfileString}"\n\nNew: "${latestUserMsg}"` }
 					]
 				}, { gateway: GATEWAY_ID });
-
 				const cleanedCheck = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
 				if (cleanedCheck && cleanedCheck !== "NONE" && !cleanedCheck.includes("Analyzing")) {
 					await this.env.SETTINGS.put(kvProfileKey, cleanedCheck);
 				}
+
+				// --- SUBJECT EXTRACTION (SUBJECT LOCKING) ---
+				// This analyzes history to link pronouns like "they" to the previous subject (e.g. Celtics)
+				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
+					prompt: `Review the last 3 messages: "${messages.slice(-3).map(m => m.content).join(' | ')}". What is the specific subject or team being discussed? Output the name ONLY or "NONE".`
+				}, { gateway: GATEWAY_ID });
+				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
 				// --- IMAGE LOGIC ---
 				const lowerMsg = latestUserMsg.toLowerCase();
@@ -180,8 +165,7 @@ export class ChatSession extends DurableObject<Env> {
 					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
 					const fileName = `gen-${Date.now()}.png`;
 					await this.env.DOCUMENTS.put(`images/${fileName}`, imageResponse);
-					const imageUrl = `${PUBLIC_R2_URL}/images/${fileName}`;
-					const msg = `I have generated that image for you. You can view it here: ${imageUrl}`;
+					const msg = `I have generated that image for you: ${PUBLIC_R2_URL}/images/${fileName}`;
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "assistant", msg).run();
 					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
@@ -192,39 +176,36 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// --- SEARCH INTENT WITH CONTEXT & LIVE SCORE LOGIC ---
+				// --- SEARCH INTENT WITH DYNAMIC DATE & SUBJECT LOCK ---
 				const contextSnippet = messages.slice(-3).map(m => `${m.role}: ${m.content}`).join("\n");
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is Friday, April 10, 2026. Review context:\n${contextSnippet}\n\nDoes the request: "${latestUserMsg}" require updated real-time information (e.g. weather, LIVE scores happening NOW, current news)? Respond ONLY with "YES" or "NO".` 
+					prompt: `Today is ${today}. Context:\n${contextSnippet}\n\nDoes the request: "${latestUserMsg}" require LIVE information? Respond ONLY "YES" or "NO".` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					// Improved query to hit live play-by-play data
-					searchResults = await this.searchWeb(`${latestUserMsg} live score play-by-play April 10 2026`); 
+					// We inject the primary subject into the search so "they" becomes "Celtics"
+					const searchTarget = primarySubject || latestUserMsg;
+					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${searchTarget} on ${today}`); 
 				}
 
-				// --- SYSTEM PROMPT (FIXED PERSONA, DATE, & SEARCH INJECTION) ---
+				// --- SYSTEM PROMPT ---
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
-				let sysPrompt = `You are Jolene, a sophisticated and direct professional AI assistant. 
-Tone: Helpful, straightforward, and professional. 
-Constraint: Never adopt an animal persona.
-
-KNOWLEDGE SOURCES:
-1. SEARCH DATA (Primary for LIVE events/weather): ${searchResults || "No real-time data found."}
-2. YOUR MEMORY (From uploaded files): ${contextText || "No relevant files found."}
-3. USER PROFILE: ${globalProfile}
+				let sysPrompt = `You are Jolene, a professional AI assistant. 
+Today is ${today}. 
+Current Subject: ${primarySubject || "General"}
+Search Data: ${searchResults || "None"}
+Memory: ${contextText || "None"}
+User Profile: ${globalProfile}
 
 Instructions:
-- TODAY IS: Friday, April 10, 2026. 
-- Use SEARCH DATA to verify sports schedules and weather.
-- CRITICAL: Look for "Live," "Q1," "Halftime," or "Final" markers in the SEARCH DATA.
-- If a game is scheduled for today but the SEARCH DATA shows no play-by-play yet, state it hasn't started. 
-- If providing a score, ensure it reflects the LIVE status. If the user corrects you, prioritize the new input and re-verify.`;
+- Use SEARCH DATA for live events.
+- If the user uses pronouns, they are referring to ${primarySubject}.
+- Always prioritize the most current timestamp in search data.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
-				const finalContent = chatRun.response || "I am analyzing that for you now...";
+				const finalContent = chatRun.response || "Analyzing...";
 				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", finalContent).run();
@@ -232,7 +213,6 @@ Instructions:
 				return new Response(`data: ${JSON.stringify({ response: finalContent })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
-		
 		return new Response("OK");
 	}
 }
@@ -246,7 +226,6 @@ export default {
 	},
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const id = env.CHAT_SESSION.idFromName("global");
-		const obj = env.CHAT_SESSION.get(id);
-		ctx.waitUntil(obj.runMorningBriefing("global"));
+		ctx.waitUntil(env.CHAT_SESSION.get(id).runMorningBriefing("global"));
 	}
 } satisfies ExportedHandler<Env>;
