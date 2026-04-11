@@ -136,24 +136,25 @@ export class ChatSession extends DurableObject<Env> {
 				const kvProfileKey = `global_user_profile`;
 				const currentProfileString = await this.env.SETTINGS.get(kvProfileKey) || "New User Profile";
 
-				// Identity Module
+				// --- UPDATED IDENTITY MODULE (STRICT EXTRACTION) ---
 				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
 					messages: [
-						{ role: 'system', content: 'Consolidate new facts into a string. Output ONLY the string or "NONE".' },
-						{ role: 'user', content: `Current: "${currentProfileString}"\nNew: "${latestUserMsg}"` }
+						{ 
+							role: 'system', 
+							content: `Extract permanent user facts (Names, Occupations, Preferences). IGNORE questions, AI responses, or technical instructions. Output ONLY the clean comma-separated string, or "NONE".` 
+						},
+						{ role: 'user', content: `Current: "${currentProfileString}"\nNew Input: "${latestUserMsg}"` }
 					]
 				}, { gateway: GATEWAY_ID });
 				const cleanedCheck = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
-				if (cleanedCheck && cleanedCheck !== "NONE" && !cleanedCheck.includes("Analyzing")) {
+				if (cleanedCheck && cleanedCheck !== "NONE" && !cleanedCheck.includes("Analyzing") && cleanedCheck.length < 500) {
 					await this.env.SETTINGS.put(kvProfileKey, cleanedCheck);
 				}
 
-				// --- UPDATED SUBJECT EXTRACTION (STRICT PROFESSIONAL GUARDRAIL) ---
+				// Subject Extraction
 				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
 					prompt: `Review the last 3 messages: "${messages.slice(-3).map(m => m.content).join(' | ')}". 
-					Identify the specific sports team or news topic. 
-					CRITICAL: Ignore the assistant's name "Jolene" or any dog characteristics. 
-					Output the name ONLY (e.g. "Boston Celtics") or "NONE".`
+					Identify the sports team or news topic. Ignore assistant name or dog persona. Output name ONLY or "NONE".`
 				}, { gateway: GATEWAY_ID });
 				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
@@ -186,43 +187,7 @@ export class ChatSession extends DurableObject<Env> {
 					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${searchTarget} on ${today}`); 
 				}
 
-				// --- UPDATED SYSTEM PROMPT (STRICT PERSONA) ---
+				// System Prompt
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
 				let sysPrompt = `You are Jolene, a sophisticated professional AI assistant. 
-Tone: Helpful, straightforward, and professional. 
-Constraint: NEVER adopt a dog persona, bark, or wag a virtual tail. Treat your name as a professional handle only.
-Today is ${today}. 
-Current Subject: ${primarySubject || "General"}
-Search Data: ${searchResults || "None"}
-Memory: ${contextText || "None"}
-User Profile: ${globalProfile}
-
-Instructions:
-- Use SEARCH DATA for live events.
-- If the user uses pronouns like 'they' or 'the game', they are referring to ${primarySubject}.`;
-
-				messages.unshift({ role: "system", content: sysPrompt });
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
-				
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatRun.response).run();
-
-				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
-		}
-		return new Response("OK");
-	}
-}
-
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
-	},
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const id = env.CHAT_SESSION.idFromName("global");
-		ctx.waitUntil(env.CHAT_SESSION.get(id).runMorningBriefing("global"));
-	}
-} satisfies ExportedHandler<Env>;
+Constraint: NEVER
