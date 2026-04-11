@@ -195,19 +195,20 @@ export class ChatSession extends DurableObject<Env> {
 				// --- SEARCH INTENT WITH CONTEXT & LIVE SCORE LOGIC ---
 				const contextSnippet = messages.slice(-3).map(m => `${m.role}: ${m.content}`).join("\n");
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Review the conversation history:\n${contextSnippet}\n\nToday is Friday, April 10, 2026. Does the user's request: "${latestUserMsg}" require updated real-time information (e.g., weather, LIVE sports scores happening RIGHT NOW, current news)? Respond only with "YES" or "NO".` 
+					prompt: `Today is Friday, April 10, 2026. Review context:\n${contextSnippet}\n\nDoes the request: "${latestUserMsg}" require updated real-time information (e.g. weather, LIVE scores happening NOW, current news)? Respond ONLY with "YES" or "NO".` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					// For sports/live queries, we force live play-by-play keywords
-					searchResults = await this.searchWeb(`${latestUserMsg} live score play-by-play Friday April 10 2026`); 
+					// Improved query to hit live play-by-play data
+					searchResults = await this.searchWeb(`${latestUserMsg} live score play-by-play April 10 2026`); 
 				}
 
 				// --- SYSTEM PROMPT (FIXED PERSONA, DATE, & SEARCH INJECTION) ---
 				const globalProfile = await this.env.SETTINGS.get(kvProfileKey) || "";
 				let sysPrompt = `You are Jolene, a sophisticated and direct professional AI assistant. 
 Tone: Helpful, straightforward, and professional. 
+Constraint: Never adopt an animal persona.
 
 KNOWLEDGE SOURCES:
 1. SEARCH DATA (Primary for LIVE events/weather): ${searchResults || "No real-time data found."}
@@ -217,9 +218,9 @@ KNOWLEDGE SOURCES:
 Instructions:
 - TODAY IS: Friday, April 10, 2026. 
 - Use SEARCH DATA to verify sports schedules and weather.
-- CRITICAL: If a game is scheduled for today but hasn't started, do not report a final score. 
-- Look for "Live," "Q1," "Halftime," or "Final" markers in the SEARCH DATA before reporting a result.
-- If SEARCH DATA is provided, you must prioritize it to answer current event questions accurately.`;
+- CRITICAL: Look for "Live," "Q1," "Halftime," or "Final" markers in the SEARCH DATA.
+- If a game is scheduled for today but the SEARCH DATA shows no play-by-play yet, state it hasn't started. 
+- If providing a score, ensure it reflects the LIVE status. If the user corrects you, prioritize the new input and re-verify.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
