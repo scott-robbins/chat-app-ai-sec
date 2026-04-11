@@ -140,6 +140,15 @@ export class ChatSession extends DurableObject<Env> {
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
+				// --- DURABLE OBJECTS DEBUG HOOK ---
+				if (latestUserMsg.toLowerCase().includes("show session metadata")) {
+					const doId = this.ctx.id.toString();
+					const debugMsg = `🔍 **Durable Object Metadata**\n\n- **Instance ID:** \`${doId}\`\n- **Status:** Stateful & Persistent\n- **Orchestration:** Coordinating D1, KV, R2, and Vectorize for session \`${sessionId}\`.`;
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+						.bind(sessionId, "assistant", debugMsg).run();
+					return new Response(`data: ${JSON.stringify({ response: debugMsg })}\n\ndata: [DONE]\n\n`);
+				}
+
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
 
@@ -191,7 +200,6 @@ export class ChatSession extends DurableObject<Env> {
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					// We tell Tavily to search for the specific topic based on the context
 					searchResults = await this.searchWeb(`${latestUserMsg} (Current context: Boston Celtics and general sports scores)`); 
 				}
 
