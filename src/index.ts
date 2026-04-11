@@ -56,7 +56,7 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		
-		// DYNAMIC DATE: Automatically stays current without code updates
+		// DYNAMIC DATE: Jolene now knows the current date automatically
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
 		// --- 1. DASHBOARD: ANALYTICS & FULL R2 PATHS ---
@@ -153,9 +153,9 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// --- SUBJECT EXTRACTION (SUBJECT LOCKING) ---
-				// This analyzes history to link pronouns like "they" to the previous subject (e.g. Celtics)
+				// Links pronouns like "they" to previous subjects from history
 				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Review the last 3 messages: "${messages.slice(-3).map(m => m.content).join(' | ')}". What is the specific subject or team being discussed? Output the name ONLY or "NONE".`
+					prompt: `Review history: "${messages.slice(-3).map(m => m.content).join(' | ')}". What is the specific subject/team being discussed? Output name ONLY or "NONE".`
 				}, { gateway: GATEWAY_ID });
 				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
@@ -179,12 +179,12 @@ export class ChatSession extends DurableObject<Env> {
 				// --- SEARCH INTENT WITH DYNAMIC DATE & SUBJECT LOCK ---
 				const contextSnippet = messages.slice(-3).map(m => `${m.role}: ${m.content}`).join("\n");
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. Context:\n${contextSnippet}\n\nDoes the request: "${latestUserMsg}" require LIVE information? Respond ONLY "YES" or "NO".` 
+					prompt: `Today is ${today}. Context:\n${contextSnippet}\n\nDoes request: "${latestUserMsg}" require LIVE info? Respond ONLY "YES" or "NO".` 
 				}, { gateway: GATEWAY_ID });
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					// We inject the primary subject into the search so "they" becomes "Celtics"
+					// We use the Subject Lock to keep the search on target
 					const searchTarget = primarySubject || latestUserMsg;
 					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${searchTarget} on ${today}`); 
 				}
@@ -199,9 +199,8 @@ Memory: ${contextText || "None"}
 User Profile: ${globalProfile}
 
 Instructions:
-- Use SEARCH DATA for live events.
 - If the user uses pronouns, they are referring to ${primarySubject}.
-- Always prioritize the most current timestamp in search data.`;
+- Use SEARCH DATA to provide accurate sports updates for ${today}.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
