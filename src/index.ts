@@ -174,30 +174,14 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.SETTINGS.put(kvProfileKey, cleanedCheck);
 				}
 
-				// --- IMPROVED IMAGE LOGIC (CONTEXT INJECTION) ---
+				// --- IMAGE LOGIC ---
 				const lowerMsg = latestUserMsg.toLowerCase();
-				const isImageFollowUp = lowerMsg.includes("new image") || lowerMsg.includes("make her") || lowerMsg.includes("same characteristics");
-				const isImageRoot = lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of");
-
-				if (isImageRoot || isImageFollowUp) {
-					let finalImagePrompt = latestUserMsg;
-
-					if (isImageFollowUp) {
-						const lastImageRequest = await this.env.jolene_db.prepare(
-							"SELECT content FROM messages WHERE session_id = ? AND role = 'user' AND (content LIKE '%generate an image%' OR content LIKE '%picture of%' OR content LIKE '%draw%') ORDER BY id DESC LIMIT 1"
-						).bind(sessionId).first() as any;
-
-						if (lastImageRequest && lastImageRequest.content) {
-							finalImagePrompt = `Consolidate this instruction: "${latestUserMsg}" with this specific context for the subject: "${lastImageRequest.content}". If aging is requested, apply it to the animal described in the context.`;
-						}
-					}
-
-					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: finalImagePrompt });
+				if (lowerMsg.includes("generate an image") || lowerMsg.includes("draw") || lowerMsg.includes("picture of")) {
+					const imageResponse = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
 					const fileName = `gen-${Date.now()}.png`;
 					await this.env.DOCUMENTS.put(`images/${fileName}`, imageResponse);
 					const imageUrl = `${PUBLIC_R2_URL}/images/${fileName}`;
 					const msg = `I have generated that image for you. You can view it here: ${imageUrl}`;
-					
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 						.bind(sessionId, "assistant", msg).run();
 					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
