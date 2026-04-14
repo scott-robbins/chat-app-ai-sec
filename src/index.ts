@@ -11,7 +11,6 @@ const GATEWAY_ID = "ai-sec-gateway";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- TAVILY SEARCH ---
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
@@ -36,7 +35,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD: ANALYTICS & MODE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -45,30 +43,10 @@ export class ChatSession extends DurableObject<Env> {
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key).filter(key => !key.endsWith('/'));
-				return new Response(JSON.stringify({ 
-					profile: profile, 
-					messageCount: stats?.count || 0, 
-					knowledgeAssets: assets, 
-					status: "Live", 
-					mode: activeMode 
-				}), { headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: activeMode }), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. HISTORY FETCH ---
-		if (url.pathname === "/api/history") {
-			const messages = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
-			return new Response(JSON.stringify(messages.results), { headers: { "Content-Type": "application/json" } });
-		}
-
-		// --- 3. DELETE FILE ---
-		if (url.pathname === "/api/delete-file" && request.method === "POST") {
-			const { key } = await request.json() as any;
-			await this.env.DOCUMENTS.delete(key);
-			return new Response(JSON.stringify({ message: "Deleted" }));
-		}
-
-		// --- 4. MEMORIZE (SEGMENTED TAGGING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -78,25 +56,19 @@ export class ChatSession extends DurableObject<Env> {
 				const chunks = textToIndex.split(/\n\n/).filter(c => c.trim().length > 0);
 				for (const chunk of chunks) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-					await this.env.VECTORIZE.insert([{ 
-						id: crypto.randomUUID(), 
-						values: emb.data[0], 
-						metadata: { text: chunk, fileName: file.name, sessionId, segment: segment } 
-					}]);
+					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: chunk, fileName: file.name, sessionId, segment: segment } }]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: `Stored in ${segment}` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 5. CHAT LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Context Switch Hooks
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const msg = "System: Switched to UVA Academic Mode. How can I help with your studies, Wahoo?";
@@ -115,58 +87,38 @@ export class ChatSession extends DurableObject<Env> {
 				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
 				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				// --- IDENTITY MODULE ---
-				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
-					messages: [
-						{ role: 'system', content: `Extract permanent user facts for a ${activeMode} profile. IGNORE questions and AI chatter. Output ONLY a clean comma-separated string or 'NONE'.` },
-						{ role: 'user', content: `Current: "${currentProfile}"\nNew: "${latestUserMsg}"` }
-					]
-				});
-				const cleaned = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
-				if (cleaned && cleaned !== "NONE" && cleaned.length < 500) {
-					await this.env.SETTINGS.put(kvKey, cleaned);
-				}
-
-				// --- VECTOR MEMORY (FILTERED) ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 5, 
-					returnMetadata: "all",
-					filter: { segment: activeMode } 
-				});
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all", filter: { segment: activeMode } });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// Search Logic & Intent
-				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Review context. Identify subject. Ignore dog persona. Output name ONLY or 'NONE'.`
-				});
+				const subjectCheck = await this.env.AI.run(REASONING_MODEL, { prompt: `Review context. Identify subject. Ignore dog persona. Output name ONLY or 'NONE'.` });
 				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
 					prompt: `Today is ${today}. User asks: "${latestUserMsg}". 
 					If the user asks about exams, traditions, syllabi, or campus resources, respond 'NO'. 
-					If they ask for live sports scores, weather, or current world news, respond 'YES'.` 
+					If they ask for live sports scores, weather, or news, respond 'YES'.` 
 				});
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${primarySubject || latestUserMsg} on ${today}`); 
+					searchResults = await this.searchWeb(`LIVE updates for ${primarySubject || latestUserMsg} on ${today}`); 
 				}
 
-				// Final System Prompt (Greedy Source Logic)
 				let sysPrompt = `You are Jolene, a sophisticated professional assistant at UVA. 
 MODE: ${activeMode === 'uva' ? 'UVA Academic Success Agent' : 'Personal Executive Assistant'}
 Today: ${today}
 Subject: ${primarySubject}
 Search Data: ${searchResults}
 
-SUPREME SOURCE OF TRUTH (Memory):
+SUPREME SOURCE OF TRUTH (Memory Content):
 ${contextText}
 
 Instructions:
-- CRITICAL: Your "Memory" contains specific UVA campus data (Exams, Traditions, Syllabi). You MUST prioritize facts found in "Memory" over general knowledge or Search Data.
-- If "Memory" says an exam is March 24, do not provide any other date.
-- Tone: Professional. No dog persona. If in UVA mode, use an academic tone.`;
+- CRITICAL: Use the "Memory Content" to answer questions about UVA traditions, exams, and syllabi. 
+- If Memory Content mentions Bodo's Bagels or specific exam dates like March 24, you MUST use those facts. 
+- Ignore general knowledge if it conflicts with Memory Content.
+- Never adopt a dog persona. If in UVA mode, use an academic, helpful tone.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
