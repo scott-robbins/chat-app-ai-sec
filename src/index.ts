@@ -36,31 +36,48 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD: ANALYTICS ---
+		// --- 1. DASHBOARD: ANALYTICS & MODE ---
 		if (url.pathname === "/api/profile") {
 			try {
-				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Standard Agent Profile";
-				const mode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
+				const profile = await this.env.SETTINGS.get(kvKey) || "Standard Profile";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key).filter(key => !key.endsWith('/'));
-				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: mode }), { headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({ 
+					profile: profile, 
+					messageCount: stats?.count || 0, 
+					knowledgeAssets: assets, 
+					status: "Live", 
+					mode: activeMode 
+				}), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 5. MEMORIZE (WITH SEGMENT TAGGING) ---
+		// --- 2. HISTORY FETCH ---
+		if (url.pathname === "/api/history") {
+			const messages = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
+			return new Response(JSON.stringify(messages.results), { headers: { "Content-Type": "application/json" } });
+		}
+
+		// --- 3. DELETE FILE ---
+		if (url.pathname === "/api/delete-file" && request.method === "POST") {
+			const { key } = await request.json() as any;
+			await this.env.DOCUMENTS.delete(key);
+			return new Response(JSON.stringify({ message: "Deleted" }));
+		}
+
+		// --- 4. MEMORIZE (SEGMENTED TAGGING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
-				
-				// Determine segment based on file name
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				
 				const chunks = textToIndex.split(/\n\n/).filter(c => c.trim().length > 0);
 				for (const chunk of chunks) {
-					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] }, { gateway: GATEWAY_ID });
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
@@ -68,37 +85,50 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment} segment!` }));
+				return new Response(JSON.stringify({ message: `Stored in ${segment}` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 6. CHAT LOGIC ---
+		// --- 5. CHAT LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Mode Switching Logic
+				// Context Switch Hooks
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode. How can I help with your studies, Wahoo?" })}\n\ndata: [DONE]\n\n`);
+					const msg = "System: Switched to UVA Academic Mode. How can I help with your studies, Wahoo?";
+					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
 				}
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode. Family and sports focus active." })}\n\ndata: [DONE]\n\n`);
+					const msg = "System: Switched to Personal Mode. Family and sports focus active.";
+					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
 				}
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const kvProfileKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
-				const currentProfileString = await this.env.SETTINGS.get(kvProfileKey) || "New Profile";
+				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
+				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				// --- VECTOR MEMORY (WITH METADATA FILTER) ---
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] }, { gateway: GATEWAY_ID });
-				// Cloudflare Vectorize allows us to filter by the 'segment' metadata we created in step 5
+				// --- IDENTITY MODULE (STRICT FACT EXTRACTION) ---
+				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
+					messages: [
+						{ role: 'system', content: `Extract permanent user facts for a ${activeMode} profile. IGNORE questions and AI chatter. Output ONLY a clean comma-separated string or 'NONE'.` },
+						{ role: 'user', content: `Current: "${currentProfile}"\nNew: "${latestUserMsg}"` }
+					]
+				});
+				const cleaned = profileCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
+				if (cleaned && cleaned !== "NONE" && cleaned.length < 500) {
+					await this.env.SETTINGS.put(kvKey, cleaned);
+				}
+
+				// --- VECTOR MEMORY (FILTERED) ---
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
 					topK: 5, 
 					returnMetadata: "all",
@@ -106,37 +136,33 @@ export class ChatSession extends DurableObject<Env> {
 				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// Search Intent & Subject Extraction
+				// Search Logic
 				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
-					prompt: `Review context. Identify the subject. Ignore Assistant name. Output name ONLY or "NONE".`
-				}, { gateway: GATEWAY_ID });
-				const primarySubject = subjectCheck.response?.replace(/^["']|["']$/g, '').trim() || "";
+					prompt: `Review context. Identify subject. Ignore dog persona. Output name ONLY or 'NONE'.`
+				});
+				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE info? Respond "YES" or "NO".` 
-				}, { gateway: GATEWAY_ID });
+					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE info? Respond ONLY 'YES' or 'NO'.` 
+				});
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					const searchTarget = primarySubject || latestUserMsg;
-					searchResults = await this.searchWeb(`LIVE updates for ${searchTarget} on ${today}`); 
+					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${primarySubject || latestUserMsg} on ${today}`); 
 				}
 
-				// System Prompt (Context Aware)
+				// Final System Prompt
 				let sysPrompt = `You are Jolene, a sophisticated professional assistant. 
 MODE: ${activeMode === 'uva' ? 'UVA Academic Success Agent' : 'Personal Executive Assistant'}
-Today is ${today}. 
+Today: ${today}
 Subject: ${primarySubject}
-Search Data: ${searchResults}
+Search: ${searchResults}
 Memory: ${contextText}
-Profile: ${currentProfileString}
-
-Instructions:
-- If in UVA mode, use a supportive academic tone.
-- Strictly prioritize ${activeMode} data from Memory.`;
+Profile: ${currentProfile}
+Constraint: NEVER adopt a dog persona. If in UVA mode, use an academic tone.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages }, { gateway: GATEWAY_ID });
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
 				
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", chatRun.response).run();
@@ -144,7 +170,16 @@ Instructions:
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
-		// ... (Keep existing history/profile routes)
 		return new Response("OK");
 	}
 }
+
+// MANDATORY ES MODULE EXPORT
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
