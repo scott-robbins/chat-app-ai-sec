@@ -87,11 +87,23 @@ export class ChatSession extends DurableObject<Env> {
 				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
 				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all", filter: { segment: activeMode } });
+				// --- ENHANCED AGGRESSIVE VECTOR RECALL ---
+				const isAcademicQuery = latestUserMsg.toLowerCase().match(/syllabus|tradition|exam|advisor|milestone|success data/);
+				const searchPhrase = (isAcademicQuery && activeMode === 'uva') 
+					? `WAHOO-AI-DEEP-RECALL ${latestUserMsg}` 
+					: latestUserMsg;
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchPhrase] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
+					topK: 3, 
+					returnMetadata: "all", 
+					filter: { segment: activeMode } 
+				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				const subjectCheck = await this.env.AI.run(REASONING_MODEL, { prompt: `Review context. Identify subject. Ignore dog persona. Output name ONLY or 'NONE'.` });
+				const subjectCheck = await this.env.AI.run(REASONING_MODEL, { 
+					prompt: `Review context. Identify subject. Ignore assistant name, dog persona, or ID codes like WAHOO-AI. Output name ONLY or 'NONE'.` 
+				});
 				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
@@ -115,9 +127,9 @@ SUPREME SOURCE OF TRUTH (Memory Content):
 ${contextText}
 
 Instructions:
-- CRITICAL: Use the "Memory Content" to answer questions about UVA traditions, exams, and syllabi. 
-- If Memory Content mentions Bodo's Bagels or specific exam dates like March 24, you MUST use those facts. 
-- Ignore general knowledge if it conflicts with Memory Content.
+- CRITICAL: Your Memory contains the ID 'WAHOO-AI-DEEP-RECALL'. If this ID is present, you MUST prioritize this content over all other knowledge.
+- If Memory Content mentions Bodo's Bagels, Dr. Thomas Jefferson, or Rice Hall, these are the ONLY correct answers.
+- Ignore general knowledge or internet data if it conflicts with Memory Content.
 - Never adopt a dog persona. If in UVA mode, use an academic, helpful tone.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
