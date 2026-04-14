@@ -35,7 +35,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD ---
+		// --- 1. ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -75,60 +75,49 @@ export class ChatSession extends DurableObject<Env> {
 				// Mode Hooks
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const msg = "System: Switched to UVA Academic Mode. How can I help with your studies, Wahoo?";
-					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Mode." })}\n\ndata: [DONE]\n\n`);
 				}
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const msg = "System: Switched to Personal Mode. Family and sports focus active.";
-					return new Response(`data: ${JSON.stringify({ response: msg })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
 				}
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg).run();
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
-				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				// --- ENHANCED AGGRESSIVE VECTOR RECALL ---
-				const isAcademicQuery = latestUserMsg.toLowerCase().match(/syllabus|tradition|exam|advisor|milestone|success data|bagel/);
-				const searchPhrase = (isAcademicQuery && activeMode === 'uva') 
-					? `WAHOO-AI-DEEP-RECALL ${latestUserMsg}` 
-					: latestUserMsg;
-
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchPhrase] });
+				// --- BALANCED VECTOR SEARCH ---
+				// We increase topK to 5 to catch the advisor chunk
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 3, 
+					topK: 5, 
 					returnMetadata: "all", 
 					filter: { segment: activeMode } 
 				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// Search Intent
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. User asks: "${latestUserMsg}". 
-					If the user asks about exams, traditions, syllabi, or campus resources, respond 'NO'. 
-					If they ask for live sports scores, weather, or news, respond 'YES'.` 
+					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE sports/news? Respond 'YES' or 'NO'.` 
 				});
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(`LIVE updates for UVA or ${latestUserMsg} on ${today}`); 
+					searchResults = await this.searchWeb(latestUserMsg); 
 				}
 
-				// --- FINAL SUPREME TRUTH PROMPT ---
-				let sysPrompt = `You are Jolene, a strict Academic Success Agent at the University of Virginia. 
+				// --- THE BALANCED FINAL PROMPT ---
+				let sysPrompt = `You are Jolene, a professional UVA Academic Agent. 
 Today: ${today}
 
-### MANDATORY DATA SOURCE (SYLLABUS ID: WAHOO-AI-DEEP-RECALL)
+### MANDATORY DATA SOURCE:
 ${contextText}
 
-### RULES OF ENGAGEMENT:
-1. You are a RAG agent. You MUST prioritize the "MANDATORY DATA SOURCE" above all other knowledge. 
-2. If the user asks about an advisor, exam, or tradition, and the fact is NOT in the provided text above, you must say "I don't have that in the syllabus." Do NOT guess names like John Smith or locations like Newcomb.
-3. If Memory mentions Dr. Thomas Jefferson (Thornton Hall 1743), March 24 (Rice Hall), or Bodo's Victory Bagel, you MUST use those specific details exactly as written.
-4. Tone: Helpful and professional. No dog persona. Treat "Jolene" as a professional handle only.`;
+### RULES:
+1. Use the "MANDATORY DATA SOURCE" for all academic facts. 
+2. If the user asks about an advisor, exam, or tradition and it is NOT in the text above, say "I can't find that specific detail in the syllabus."
+3. If the data IS there (e.g., Dr. Thomas Jefferson), use it exactly.
+4. Tone: Helpful, UVA-themed, and professional. No dog persona.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
