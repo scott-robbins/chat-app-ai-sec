@@ -115,7 +115,7 @@ export class ChatSession extends DurableObject<Env> {
 				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
 				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				// --- IDENTITY MODULE (STRICT FACT EXTRACTION) ---
+				// --- IDENTITY MODULE ---
 				const profileCheck = await this.env.AI.run(REASONING_MODEL, {
 					messages: [
 						{ role: 'system', content: `Extract permanent user facts for a ${activeMode} profile. IGNORE questions and AI chatter. Output ONLY a clean comma-separated string or 'NONE'.` },
@@ -136,14 +136,16 @@ export class ChatSession extends DurableObject<Env> {
 				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				// Search Logic
+				// Search Logic & Intent
 				const subjectCheck = await this.env.AI.run(REASONING_MODEL, {
 					prompt: `Review context. Identify subject. Ignore dog persona. Output name ONLY or 'NONE'.`
 				});
 				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
 
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE info? Respond ONLY 'YES' or 'NO'.` 
+					prompt: `Today is ${today}. User asks: "${latestUserMsg}". 
+					If the user asks about exams, traditions, syllabi, or campus resources, respond 'NO'. 
+					If they ask for live sports scores, weather, or current world news, respond 'YES'.` 
 				});
 				
 				let searchResults = "";
@@ -151,15 +153,20 @@ export class ChatSession extends DurableObject<Env> {
 					searchResults = await this.searchWeb(`LIVE score and play-by-play for ${primarySubject || latestUserMsg} on ${today}`); 
 				}
 
-				// Final System Prompt
-				let sysPrompt = `You are Jolene, a sophisticated professional assistant. 
+				// Final System Prompt (Greedy Source Logic)
+				let sysPrompt = `You are Jolene, a sophisticated professional assistant at UVA. 
 MODE: ${activeMode === 'uva' ? 'UVA Academic Success Agent' : 'Personal Executive Assistant'}
 Today: ${today}
 Subject: ${primarySubject}
-Search: ${searchResults}
-Memory: ${contextText}
-Profile: ${currentProfile}
-Constraint: NEVER adopt a dog persona. If in UVA mode, use an academic tone.`;
+Search Data: ${searchResults}
+
+SUPREME SOURCE OF TRUTH (Memory):
+${contextText}
+
+Instructions:
+- CRITICAL: Your "Memory" contains specific UVA campus data (Exams, Traditions, Syllabi). You MUST prioritize facts found in "Memory" over general knowledge or Search Data.
+- If "Memory" says an exam is March 24, do not provide any other date.
+- Tone: Professional. No dog persona. If in UVA mode, use an academic tone.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
@@ -174,7 +181,6 @@ Constraint: NEVER adopt a dog persona. If in UVA mode, use an academic tone.`;
 	}
 }
 
-// MANDATORY ES MODULE EXPORT
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
