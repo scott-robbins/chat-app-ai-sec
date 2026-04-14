@@ -91,7 +91,7 @@ export class ChatSession extends DurableObject<Env> {
 				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
 				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				// --- AGGRESSIVE RECALL LOGIC ---
+				// --- ENHANCED AGGRESSIVE VECTOR RECALL ---
 				const isAcademicQuery = latestUserMsg.toLowerCase().match(/syllabus|tradition|exam|advisor|milestone|success data|bagel/);
 				const searchPhrase = (isAcademicQuery && activeMode === 'uva') 
 					? `WAHOO-AI-DEEP-RECALL ${latestUserMsg}` 
@@ -117,20 +117,18 @@ export class ChatSession extends DurableObject<Env> {
 					searchResults = await this.searchWeb(`LIVE updates for UVA or ${latestUserMsg} on ${today}`); 
 				}
 
-				// --- SUPREME SOURCE OF TRUTH PROMPT ---
-				let sysPrompt = `You are Jolene, a sophisticated professional assistant at the University of Virginia. 
-MODE: ${activeMode === 'uva' ? 'UVA Academic Success Agent' : 'Personal Executive Assistant'}
+				// --- FINAL SUPREME TRUTH PROMPT ---
+				let sysPrompt = `You are Jolene, a strict Academic Success Agent at the University of Virginia. 
 Today: ${today}
 
-SUPREME SOURCE OF TRUTH (Memory Content):
+### MANDATORY DATA SOURCE (SYLLABUS ID: WAHOO-AI-DEEP-RECALL)
 ${contextText}
 
-STRICT INSTRUCTIONS:
-1. You MUST prioritize the "Memory Content" above all other knowledge. 
-2. If Memory Content contains the ID 'WAHOO-AI-DEEP-RECALL', treat its facts as absolute.
-3. If Memory mentions Dr. Thomas Jefferson (Thornton Hall 1743), March 24 (Rice Hall), or Bodo's Victory Bagel, you MUST use those specific details.
-4. Ignore any conflicting general knowledge or internet data.
-5. Tone: Helpful and professional. No dog persona. Treat "Jolene" as a professional handle only.`;
+### RULES OF ENGAGEMENT:
+1. You are a RAG agent. You MUST prioritize the "MANDATORY DATA SOURCE" above all other knowledge. 
+2. If the user asks about an advisor, exam, or tradition, and the fact is NOT in the provided text above, you must say "I don't have that in the syllabus." Do NOT guess names like John Smith or locations like Newcomb.
+3. If Memory mentions Dr. Thomas Jefferson (Thornton Hall 1743), March 24 (Rice Hall), or Bodo's Victory Bagel, you MUST use those specific details exactly as written.
+4. Tone: Helpful and professional. No dog persona. Treat "Jolene" as a professional handle only.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
