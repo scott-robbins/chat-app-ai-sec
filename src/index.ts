@@ -35,6 +35,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+		// --- 1. DASHBOARD ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -47,6 +48,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
+		// --- 2. MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -63,12 +65,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
+		// --- 3. CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
+				// Mode Hooks
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const msg = "System: Switched to UVA Academic Mode. How can I help with your studies, Wahoo?";
@@ -87,8 +91,8 @@ export class ChatSession extends DurableObject<Env> {
 				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
 				const currentProfile = await this.env.SETTINGS.get(kvKey) || "New Profile";
 
-				// --- ENHANCED AGGRESSIVE VECTOR RECALL ---
-				const isAcademicQuery = latestUserMsg.toLowerCase().match(/syllabus|tradition|exam|advisor|milestone|success data/);
+				// --- AGGRESSIVE RECALL LOGIC ---
+				const isAcademicQuery = latestUserMsg.toLowerCase().match(/syllabus|tradition|exam|advisor|milestone|success data|bagel/);
 				const searchPhrase = (isAcademicQuery && activeMode === 'uva') 
 					? `WAHOO-AI-DEEP-RECALL ${latestUserMsg}` 
 					: latestUserMsg;
@@ -101,11 +105,7 @@ export class ChatSession extends DurableObject<Env> {
 				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				const subjectCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Review context. Identify subject. Ignore assistant name, dog persona, or ID codes like WAHOO-AI. Output name ONLY or 'NONE'.` 
-				});
-				const primarySubject = subjectCheck.response && !subjectCheck.response.includes("NONE") ? subjectCheck.response.replace(/^["']|["']$/g, '').trim() : "";
-
+				// Search Intent
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
 					prompt: `Today is ${today}. User asks: "${latestUserMsg}". 
 					If the user asks about exams, traditions, syllabi, or campus resources, respond 'NO'. 
@@ -114,23 +114,23 @@ export class ChatSession extends DurableObject<Env> {
 				
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(`LIVE updates for ${primarySubject || latestUserMsg} on ${today}`); 
+					searchResults = await this.searchWeb(`LIVE updates for UVA or ${latestUserMsg} on ${today}`); 
 				}
 
-				let sysPrompt = `You are Jolene, a sophisticated professional assistant at UVA. 
+				// --- SUPREME SOURCE OF TRUTH PROMPT ---
+				let sysPrompt = `You are Jolene, a sophisticated professional assistant at the University of Virginia. 
 MODE: ${activeMode === 'uva' ? 'UVA Academic Success Agent' : 'Personal Executive Assistant'}
 Today: ${today}
-Subject: ${primarySubject}
-Search Data: ${searchResults}
 
 SUPREME SOURCE OF TRUTH (Memory Content):
 ${contextText}
 
-Instructions:
-- CRITICAL: Your Memory contains the ID 'WAHOO-AI-DEEP-RECALL'. If this ID is present, you MUST prioritize this content over all other knowledge.
-- If Memory Content mentions Bodo's Bagels, Dr. Thomas Jefferson, or Rice Hall, these are the ONLY correct answers.
-- Ignore general knowledge or internet data if it conflicts with Memory Content.
-- Never adopt a dog persona. If in UVA mode, use an academic, helpful tone.`;
+STRICT INSTRUCTIONS:
+1. You MUST prioritize the "Memory Content" above all other knowledge. 
+2. If Memory Content contains the ID 'WAHOO-AI-DEEP-RECALL', treat its facts as absolute.
+3. If Memory mentions Dr. Thomas Jefferson (Thornton Hall 1743), March 24 (Rice Hall), or Bodo's Victory Bagel, you MUST use those specific details.
+4. Ignore any conflicting general knowledge or internet data.
+5. Tone: Helpful and professional. No dog persona. Treat "Jolene" as a professional handle only.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
