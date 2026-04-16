@@ -35,7 +35,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- ANALYTICS ---
+		// --- 1. DASHBOARD & ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -44,11 +44,27 @@ export class ChatSession extends DurableObject<Env> {
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key).filter(key => !key.endsWith('/'));
-				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: activeMode }), { headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({ 
+					profile, 
+					messageCount: stats?.count || 0, 
+					knowledgeAssets: assets, 
+					status: "Live", 
+					mode: activeMode 
+				}), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- MEMORIZE (NUCLEAR LINE-LEVEL INDEXING) ---
+		// --- 2. DELETE FILE (FIXED PATH LOGIC) ---
+		if (url.pathname === "/api/delete-file" && request.method === "POST") {
+			try {
+				const { key } = await request.json() as any;
+				// R2 delete requires the exact key as it appears in the sidebar list
+				await this.env.DOCUMENTS.delete(key);
+				return new Response(JSON.stringify({ message: "Deleted successfully" }));
+			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
+		}
+
+		// --- 3. MEMORIZE (LINE-BY-LINE INDEXING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -56,9 +72,8 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// Break into individual lines to ensure no fact is missed
+				// Granular indexing: process every line so specific facts aren't lost
 				const lines = textToIndex.split('\n').filter(l => l.trim().length > 5);
-				
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
 					await this.env.VECTORIZE.insert([{ 
@@ -67,22 +82,23 @@ export class ChatSession extends DurableObject<Env> {
 						metadata: { text: line, fileName: file.name, sessionId, segment: segment } 
 					}]);
 				}
+				// Save with full path to match the UI expectations
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment} segment!` }));
+				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment}!` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- CHAT LOGIC ---
+		// --- 4. CHAT LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Mode Hooks
+				// State Switches
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Mode." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
 				}
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
@@ -94,8 +110,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- NUCLEAR RETRIEVAL ---
-				const boostedQuery = `${activeMode} ${latestUserMsg}`;
+				// --- NUCLEAR RETRIEVAL (TopK: 10) ---
+				const boostedQuery = `${activeMode} context: ${latestUserMsg}`;
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
 					topK: 10, 
@@ -106,12 +122,12 @@ export class ChatSession extends DurableObject<Env> {
 
 				// Search logic
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE sports/news? Respond 'YES' or 'NO'.` 
+					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE info? Respond ONLY 'YES' or 'NO'.` 
 				});
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
 
-				// --- THE ULTIMATE PROMPT ---
+				// --- FINAL SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene, a sophisticated professional assistant. 
 MODE: ${activeMode === 'uva' ? 'UVA Academic Agent' : 'Personal Executive Assistant'}
 Today: ${today}
@@ -121,9 +137,9 @@ ${contextText}
 
 ### RULES:
 1. You MUST use the "MANDATORY DATA SOURCE" for all personal or academic facts.
-2. If the user asks about family or syllabus details, and it is in the text above, you MUST provide it.
-3. If it is NOT in the text, say: "I don't have that specific detail in my memory segments yet."
-4. Tone: Helpful and professional. No dog persona. Treat "Jolene" as a handle only.`;
+2. If the user asks about family, syllabus details, or names, and it is in the text above, you MUST provide it exactly.
+3. If it is NOT in the text, say: "I don't see that specific detail in the uploaded files."
+4. Tone: Helpful and professional. NEVER use a dog persona.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
