@@ -35,7 +35,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. ANALYTICS ---
+		// --- ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -48,24 +48,31 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE ---
+		// --- MEMORIZE (NUCLEAR LINE-LEVEL INDEXING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				const chunks = textToIndex.split(/\n\n/).filter(c => c.trim().length > 0);
-				for (const chunk of chunks) {
-					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: chunk, fileName: file.name, sessionId, segment: segment } }]);
+				
+				// Break into individual lines to ensure no fact is missed
+				const lines = textToIndex.split('\n').filter(l => l.trim().length > 5);
+				
+				for (const line of lines) {
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
+					await this.env.VECTORIZE.insert([{ 
+						id: crypto.randomUUID(), 
+						values: emb.data[0], 
+						metadata: { text: line, fileName: file.name, sessionId, segment: segment } 
+					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Stored in ${segment}` }));
+				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment} segment!` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT ---
+		// --- CHAT LOGIC ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -87,37 +94,36 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- BALANCED VECTOR SEARCH ---
-				// We increase topK to 5 to catch the advisor chunk
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
+				// --- NUCLEAR RETRIEVAL ---
+				const boostedQuery = `${activeMode} ${latestUserMsg}`;
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 5, 
+					topK: 10, 
 					returnMetadata: "all", 
 					filter: { segment: activeMode } 
 				});
-				const contextText = matches.matches.map(m => m.metadata.text).join("\n\n");
+				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
+				// Search logic
 				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
 					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE sports/news? Respond 'YES' or 'NO'.` 
 				});
-				
 				let searchResults = "";
-				if (searchCheck.response?.includes("YES")) { 
-					searchResults = await this.searchWeb(latestUserMsg); 
-				}
+				if (searchCheck.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
 
-				// --- THE BALANCED FINAL PROMPT ---
-				let sysPrompt = `You are Jolene, a professional UVA Academic Agent. 
+				// --- THE ULTIMATE PROMPT ---
+				let sysPrompt = `You are Jolene, a sophisticated professional assistant. 
+MODE: ${activeMode === 'uva' ? 'UVA Academic Agent' : 'Personal Executive Assistant'}
 Today: ${today}
 
 ### MANDATORY DATA SOURCE:
 ${contextText}
 
 ### RULES:
-1. Use the "MANDATORY DATA SOURCE" for all academic facts. 
-2. If the user asks about an advisor, exam, or tradition and it is NOT in the text above, say "I can't find that specific detail in the syllabus."
-3. If the data IS there (e.g., Dr. Thomas Jefferson), use it exactly.
-4. Tone: Helpful, UVA-themed, and professional. No dog persona.`;
+1. You MUST use the "MANDATORY DATA SOURCE" for all personal or academic facts.
+2. If the user asks about family or syllabus details, and it is in the text above, you MUST provide it.
+3. If it is NOT in the text, say: "I don't have that specific detail in my memory segments yet."
+4. Tone: Helpful and professional. No dog persona. Treat "Jolene" as a handle only.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
