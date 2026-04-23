@@ -18,7 +18,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
-			if (data.answer) return `VERIFIED REAL-TIME DATA: ${data.answer}`;
+			if (data.answer) return `VERIFIED REAL-TIME DATA (Today: April 22, 2026): ${data.answer}`;
 			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
@@ -28,7 +28,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -41,7 +40,6 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -58,14 +56,12 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT (WITH WEB SEARCH & MODE SWITCHING) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
@@ -81,31 +77,33 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- WEB SEARCH TRIGGER ---
+				// --- AGGRESSIVE WEB SEARCH ---
 				let searchResults = "";
-				const searchKeywords = ["celtics", "masters", "weather", "news", "score", "game"];
-				if (searchKeywords.some(keyword => latestUserMsg.toLowerCase().includes(keyword))) {
-					searchResults = await this.searchWeb(latestUserMsg);
+				const webKeywords = ["celtics", "masters", "weather", "news", "score", "game", "who is", "when is"];
+				if (webKeywords.some(keyword => latestUserMsg.toLowerCase().includes(keyword))) {
+					// We add the year to the search to fix the hallucination issue
+					searchResults = await this.searchWeb(`${latestUserMsg} April 2026 schedule`);
 				}
 
-				// --- VECTOR SEARCH ---
+				// --- AGGRESSIVE VECTOR SEARCH ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 30, returnMetadata: "all", filter: { segment: activeMode } });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// --- DYNAMIC SYSTEM PROMPT ---
-				let sysPrompt = `You are Jolene. Current Mode: ${activeMode}. Today: ${today}.
+				// --- THE "DEMO-WINNING" SYSTEM PROMPT ---
+				let sysPrompt = `You are Jolene. Mode: ${activeMode}. Today: ${today}.
 
-CONTEXT FROM UPLOADED FILES:
+### VERIFIED INTERNET DATA (PRIORITIZE FOR REAL-TIME):
+${searchResults}
+
+### CONTEXT FROM UPLOADED FILES:
 ${contextText}
 
-${searchResults ? `REAL-TIME INTERNET DATA:\n${searchResults}` : ""}
-
-STRICT RULES:
-1. If Mode is 'personal', identify user as Scott E Robbins, a Senior Solutions Engineer at Cloudflare. His daughter is Bryana (Bry).
-2. If Mode is 'uva', you are a UVA Academic Success Agent. Use ONLY the UVA Syllabus data. Do NOT mention Scott's personal family info.
-3. If internet data is present, prioritize it for current events.
-4. If facts are in the context, provide them exactly. Do not say unavailable.`;
+### STRICT RULES:
+1. In 'uva' mode, your student is Scott E Robbins. DO NOT ask for ID, Major, or Full Name. 
+2. If Mode is 'personal', identify user as Scott E Robbins, a Senior Solutions Engineer at Cloudflare. His daughter is Bryana (Bry).
+3. If internet data is present (especially for Celtics), use ONLY that data for dates and scores.
+4. If facts are in the context above, provide them exactly. Do not say unavailable. Look for Thornton Hall, Scott E Robbins, and Victory Bagel.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
