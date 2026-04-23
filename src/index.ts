@@ -41,7 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE ---
+		// --- 2. MEMORIZE (GRANULAR) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -58,14 +58,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT ---
+		// --- 3. CHAT (BOOSTED RETRIEVAL) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Mode Hooks
+				// Mode Logic
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
@@ -81,34 +81,37 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- 1. PROACTIVE WEB SEARCH ---
+				// --- WEB SEARCH ---
 				let searchResults = "";
-				const webKeywords = ["celtics", "masters", "weather", "news", "score", "game", "who is", "when is"];
-				if (webKeywords.some(keyword => latestUserMsg.toLowerCase().includes(keyword))) {
-					searchResults = await this.searchWeb(`${latestUserMsg} April 2026 schedule`);
+				const webKeywords = ["celtics", "masters", "weather", "game", "score", "schedule"];
+				if (webKeywords.some(k => latestUserMsg.toLowerCase().includes(k))) {
+					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
 				}
 
-				// --- 2. SEMANTIC BOOST SEARCH ---
-				// If we are in UVA mode, we explicitly boost 'Syllabus' and 'Advisor' to find T.J.
-				const boostedQuery = activeMode === 'uva' ? `Syllabus CS 4750 Advisor Room Location ${latestUserMsg}` : latestUserMsg;
+				// --- VECTOR SEARCH (TopK: 40) ---
+				// If UVA mode, we explicitly look for the 'Syllabus' and 'Advisor' lines
+				const boostedQuery = activeMode === 'uva' ? `Syllabus CS 4750 Advisor Room Thornton Hall 1743 Dr. Thomas Jefferson` : latestUserMsg;
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 30, returnMetadata: "all", filter: { segment: activeMode } });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
+					topK: 40, 
+					returnMetadata: "all", 
+					filter: { segment: activeMode } 
+				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// --- 3. THE "WAHOO" SYSTEM PROMPT ---
+				// --- SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene. Mode: ${activeMode}. Today: ${today}.
 
-### VERIFIED CONTEXT (ONLY USE THIS):
+### VERIFIED CONTEXT (MANDATORY SOURCE):
 ${contextText}
 ${searchResults}
 
-### MANDATORY RULES:
-1. Your student is Scott E Robbins. 
-2. If in 'uva' mode, your ONLY name/room sources are the context lines above. 
-3. If context contains 'Dr. Thomas Jefferson' and 'Thornton Hall', provide that. 
-4. DO NOT MENTION Dr. Mike Rischbieter or Room 28. Those are hallucinations. If names aren't in context, say you can't find them in the syllabus.
-5. For Celtics/Internet info, prioritize the REAL-TIME DATA section above.
-6. Tone: Formal and helpful.`;
+### RULES:
+1. Identify user as Scott E Robbins.
+2. In 'uva' mode, your student is Scott E Robbins. Advisor is Dr. Thomas Jefferson in Thornton Hall 1743.
+3. In 'personal' mode, user's daughter is Bryana (Bry).
+4. DO NOT mention personal details (Bryana) when in 'uva' mode.
+5. If details are in context, provide them exactly. Do not say unavailable.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
