@@ -41,65 +41,71 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE (FIXED SEGMENTATION) ---
+		// --- 2. MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				
 				const lines = textToIndex.split('\n').filter(l => l.trim().length > 2);
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
-					await this.env.VECTORIZE.insert([{ 
-						id: crypto.randomUUID(), 
-						values: emb.data[0], 
-						metadata: { text: line, fileName: file.name, segment: segment } 
-					}]);
+					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line, fileName: file.name, segment: segment } }]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: `Success: Absorbed into ${segment}` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT (EXHAUSTIVE RECALL) ---
+		// --- 3. CHAT (WITH WEB SEARCH & MODE SWITCHING) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Commands
-				if (latestUserMsg === "!!RESET_HISTORY") {
-					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED." })}\n\ndata: [DONE]\n\n`);
-				}
+				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
 				}
+				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
+				}
+				if (latestUserMsg === "!!RESET_HISTORY") {
+					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED." })}\n\ndata: [DONE]\n\n`);
+				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+
+				// --- WEB SEARCH TRIGGER ---
+				let searchResults = "";
+				const searchKeywords = ["celtics", "masters", "weather", "news", "score", "game"];
+				if (searchKeywords.some(keyword => latestUserMsg.toLowerCase().includes(keyword))) {
+					searchResults = await this.searchWeb(latestUserMsg);
+				}
+
+				// --- VECTOR SEARCH ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
-				
-				// Pull Top 30 lines to ensure specific names aren't missed
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 30, 
-					returnMetadata: "all",
-					filter: { segment: activeMode }
-				});
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 30, returnMetadata: "all", filter: { segment: activeMode } });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
-				let sysPrompt = `You are Jolene, a professional assistant. Today: ${today}.
-CONTEXT FROM YOUR FILES:
+				// --- DYNAMIC SYSTEM PROMPT ---
+				let sysPrompt = `You are Jolene. Current Mode: ${activeMode}. Today: ${today}.
+
+CONTEXT FROM UPLOADED FILES:
 ${contextText}
 
+${searchResults ? `REAL-TIME INTERNET DATA:\n${searchResults}` : ""}
+
 STRICT RULES:
-1. You MUST use the CONTEXT above for all facts.
-2. The user is Scott E Robbins, a Senior Solutions Engineer at Cloudflare.
-3. His daughter is Bryana (Bry).
-4. Do NOT say the information is unavailable. Read the context lines carefully.`;
+1. If Mode is 'personal', identify user as Scott E Robbins, a Senior Solutions Engineer at Cloudflare. His daughter is Bryana (Bry).
+2. If Mode is 'uva', you are a UVA Academic Success Agent. Use ONLY the UVA Syllabus data. Do NOT mention Scott's personal family info.
+3. If internet data is present, prioritize it for current events.
+4. If facts are in the context, provide them exactly. Do not say unavailable.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
