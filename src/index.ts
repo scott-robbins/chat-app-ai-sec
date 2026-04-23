@@ -28,7 +28,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD ---
+		// --- 1. DASHBOARD & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -41,7 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE (GRANULAR) ---
+		// --- 2. MEMORIZE (LINE-BY-LINE INDEXING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -58,14 +58,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT (BOOSTED RETRIEVAL) ---
+		// --- 3. CHAT (HYBRID SEARCH & MODE ISOLATION) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Mode Logic
+				// Mode & History Reset Commands
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
@@ -81,15 +81,14 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- WEB SEARCH ---
+				// --- WEB SEARCH TRIGGER ---
 				let searchResults = "";
-				const webKeywords = ["celtics", "masters", "weather", "game", "score", "schedule"];
+				const webKeywords = ["celtics", "masters", "weather", "game", "score", "schedule", "who is", "when is"];
 				if (webKeywords.some(k => latestUserMsg.toLowerCase().includes(k))) {
 					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
 				}
 
 				// --- VECTOR SEARCH (TopK: 40) ---
-				// If UVA mode, we explicitly look for the 'Syllabus' and 'Advisor' lines
 				const boostedQuery = activeMode === 'uva' ? `Syllabus CS 4750 Advisor Room Thornton Hall 1743 Dr. Thomas Jefferson` : latestUserMsg;
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
@@ -99,19 +98,20 @@ export class ChatSession extends DurableObject<Env> {
 				});
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// --- SYSTEM PROMPT ---
+				// --- DYNAMIC SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene. Mode: ${activeMode}. Today: ${today}.
 
 ### VERIFIED CONTEXT (MANDATORY SOURCE):
 ${contextText}
 ${searchResults}
 
-### RULES:
+### STRICT RULES:
 1. Identify user as Scott E Robbins.
-2. In 'uva' mode, your student is Scott E Robbins. Advisor is Dr. Thomas Jefferson in Thornton Hall 1743.
-3. In 'personal' mode, user's daughter is Bryana (Bry).
-4. DO NOT mention personal details (Bryana) when in 'uva' mode.
-5. If details are in context, provide them exactly. Do not say unavailable.`;
+2. If Mode is 'uva', your student is Scott E Robbins. Identify advisor as Dr. Thomas Jefferson in Thornton Hall 1743.
+3. If searchResults are present, ALWAYS use them for sports/current events even in UVA mode.
+4. In 'personal' mode, user's daughter is Bryana. 
+5. CRITICAL: NEVER mention Bryana or personal details if the current mode is 'uva'. This is a strict data privacy wall.
+6. If details are in the Context, provide them exactly. Do not say unavailable.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
