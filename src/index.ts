@@ -57,7 +57,9 @@ export class ChatSession extends DurableObject<Env> {
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				const lines = textToIndex.split('\n').filter(l => l.trim().length > 5);
+				
+				// Granular indexing for the demo
+				const lines = textToIndex.split('\n').filter(l => l.trim().length > 3);
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
 					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line, fileName: file.name, sessionId, segment: segment } }]);
@@ -67,21 +69,20 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT (NUCLEAR RECALL) ---
+		// --- 4. CHAT (ENHANCED SEMANTIC SEARCH) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// --- HIDDEN COMMANDS ---
+				// HIDDEN SYSTEM WIPE
 				if (latestUserMsg === "!!WIPE_SYSTEM") {
 					const objects = await this.env.DOCUMENTS.list();
 					for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
 					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE. R2 Cleared. Please Reset Identity now." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
@@ -96,14 +97,21 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- ENHANCED RETRIEVAL ---
-				const boostedQuery = `Regarding ${activeMode}: ${latestUserMsg}`;
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all", filter: { segment: activeMode } });
-				const contextText = matches.matches.map(m => m.metadata.text).join(" | ");
+				// --- NUCLEAR RETRIEVAL (TOPK: 20 + CLEAN QUERY) ---
+				// We strip "fluff" words to help the vector math hit specific lines
+				const cleanQuery = latestUserMsg.toLowerCase().replace(/remind me of|tell me|who is|what is/g, "").trim();
+				const searchPhrase = `${activeMode} ${cleanQuery}`;
+				
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchPhrase] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
+					topK: 20, 
+					returnMetadata: "all", 
+					filter: { segment: activeMode } 
+				});
+				const contextText = matches.matches.map(m => `[Source: ${m.metadata.fileName}]: ${m.metadata.text}`).join("\n");
 
 				// Search Logic
-				const searchCheck = await this.env.AI.run(REASONING_MODEL, { prompt: `Today is ${today}. Does "${latestUserMsg}" need LIVE web info? YES/NO ONLY.` });
+				const searchCheck = await this.env.AI.run(REASONING_MODEL, { prompt: `Today is ${today}. Does "${latestUserMsg}" need LIVE info? YES/NO ONLY.` });
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
 
@@ -112,15 +120,14 @@ export class ChatSession extends DurableObject<Env> {
 MODE: ${activeMode === 'uva' ? 'UVA Academic Agent' : 'Personal Executive Assistant'}
 Today: ${today}
 
-### MANDATORY CONTEXT FROM UPLOADED FILES:
+### MANDATORY KNOWLEDGE BASE:
 ${contextText}
 
 ### RULES:
-1. Use the "MANDATORY CONTEXT" above for ALL specific facts about names, family, or syllabus.
-2. If the user asks about family in UVA mode, you must NOT answer using personal context.
-3. If the answer is in the Context, provide it exactly. 
-4. If NOT in Context, say: "I don't have that specific detail in the uploaded files yet."
-5. No dog persona. Formal and helpful.`;
+1. You MUST use the "MANDATORY KNOWLEDGE BASE" for all specific facts.
+2. If the data is in the text above (like names or advisor info), you MUST provide it. 
+3. If not in text, say: "I don't have that specific detail in the uploaded files yet."
+4. Use a formal, helpful tone. No dog persona.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
