@@ -41,7 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. DELETE/WIPE LOGIC ---
+		// --- 2. DELETE/WIPE ---
 		if (url.pathname === "/api/delete-file" && request.method === "POST") {
 			try {
 				const { key } = await request.json() as any;
@@ -58,31 +58,40 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// Granular indexing for the demo
+				// Granular indexing: process every line so specific facts aren't lost
 				const lines = textToIndex.split('\n').filter(l => l.trim().length > 3);
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
-					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line, fileName: file.name, sessionId, segment: segment } }]);
+					await this.env.VECTORIZE.insert([{ 
+						id: crypto.randomUUID(), 
+						values: emb.data[0], 
+						metadata: { text: line, fileName: file.name, sessionId, segment: segment } 
+					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment}!` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT (ENHANCED SEMANTIC SEARCH) ---
+		// --- 4. CHAT (WITH OVERRIDE COMMANDS) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// HIDDEN SYSTEM WIPE
+				// --- MANUAL RESET OVERRIDES ---
 				if (latestUserMsg === "!!WIPE_SYSTEM") {
 					const objects = await this.env.DOCUMENTS.list();
 					for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
-					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE. R2 Cleared. Please Reset Identity now." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE. R2 Cleared. Please upload fresh files." })}\n\ndata: [DONE]\n\n`);
+				}
+				if (latestUserMsg === "!!RESET_HISTORY") {
+					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+					return new Response(`data: ${JSON.stringify({ response: "D1 CHAT HISTORY CLEARED. I have no memory of our past conversation." })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
@@ -97,11 +106,10 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- NUCLEAR RETRIEVAL (TOPK: 20 + CLEAN QUERY) ---
+				// --- NUCLEAR RETRIEVAL (TOPK: 20 + SEMANTIC CLEANING) ---
 				// We strip "fluff" words to help the vector math hit specific lines
 				const cleanQuery = latestUserMsg.toLowerCase().replace(/remind me of|tell me|who is|what is/g, "").trim();
 				const searchPhrase = `${activeMode} ${cleanQuery}`;
-				
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchPhrase] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
 					topK: 20, 
@@ -110,8 +118,10 @@ export class ChatSession extends DurableObject<Env> {
 				});
 				const contextText = matches.matches.map(m => `[Source: ${m.metadata.fileName}]: ${m.metadata.text}`).join("\n");
 
-				// Search Logic
-				const searchCheck = await this.env.AI.run(REASONING_MODEL, { prompt: `Today is ${today}. Does "${latestUserMsg}" need LIVE info? YES/NO ONLY.` });
+				// Search logic
+				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
+					prompt: `Today is ${today}. Does "${latestUserMsg}" need LIVE web info? YES/NO ONLY.` 
+				});
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
 
@@ -124,10 +134,10 @@ Today: ${today}
 ${contextText}
 
 ### RULES:
-1. You MUST use the "MANDATORY KNOWLEDGE BASE" for all specific facts.
-2. If the data is in the text above (like names or advisor info), you MUST provide it. 
-3. If not in text, say: "I don't have that specific detail in the uploaded files yet."
-4. Use a formal, helpful tone. No dog persona.`;
+1. USE the "MANDATORY KNOWLEDGE BASE" above for all facts.
+2. If the data is in the text above, you MUST provide it exactly. 
+3. DO NOT say "I don't have that detail" if it is in the Mandatory Knowledge Base.
+4. Tone: Helpful and professional. No dog persona.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
