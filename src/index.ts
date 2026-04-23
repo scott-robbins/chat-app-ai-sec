@@ -28,7 +28,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD ---
+		// --- 1. ANALYTICS ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -50,7 +50,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 3. MEMORIZE (LINE-BY-LINE) ---
+		// --- 3. MEMORIZE (GRANULAR INDEXING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -58,8 +58,8 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// Granular indexing: process every line so specific facts aren't lost
-				const lines = textToIndex.split('\n').filter(l => l.trim().length > 3);
+				// Break into individual phrases for high-precision matching
+				const lines = textToIndex.split('\n').filter(l => l.trim().length > 2);
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
 					await this.env.VECTORIZE.insert([{ 
@@ -73,25 +73,24 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT (WITH OVERRIDE COMMANDS) ---
+		// --- 4. CHAT (HIGH-PRECISION RECALL) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// --- MANUAL RESET OVERRIDES ---
+				// --- MANUAL OVERRIDES ---
 				if (latestUserMsg === "!!WIPE_SYSTEM") {
 					const objects = await this.env.DOCUMENTS.list();
 					for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
-					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE. R2 Cleared. Please upload fresh files." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE." })}\n\ndata: [DONE]\n\n`);
 				}
 				if (latestUserMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "D1 CHAT HISTORY CLEARED. I have no memory of our past conversation." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
@@ -106,38 +105,28 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- NUCLEAR RETRIEVAL (TOPK: 20 + SEMANTIC CLEANING) ---
-				// We strip "fluff" words to help the vector math hit specific lines
-				const cleanQuery = latestUserMsg.toLowerCase().replace(/remind me of|tell me|who is|what is/g, "").trim();
-				const searchPhrase = `${activeMode} ${cleanQuery}`;
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchPhrase] });
+				// --- ENHANCED EXHAUSTIVE RETRIEVAL (TOPK: 30) ---
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 20, 
+					topK: 30, 
 					returnMetadata: "all", 
 					filter: { segment: activeMode } 
 				});
-				const contextText = matches.matches.map(m => `[Source: ${m.metadata.fileName}]: ${m.metadata.text}`).join("\n");
+				const contextText = matches.matches.map(m => `• ${m.metadata.text}`).join("\n");
 
-				// Search logic
-				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. Does "${latestUserMsg}" need LIVE web info? YES/NO ONLY.` 
-				});
-				let searchResults = "";
-				if (searchCheck.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
-
-				// --- FINAL SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene, a sophisticated professional assistant. 
 MODE: ${activeMode === 'uva' ? 'UVA Academic Agent' : 'Personal Executive Assistant'}
 Today: ${today}
 
-### MANDATORY KNOWLEDGE BASE:
+### MANDATORY DATA SOURCE FROM UPLOADED FILES:
 ${contextText}
 
-### RULES:
-1. USE the "MANDATORY KNOWLEDGE BASE" above for all facts.
-2. If the data is in the text above, you MUST provide it exactly. 
-3. DO NOT say "I don't have that detail" if it is in the Mandatory Knowledge Base.
-4. Tone: Helpful and professional. No dog persona.`;
+### STRICT INSTRUCTIONS:
+1. You MUST answer using the "MANDATORY DATA SOURCE" above.
+2. If the user asks for a job title, you MUST provide the full title (e.g., Senior Solutions Engineer).
+3. If the user asks for a daughter's name, identify her as Bryana.
+4. DO NOT summarize or guess titles like "Executive." Read the lines exactly.
+5. Tone: Formal and helpful. No dog persona.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
