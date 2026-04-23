@@ -14,15 +14,8 @@ export class ChatSession extends DurableObject<Env> {
 	async searchWeb(query: string): Promise<string> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					api_key: this.env.TAVILY_API_KEY,
-					query: query,
-					search_depth: "advanced",
-					include_answer: true,
-					max_results: 5
-				})
+				method: "POST", headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
 			if (data.answer) return `VERIFIED REAL-TIME DATA: ${data.answer}`;
@@ -35,7 +28,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD & ANALYTICS ---
+		// --- 1. DASHBOARD ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -44,58 +37,51 @@ export class ChatSession extends DurableObject<Env> {
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key).filter(key => !key.endsWith('/'));
-				return new Response(JSON.stringify({ 
-					profile, 
-					messageCount: stats?.count || 0, 
-					knowledgeAssets: assets, 
-					status: "Live", 
-					mode: activeMode 
-				}), { headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: activeMode }), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. DELETE FILE (FIXED PATH LOGIC) ---
+		// --- 2. DELETE/WIPE LOGIC ---
 		if (url.pathname === "/api/delete-file" && request.method === "POST") {
 			try {
 				const { key } = await request.json() as any;
-				// R2 delete requires the exact key as it appears in the sidebar list
 				await this.env.DOCUMENTS.delete(key);
 				return new Response(JSON.stringify({ message: "Deleted successfully" }));
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 3. MEMORIZE (LINE-BY-LINE INDEXING) ---
+		// --- 3. MEMORIZE (LINE-BY-LINE) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				
-				// Granular indexing: process every line so specific facts aren't lost
 				const lines = textToIndex.split('\n').filter(l => l.trim().length > 5);
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
-					await this.env.VECTORIZE.insert([{ 
-						id: crypto.randomUUID(), 
-						values: emb.data[0], 
-						metadata: { text: line, fileName: file.name, sessionId, segment: segment } 
-					}]);
+					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line, fileName: file.name, sessionId, segment: segment } }]);
 				}
-				// Save with full path to match the UI expectations
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment}!` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT LOGIC ---
+		// --- 4. CHAT (NUCLEAR RECALL) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// State Switches
+				// --- HIDDEN COMMANDS ---
+				if (latestUserMsg === "!!WIPE_SYSTEM") {
+					const objects = await this.env.DOCUMENTS.list();
+					for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
+					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE. R2 Cleared. Please Reset Identity now." })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
@@ -110,20 +96,14 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- NUCLEAR RETRIEVAL (TopK: 10) ---
-				const boostedQuery = `${activeMode} context: ${latestUserMsg}`;
+				// --- ENHANCED RETRIEVAL ---
+				const boostedQuery = `Regarding ${activeMode}: ${latestUserMsg}`;
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 10, 
-					returnMetadata: "all", 
-					filter: { segment: activeMode } 
-				});
-				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all", filter: { segment: activeMode } });
+				const contextText = matches.matches.map(m => m.metadata.text).join(" | ");
 
-				// Search logic
-				const searchCheck = await this.env.AI.run(REASONING_MODEL, { 
-					prompt: `Today is ${today}. Does "${latestUserMsg}" require LIVE info? Respond ONLY 'YES' or 'NO'.` 
-				});
+				// Search Logic
+				const searchCheck = await this.env.AI.run(REASONING_MODEL, { prompt: `Today is ${today}. Does "${latestUserMsg}" need LIVE web info? YES/NO ONLY.` });
 				let searchResults = "";
 				if (searchCheck.response?.includes("YES")) { searchResults = await this.searchWeb(latestUserMsg); }
 
@@ -132,21 +112,19 @@ export class ChatSession extends DurableObject<Env> {
 MODE: ${activeMode === 'uva' ? 'UVA Academic Agent' : 'Personal Executive Assistant'}
 Today: ${today}
 
-### MANDATORY DATA SOURCE:
+### MANDATORY CONTEXT FROM UPLOADED FILES:
 ${contextText}
 
 ### RULES:
-1. You MUST use the "MANDATORY DATA SOURCE" for all personal or academic facts.
-2. If the user asks about family, syllabus details, or names, and it is in the text above, you MUST provide it exactly.
-3. If it is NOT in the text, say: "I don't see that specific detail in the uploaded files."
-4. Tone: Helpful and professional. NEVER use a dog persona.`;
+1. Use the "MANDATORY CONTEXT" above for ALL specific facts about names, family, or syllabus.
+2. If the user asks about family in UVA mode, you must NOT answer using personal context.
+3. If the answer is in the Context, provide it exactly. 
+4. If NOT in Context, say: "I don't have that specific detail in the uploaded files yet."
+5. No dog persona. Formal and helpful.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-				
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatRun.response).run();
-
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)").bind(sessionId, "assistant", chatRun.response).run();
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
