@@ -58,21 +58,23 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT (HYBRID SEARCH & MODE ISOLATION) ---
+		// --- 3. CHAT (HARD STATE SYNC INTEGRATED) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Mode & History Reset Commands
-				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "personal");
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
-				}
+				// Mode Switches with IMMEDIATE History Purge to prevent state confusion
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
+					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode. History Reset." })}\n\ndata: [DONE]\n\n`);
+				}
+				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode. History Reset." })}\n\ndata: [DONE]\n\n`);
 				}
 				if (latestUserMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
@@ -99,7 +101,7 @@ export class ChatSession extends DurableObject<Env> {
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
 				// --- DYNAMIC SYSTEM PROMPT ---
-				let sysPrompt = `You are Jolene. Mode: ${activeMode}. Today: ${today}.
+				let sysPrompt = `You are Jolene. CURRENT MODE: ${activeMode}. Today: ${today}.
 
 ### VERIFIED CONTEXT (MANDATORY SOURCE):
 ${contextText}
@@ -108,10 +110,9 @@ ${searchResults}
 ### STRICT RULES:
 1. Identify user as Scott E Robbins.
 2. If Mode is 'uva', your student is Scott E Robbins. Identify advisor as Dr. Thomas Jefferson in Thornton Hall 1743.
-3. If searchResults are present, ALWAYS use them for sports/current events even in UVA mode.
-4. In 'personal' mode, user's daughter is Bryana. 
-5. CRITICAL: NEVER mention Bryana or personal details if the current mode is 'uva'. This is a strict data privacy wall.
-6. If details are in the Context, provide them exactly. Do not say unavailable.`;
+3. If Mode is 'uva', NEVER mention family details or job titles from Personal Mode.
+4. If searchResults are present, ALWAYS use them for sports/current events even in UVA mode.
+5. If details are in the Context, provide them exactly. Do not say unavailable.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
