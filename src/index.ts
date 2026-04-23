@@ -28,6 +28,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+		// --- 1. DASHBOARD ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -40,6 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
+		// --- 2. MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -56,12 +58,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
+		// --- 3. CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
+				// Mode Hooks
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
@@ -77,33 +81,34 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- AGGRESSIVE WEB SEARCH ---
+				// --- 1. PROACTIVE WEB SEARCH ---
 				let searchResults = "";
 				const webKeywords = ["celtics", "masters", "weather", "news", "score", "game", "who is", "when is"];
 				if (webKeywords.some(keyword => latestUserMsg.toLowerCase().includes(keyword))) {
-					// We add the year to the search to fix the hallucination issue
 					searchResults = await this.searchWeb(`${latestUserMsg} April 2026 schedule`);
 				}
 
-				// --- AGGRESSIVE VECTOR SEARCH ---
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
+				// --- 2. SEMANTIC BOOST SEARCH ---
+				// If we are in UVA mode, we explicitly boost 'Syllabus' and 'Advisor' to find T.J.
+				const boostedQuery = activeMode === 'uva' ? `Syllabus CS 4750 Advisor Room Location ${latestUserMsg}` : latestUserMsg;
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 30, returnMetadata: "all", filter: { segment: activeMode } });
 				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// --- THE "DEMO-WINNING" SYSTEM PROMPT ---
+				// --- 3. THE "WAHOO" SYSTEM PROMPT ---
 				let sysPrompt = `You are Jolene. Mode: ${activeMode}. Today: ${today}.
 
-### VERIFIED INTERNET DATA (PRIORITIZE FOR REAL-TIME):
+### VERIFIED CONTEXT (ONLY USE THIS):
+${contextText}
 ${searchResults}
 
-### CONTEXT FROM UPLOADED FILES:
-${contextText}
-
-### STRICT RULES:
-1. In 'uva' mode, your student is Scott E Robbins. DO NOT ask for ID, Major, or Full Name. 
-2. If Mode is 'personal', identify user as Scott E Robbins, a Senior Solutions Engineer at Cloudflare. His daughter is Bryana (Bry).
-3. If internet data is present (especially for Celtics), use ONLY that data for dates and scores.
-4. If facts are in the context above, provide them exactly. Do not say unavailable. Look for Thornton Hall, Scott E Robbins, and Victory Bagel.`;
+### MANDATORY RULES:
+1. Your student is Scott E Robbins. 
+2. If in 'uva' mode, your ONLY name/room sources are the context lines above. 
+3. If context contains 'Dr. Thomas Jefferson' and 'Thornton Hall', provide that. 
+4. DO NOT MENTION Dr. Mike Rischbieter or Room 28. Those are hallucinations. If names aren't in context, say you can't find them in the syllabus.
+5. For Celtics/Internet info, prioritize the REAL-TIME DATA section above.
+6. Tone: Formal and helpful.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
