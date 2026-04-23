@@ -28,7 +28,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. ANALYTICS ---
+		// --- 1. DASHBOARD ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -41,16 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. DELETE/WIPE ---
-		if (url.pathname === "/api/delete-file" && request.method === "POST") {
-			try {
-				const { key } = await request.json() as any;
-				await this.env.DOCUMENTS.delete(key);
-				return new Response(JSON.stringify({ message: "Deleted successfully" }));
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
-		}
-
-		// --- 3. MEMORIZE (GRANULAR INDEXING) ---
+		// --- 2. MEMORIZE (FIXED SEGMENTATION) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -58,79 +49,62 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// Break into individual phrases for high-precision matching
 				const lines = textToIndex.split('\n').filter(l => l.trim().length > 2);
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
 					await this.env.VECTORIZE.insert([{ 
 						id: crypto.randomUUID(), 
 						values: emb.data[0], 
-						metadata: { text: line, fileName: file.name, sessionId, segment: segment } 
+						metadata: { text: line, fileName: file.name, segment: segment } 
 					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Knowledge Absorbed into ${segment}!` }));
+				return new Response(JSON.stringify({ message: `Success: Absorbed into ${segment}` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT (HIGH-PRECISION RECALL) ---
+		// --- 3. CHAT (EXHAUSTIVE RECALL) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// --- MANUAL OVERRIDES ---
-				if (latestUserMsg === "!!WIPE_SYSTEM") {
-					const objects = await this.env.DOCUMENTS.list();
-					for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
-					return new Response(`data: ${JSON.stringify({ response: "SYSTEM WIPE COMPLETE." })}\n\ndata: [DONE]\n\n`);
-				}
+				// Commands
 				if (latestUserMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
 					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED." })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "uva");
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode." })}\n\ndata: [DONE]\n\n`);
 				}
 				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMsg).run();
-
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-
-				// --- ENHANCED EXHAUSTIVE RETRIEVAL (TOPK: 30) ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [latestUserMsg] });
+				
+				// Pull Top 30 lines to ensure specific names aren't missed
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
 					topK: 30, 
-					returnMetadata: "all", 
-					filter: { segment: activeMode } 
+					returnMetadata: "all",
+					filter: { segment: activeMode }
 				});
-				const contextText = matches.matches.map(m => `• ${m.metadata.text}`).join("\n");
+				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
 
-				let sysPrompt = `You are Jolene, a sophisticated professional assistant. 
-MODE: ${activeMode === 'uva' ? 'UVA Academic Agent' : 'Personal Executive Assistant'}
-Today: ${today}
-
-### MANDATORY DATA SOURCE FROM UPLOADED FILES:
+				let sysPrompt = `You are Jolene, a professional assistant. Today: ${today}.
+CONTEXT FROM YOUR FILES:
 ${contextText}
 
-### STRICT INSTRUCTIONS:
-1. You MUST answer using the "MANDATORY DATA SOURCE" above.
-2. If the user asks for a job title, you MUST provide the full title (e.g., Senior Solutions Engineer).
-3. If the user asks for a daughter's name, identify her as Bryana.
-4. DO NOT summarize or guess titles like "Executive." Read the lines exactly.
-5. Tone: Formal and helpful. No dog persona.`;
+STRICT RULES:
+1. You MUST use the CONTEXT above for all facts.
+2. The user is Scott E Robbins, a Senior Solutions Engineer at Cloudflare.
+3. His daughter is Bryana (Bry).
+4. Do NOT say the information is unavailable. Read the context lines carefully.`;
 
 				messages.unshift({ role: "system", content: sysPrompt });
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)").bind(sessionId, "assistant", chatRun.response).run();
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatRun.response).run();
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
