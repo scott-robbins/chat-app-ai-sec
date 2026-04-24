@@ -25,52 +25,56 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// Standard CORS headers for frontend stability
-		const headers = { 
-			"Content-Type": "application/json",
-			"Access-Control-Allow-Origin": "*" 
-		};
-
-		// --- 1. DASHBOARD & PROFILE ---
+		// --- 1. DASHBOARD & PROFILE (HISTORY BUNDLED FOR PERSISTENCE) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Scott E Robbins | Senior Solutions Engineer";
-				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
+				
+				// FETCH HISTORY HERE SO REFRESH WORKS
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
+				
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key);
 
-				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: activeMode }), { headers });
+				return new Response(JSON.stringify({ 
+					profile, 
+					messages: history.results, // This pushes the chat back to the screen on refresh
+					messageCount: history.results.length, 
+					knowledgeAssets: assets, 
+					status: "Live", 
+					mode: activeMode 
+				}), { headers });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 2. THE REFRESH FIX (History Retrieval) ---
-		if (url.pathname === "/api/history") {
-			try {
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
-				return new Response(JSON.stringify({ messages: history.results }), { headers });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
-		}
-
-		// --- 3. GRANULAR MEMORIZATION ---
+		// --- 2. GRANULAR MEMORIZATION (SENTENCE LEVEL) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				const lines = textToIndex.split(/[.\n]/).filter(l => l.trim().length > 3);
-				for (const line of lines) {
-					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line.trim()] });
-					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line.trim(), fileName: file.name, segment: segment } }]);
+				
+				// BETTER CHUNKING: Splits specifically into sentences to ensure "Bryana" is its own fact
+				const chunks = textToIndex.match(/[^\.!\?]+[\.!\?]+/g) || [textToIndex];
+				
+				for (const chunk of chunks) {
+					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk.trim()] });
+					await this.env.VECTORIZE.insert([{ 
+						id: crypto.randomUUID(), 
+						values: emb.data[0], 
+						metadata: { text: chunk.trim(), fileName: file.name, segment: segment } 
+					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/global/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: "Index Updated" }), { headers });
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500, headers }); }
 		}
 
-		// --- 4. CHAT ---
+		// --- 3. CHAT (DAUGHTER BOOSTED RETRIEVAL) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -84,12 +88,12 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// Vector Search
-				const boostedQuery = activeMode === 'uva' 
-					? `Syllabus CS 4750 Advisor Thomas Jefferson Thornton Hall 1743` 
-					: `Wife Renee married 2010 Daughter Bryana Dogs Hanna Jolene`;
+				// MEGA-BOOSTED SEARCH KEY
+				const searchKey = activeMode === 'personal' 
+					? `Daughter Bryana Bry 31 wife Renee 2010 met 1993 dogs Jolene Hanna dachshunds` 
+					: `Syllabus CS 4750 Advisor Thomas Jefferson Thornton Hall 1743`;
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + latestUserMsg] });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchKey + " " + latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
 				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
@@ -97,16 +101,16 @@ export class ChatSession extends DurableObject<Env> {
 				const chatHistory = historyResults.results.map(r => ({ role: r.role, content: r.content }));
 				
 				const sysPrompt = `You are Jolene, a Student Assistant AI. Mode: ${activeMode}.
-### MANDATORY IDENTITY CLARIFICATION:
-1. You are an AI. You are NOT a human.
-2. Scott's wife is RENEE. They married in 2010.
-3. Scott's oldest dog is named JOLENE. She is a dachshund. You are NOT the dog.
-4. Scott's youngest dog is HANNA.
+### FAMILY FACTS (MANDATORY):
+- Wife: Renee (Married 2010).
+- Daughter: Bryana (Bry), she is 31 years old.
+- Dogs: Jolene and Hanna (Mini Dachshunds).
+- You are an AI, NOT the wife or the dog.
 
-### CONTEXT:
+### CONTEXT DATA:
 ${context}
 
-RULES: Always answer from the perspective of an assistant. If the context says his wife is Renee, say his wife is Renee.`;
+RULES: Identify Bryana as the daughter. If asked her age, she is 31. Do not hallucinate.`;
 
 				const finalMessages = [{ role: "system", content: sysPrompt }, ...chatHistory, { role: "user", content: latestUserMsg }];
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: finalMessages });
