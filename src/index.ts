@@ -39,105 +39,81 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. PERSISTENT HISTORY (The Refresh Fix) ---
+		// --- 2. THE REFRESH FIX (Dedicated History Route) ---
 		if (url.pathname === "/api/history" && request.method === "GET") {
 			try {
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
+				// Ensure the frontend receives an array of messages to render on refresh
 				return new Response(JSON.stringify({ messages: history.results }), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 3. MEMORIZE ---
+		// --- 3. GRANULAR MEMORIZATION ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				
 				const lines = textToIndex.split(/[.\n]/).filter(l => l.trim().length > 3);
-				
 				for (const line of lines) {
 					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line.trim()] });
-					await this.env.VECTORIZE.insert([{ 
-						id: crypto.randomUUID(), 
-						values: emb.data[0], 
-						metadata: { text: line.trim(), fileName: file.name, segment: segment } 
-					}]);
+					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line.trim(), fileName: file.name, segment: segment } }]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/global/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Success: Deep indexing for ${segment}` }));
+				return new Response(JSON.stringify({ message: `Success: Deep indexing complete.` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 4. CHAT & IMAGE GEN ---
+		// --- 4. CHAT (With Hallucination Protection) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Reset / Switch Commands
+				// Commands
 				if (latestUserMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED. Fresh start ready." })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "uva");
-					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Mode." })}\n\ndata: [DONE]\n\n`);
-				}
-				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "personal");
-					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED." })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// Web Search
-				let searchResults = "";
-				if (["celtics", "masters", "weather", "game"].some(k => latestUserMsg.toLowerCase().includes(k))) {
-					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
-				}
-
-				// Vector Retrieval
+				// Vector Search
 				const boostedQuery = activeMode === 'uva' 
-					? `Syllabus CS 4750 Advisor Thomas Jefferson Thornton Hall 1743` 
-					: `Scott Robbins Cloudflare Daughter Bryana Dogs Hanna Jolene Dachshund grandkids Callan Josie`;
+					? `Advisor Thomas Jefferson Thornton Hall 1743` 
+					: `Wife Renee met 1993 married 2010 Daughter Bryana Dogs Hanna Jolene`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + latestUserMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 50, 
-					filter: { segment: activeMode }, 
-					returnMetadata: "all" 
-				});
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
 				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// Get History for Context (Last 20 messages)
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 20").bind(sessionId).all();
-				const chatMessages = history.results.map(r => ({ role: r.role, content: r.content }));
+				// Pull D1 History for the LLM
+				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
+				const chatHistory = historyResults.results.map(r => ({ role: r.role, content: r.content }));
 				
-				const sysPrompt = `You are Jolene. Mode: ${activeMode}. User: Scott E Robbins. Today: ${today}.
-### MANDATORY CONTEXT:
+				const sysPrompt = `You are Jolene, a Student Assistant AI. Mode: ${activeMode}.
+### IDENTITY RULES:
+1. You are NOT Renee. Renee is the wife of Scott E Robbins[cite: 3].
+2. You were met in 1993 and married in 2010[cite: 4].
+3. You have two dogs: Jolene (oldest) and Hanna (youngest)[cite: 11, 12].
+4. Your daughter is Bryana (Bry)[cite: 5].
+
+### CONTEXT DATA:
 ${context}
-${searchResults}
 
-### RULES:
-1. Identify user as Scott E Robbins. Confirm he works at Cloudflare.
-2. Use the context to provide details on dogs (Jolene and Hanna), grandkids (Callan and Josie), and daughter (Bryana).
-3. If asked about pets, provide breeds and specific traits from context.
-4. Do NOT say information is missing if it exists in the context lines provided.`;
+### INSTRUCTIONS:
+Always verify facts against the CONTEXT. If the context says "My wife is Renee", do not claim to be the wife. Be precise.`;
 
-				const fullMessages = [{ role: "system", content: sysPrompt }, ...chatMessages, { role: "user", content: latestUserMsg }];
-				const response = await this.env.AI.run(CONVERSATION_MODEL, { messages: fullMessages });
+				const finalMessages = [{ role: "system", content: sysPrompt }, ...chatHistory, { role: "user", content: latestUserMsg }];
+				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: finalMessages });
 
-				// Save history to D1 (SQL Persistence)
+				// Persist to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMsg, sessionId, "assistant", response.response).run();
+					.bind(sessionId, "user", latestUserMsg, sessionId, "assistant", chatRun.response).run();
 
-				return new Response(`data: ${JSON.stringify({ response: response.response })}\n\ndata: [DONE]\n\n`);
+				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
