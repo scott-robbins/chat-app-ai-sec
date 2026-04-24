@@ -17,7 +17,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
-			return data.answer ? `VERIFIED LIVE SPORTS DATA: ${data.answer}` : data.results.map((r: any) => r.content).join("\n\n");
+			return data.answer ? `VERIFIED LIVE DATA: ${data.answer}` : data.results.map((r: any) => r.content).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -27,13 +27,14 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PROFILE (NOW WITH AUTO-HISTORY BUNDLING) ---
+		// --- 1. PROFILE & AUTO-HYDRATION (The Persistence Fix) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Scott E Robbins | Senior Solutions Engineer";
 				
-				// CRITICAL: Fetch history here so the frontend gets it via the profile call
+				// WE BUNDLE THE HISTORY HERE: Since the UI calls this on load, 
+                // this "force-feeds" the old chat back to the screen.
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				
 				const storage = await this.env.DOCUMENTS.list();
@@ -41,7 +42,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				return new Response(JSON.stringify({ 
 					profile, 
-					messages: history.results, // Bundled for persistence on refresh
+					messages: history.results, 
 					messageCount: history.results.length,
 					knowledgeAssets: assets, 
 					status: "Live", 
@@ -50,28 +51,37 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 2. CHAT & IMAGE GEN ---
+		// --- 2. CHAT & IMAGE GENERATION ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const userMsg = messages[messages.length - 1]?.content || "";
 
+				// Reset Logic
 				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "History Purged." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System Factory Reset Complete." })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// Image Generation
+				if (userMsg.toLowerCase().includes("generate an image") || userMsg.toLowerCase().includes("draw")) {
+					const imgRes = await this.env.AI.run(IMAGE_MODEL, { prompt: userMsg });
+					const imgName = `generated/${sessionId}/${Date.now()}.png`;
+					await this.env.DOCUMENTS.put(imgName, imgRes);
+					return new Response(`data: ${JSON.stringify({ response: `Generated: ${PUBLIC_R2_URL}/${imgName}` })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- LIVE SEARCH (MANDATORY FOR SPORTS) ---
+				// --- WEB SEARCH (SPORTS/LIVE DATA) ---
 				let searchResults = "";
-				const needsWeb = ["celtics", "76ers", "game", "tonight", "score"].some(k => userMsg.toLowerCase().includes(k));
-				if (needsWeb) {
-					searchResults = await this.searchWeb(`Boston Celtics vs Philadelphia 76ers tonight ${today}`);
+				const sportsTrigger = ["celtics", "76ers", "game", "tonight", "score", "weather"].some(k => userMsg.toLowerCase().includes(k));
+				if (sportsTrigger) {
+					searchResults = await this.searchWeb(`${userMsg} for ${today}`);
 				}
 
-				// --- VECTOR RETRIEVAL ---
+				// --- VECTOR SEARCH (TopK: 50) ---
 				const searchKey = activeMode === 'personal' 
 					? `Wife Renee married 2010 met 1993 daughter Bryana 31 grandkids Callan 3 Josie 2 dogs Jolene Hanna` 
 					: `Syllabus CS 4750 Advisor Thomas Jefferson Room 1743 Thornton Hall`;
@@ -80,23 +90,28 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
 				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// Pull D1 History for the LLM
+				// Pull History for LLM Context
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 20").bind(sessionId).all();
 				const chatHistory = historyResults.results.map(r => ({ role: r.role, content: r.content }));
 				
-				const sysPrompt = `You are Jolene. Mode: ${activeMode}. Today is ${today}.
-SCOTT'S LIFE: Wife is Renee[cite: 3]. Daughter is Bryana (31)[cite: 5]. Grandkids are Callan (3) and Josie (2)[cite: 7]. Dogs are Jolene and Hanna[cite: 11, 12].
-CONTEXT: ${context}
-WEB: ${searchResults}
+				const sysPrompt = `You are Jolene, Scott's AI Assistant. Mode: ${activeMode}.
+### FACTS:
+- Wife: Renee.
+- Daughter: Bryana (31).
+- Grandkids: Callan (3) and Josie (2).
+- Dogs: Jolene and Hanna.
+- You are an AI, NOT a human.
 
-RULES:
-1. Use Web Data for sports TONIGHT. If Web says Celtics play 76ers, that is the truth.
-2. Identify Callan and Josie as grandkids.
-3. You are an AI assistant, not a human family member.`;
+### CONTEXT & SEARCH:
+${context}
+${searchResults}
+
+RULES: Identify grandkids Callan and Josie by name and age. Use Web Data for sports.`;
 
 				const finalMessages = [{ role: "system", content: sysPrompt }, ...chatHistory, { role: "user", content: userMsg }];
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: finalMessages });
 
+				// Persist to D1 SQL
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 					.bind(sessionId, "user", userMsg, sessionId, "assistant", chatRun.response).run();
 
