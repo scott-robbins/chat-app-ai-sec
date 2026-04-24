@@ -26,7 +26,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -35,17 +34,10 @@ export class ChatSession extends DurableObject<Env> {
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key);
 
-				return new Response(JSON.stringify({ 
-					profile, 
-					messageCount: stats?.count || 0, 
-					knowledgeAssets: assets, 
-					status: "Live", 
-					mode: activeMode 
-				}), { headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: activeMode }), { headers: { "Content-Type": "application/json" } });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE (GRANULAR CHUNKING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -53,7 +45,7 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// IMPROVED: Split by both newlines and periods to index every single sentence/fact individually
+				// Granular splitting to capture individual pet/family facts
 				const lines = textToIndex.split(/[.\n]/).filter(l => l.trim().length > 3);
 				
 				for (const line of lines) {
@@ -65,24 +57,21 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/global/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Success: Deep granular indexing complete for ${segment}` }));
+				return new Response(JSON.stringify({ message: `Success: Deep indexing for ${segment}` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT & IMAGE GEN (HARD STATE SYNC) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Reset History
 				if (latestUserMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED. Ready for fresh retrieval." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED. Fresh start ready." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Mode Switches
 				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
@@ -94,49 +83,40 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Image Generation
-				if (latestUserMsg.toLowerCase().includes("generate an image") || latestUserMsg.toLowerCase().includes("draw")) {
-					const imgRes = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
-					const imgName = `generated/${sessionId}/${Date.now()}.png`;
-					await this.env.DOCUMENTS.put(imgName, imgRes);
-					return new Response(`data: ${JSON.stringify({ response: `Generated: ${PUBLIC_R2_URL}/${imgName}` })}\n\ndata: [DONE]\n\n`);
-				}
-
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// Web Search
+				// Web Search for Sports/General
 				let searchResults = "";
-				if (["celtics", "masters", "weather", "game", "score"].some(k => latestUserMsg.toLowerCase().includes(k))) {
+				if (["celtics", "masters", "weather", "game"].some(k => latestUserMsg.toLowerCase().includes(k))) {
 					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
 				}
 
-				// --- DEEP VECTOR RETRIEVAL (TopK: 100) ---
+				// --- VECTOR RETRIEVAL (STABLE TopK: 50) ---
 				const boostedQuery = activeMode === 'uva' 
 					? `Syllabus CS 4750 Advisor Thomas Jefferson Thornton Hall 1743` 
 					: `Scott Robbins Cloudflare Daughter Bryana Dogs Hanna Jolene Dachshund grandkids Callan Josie`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 100, // Maximized retrieval depth for granular facts
+					topK: 50, // Fixed to maximum allowed value for metadata retrieval
 					filter: { segment: activeMode }, 
 					returnMetadata: "all" 
 				});
 				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// Persistent History
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 5").bind(sessionId).all();
 				const chatMessages = history.results.map(r => ({ role: r.role, content: r.content }));
 				
 				const sysPrompt = `You are Jolene. Mode: ${activeMode}. User: Scott E Robbins. Today: ${today}.
-### MANDATORY CONTEXT (USE THIS):
+### MANDATORY CONTEXT:
 ${context}
 ${searchResults}
 
-### STRICT RULES:
-1. You MUST provide specific details from the context, including names of dogs, grandkids, and job titles.
-2. If Mode is 'personal', you know Scott works at Cloudflare and his dogs are Jolene and Hanna.
-3. If data is in the text above, do NOT say it is missing. 
-4. Be precise. If asked about pets, list their names, breeds, and traits exactly as written.`;
+### RULES:
+1. Identify user as Scott E Robbins. Confirm he works at Cloudflare.
+2. You MUST use the context to provide details on dogs (Jolene and Hanna), grandkids (Callan and Josie), and daughter (Bryana).
+3. If asked about pets, provide breeds (Mini Dachshunds) and specific personality traits exactly as listed.
+4. Do NOT say information is missing if it exists in the lines provided above.`;
 
 				const fullMessages = [{ role: "system", content: sysPrompt }, ...chatMessages, { role: "user", content: latestUserMsg }];
 				const response = await this.env.AI.run(CONVERSATION_MODEL, { messages: fullMessages });
