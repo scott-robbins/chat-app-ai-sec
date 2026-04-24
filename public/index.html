@@ -275,6 +275,12 @@
 				</div>
 			</div>
 			<div class="sidebar-content">
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare KV: User Profile</span>
+					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
+					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
+				</div>
+
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
 					<span class="dash-label">Cloudflare Durable Objects: State</span>
 					<div class="dash-desc">Coordinates real-time consistency and persists DO state across the edge.</div>
@@ -282,12 +288,6 @@
 						ID: <span id="do-id-display" style="font-size: 0.65rem; opacity: 0.7;">Initializing...</span><br>
 						Status: <span id="do-status-display" style="color: #22c55e;">Syncing...</span>
 					</div>
-				</div>
-
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
-					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
 				</div>
 
 				<div class="dash-card">
@@ -396,24 +396,21 @@
 				appendMessage('assistant-message', `System: Switching to ${modelName}. Ready.`);
 			};
 
-			// --- DASHBOARD SYNC (UPDATED WITH DO & SQL FIX) ---
+			// --- DASHBOARD SYNC ---
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
 					document.getElementById('kv-profile-display').innerText = data.profile;
-					
-					// FIXED: Display the message count returned from the alias 'total' in Worker
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
 
-					// NEW: Map Durable Object data
+					// Map Durable Object data
 					if (data.durableObject) {
 						document.getElementById('do-id-display').innerText = data.durableObject.id;
 						document.getElementById('do-status-display').innerText = data.durableObject.state;
 					}
 					
-					// PERSISTENCE FIX: Load bundled messages from profile call if chat is empty
 					const container = document.getElementById('chat-messages');
 					if (data.messages && data.messages.length > 0 && container.children.length <= 1) {
 						container.innerHTML = '';
@@ -463,12 +460,10 @@
 				}
 			}
 
-			// --- HISTORY LOAD ON REFRESH ---
 			async function loadHistory() {
 				try {
 					const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
-					
 					const messages = data.messages || [];
 					const container = document.getElementById('chat-messages');
 					
@@ -481,7 +476,6 @@
 				} catch (e) { console.error("History load failed", e); }
 			}
 
-			// --- FILE MEMORIZE ---
 			document.getElementById('memorize-file-btn').onclick = async () => {
 				const fileInput = document.getElementById('file-input');
 				if (!fileInput.files[0]) return alert("Select a file first");
@@ -504,7 +498,6 @@
 				} catch (e) { btn.innerHTML = originalHtml; alert("Upload failed."); }
 			};
 
-			// --- CHAT LOGIC ---
 			async function sendMessage() {
 				const input = document.getElementById('user-input');
 				const content = input.value.trim();
@@ -569,7 +562,6 @@
 			document.getElementById('send-button').onclick = sendMessage;
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
 			
-			// Initial Load
 			updateDashboard();
 			loadHistory();
 		</script>
