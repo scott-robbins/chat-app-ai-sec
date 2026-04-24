@@ -14,7 +14,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
-			return data.answer || "No specific answer found.";
+			return data.answer || "Search did not yield a specific result.";
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -24,19 +24,22 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PROFILE (STRICT PERSISTENCE INJECTION) ---
+		// --- 1. PROFILE & REFRESH PERSISTENCE ---
 		if (url.pathname === "/api/profile") {
-			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-			// We fetch the history from D1 and send it back as "messages"
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
-			const storage = await this.env.DOCUMENTS.list();
-			
-			return new Response(JSON.stringify({ 
-				profile: "Scott E Robbins | Senior Solutions Engineer", 
-				messages: history.results, // THE FIX: This forces the UI to show old chats
-				knowledgeAssets: storage.objects.map(o => o.key), 
-				mode: activeMode 
-			}), { headers });
+			try {
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
+				const storage = await this.env.DOCUMENTS.list();
+				
+				// Returning 'messages' inside the profile object to force frontend persistence
+				return new Response(JSON.stringify({ 
+					profile: "Scott E Robbins | Senior Solutions Engineer", 
+					messages: history.results, 
+					knowledgeAssets: storage.objects.map(o => o.key), 
+					status: "Live",
+					mode: activeMode 
+				}), { headers });
+			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
 		// --- 2. CHAT ---
@@ -47,38 +50,46 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "Memory Cleared." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// Search Logic
+				// --- DYNAMIC SEARCH & RETRIEVAL ---
 				let webContext = "";
-				if (userMsg.toLowerCase().includes("celtics") || userMsg.toLowerCase().includes("date")) {
-					webContext = await this.searchWeb(`${userMsg} today is ${today}`);
+				if (["celtics", "76ers", "tonight", "weather"].some(k => userMsg.toLowerCase().includes(k))) {
+					webContext = await this.searchWeb(`${userMsg} tonight ${today}`);
 				}
 
-				// Vector Retrieval
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
+				// Unified Retrieval Key for Personal Mode
+				const retrievalQuery = activeMode === 'personal' 
+					? `wife Renee daughter Bryana dogs Jolene Hanna dachshunds grandkids Callan Josie` 
+					: `Syllabus CS 4750 Advisor Thomas Jefferson Room 1743`;
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalQuery + " " + userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, filter: { segment: activeMode }, returnMetadata: "all" });
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
 
-				// Get History for LLM
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 10").bind(sessionId).all();
 				
-				const sysPrompt = `You are Jolene. Mode: ${activeMode}. Today's Date: ${today}.
-FILE DATA: ${fileContext}
-WEB DATA: ${webContext}
-RULES:
-1. Identify Scott's grandkids as Callan (3) and Josie (2).
-2. For sports/dates, use the WEB DATA and Today's Date above.
-3. Be concise.`;
+				const sysPrompt = `You are Jolene, Scott's AI Assistant. Mode: ${activeMode}.
+DATE: ${today}.
+### DOCUMENT CONTEXT:
+${fileContext}
+### WEB CONTEXT:
+${webContext}
+
+### INSTRUCTIONS:
+1. Identify family/pets ONLY using DOCUMENT CONTEXT. 
+   - Grandkids: Callan (3), Josie (2)[cite: 7]. 
+   - Dogs: Jolene (oldest), Hanna (youngest). Both mini dachshunds[cite: 11, 12].
+2. Use WEB CONTEXT for sports/dates.
+3. If information is in the DOCUMENT CONTEXT, do not say you don't have it.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...history.results, { role: "user", content: userMsg }] 
 				});
 
-				// Save to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 					.bind(sessionId, "user", userMsg, sessionId, "assistant", chatRun.response).run();
 
