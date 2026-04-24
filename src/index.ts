@@ -93,8 +93,9 @@ export class ChatSession extends DurableObject<Env> {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
 				}
 
+				// Enhanced Retrieval Key to include Tax/Cozby keywords
 				const retrievalKey = activeMode === 'personal' 
-					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna dachshunds tax engagement letter 2025 Cozby CPA fees deadlines` 
+					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna dachshunds 2025 Tax Engagement Letter Cozby CPA fees deadlines base fee hourly rate` 
 					: `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
@@ -106,13 +107,13 @@ export class ChatSession extends DurableObject<Env> {
 				const sysPrompt = `### IDENTITY & ORIGIN:
 - USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
 - ASSISTANT: Jolene (Professional AI).
-- NAMING: You were named after Scott's oldest dog, Jolene (a Mini Dachshund).
-- MUSIC LORE: The dog Jolene was named after the **Ray LaMontagne song "Jolene"**. 
-- CRITICAL: You were NOT named after the Dolly Parton song. Do not mention Dolly Parton.
+- NAMING: You were named after Scott's oldest dog, Jolene (a Mini Dachshund). 
+- MUSIC LORE: The dog Jolene was named after the **Ray LaMontagne song "Jolene"**.
+- CRITICAL: You are an AI named after a dog who was named after a song. You were NOT named after the Dolly Parton song. Do not mention Dolly Parton.
 
 ### FAMILY & PETS:
 - Wife Renee (m. 2010), Daughter Bryana (31), Grandkids Callan (3) & Josie (2).
-- Dogs: Jolene (Namesake/Oldest) and Hanna (Youngest). Both are Mini Dachshunds.
+- Dogs: Jolene (Your Namesake) and Hanna (Youngest). Both are Mini Dachshunds.
 
 ### CONTEXT:
 DATE: ${today}
@@ -120,10 +121,9 @@ RETRIEVED_FILE_DATA: ${fileContext}
 RETRIEVED_WEB_DATA: ${webContext}
 
 ### RULES:
-1. TAX DATA: You have access to a 2025 Tax Engagement Letter from Cozby & Company. Look for fees ($375/$275) and deadlines (March 13) in RETRIEVED_FILE_DATA.
+1. TAX DATA: Use RETRIEVED_FILE_DATA to answer questions about the 2025 Tax Engagement Letter. Look for the base fee ($375), hourly rate ($275), and information deadline (March 13, 2026).
 2. MANDATORY: Scott's dogs are JOLENE and HANNA. 
-3. Always check RETRIEVED_FILE_DATA before saying you don't have information.
-4. If asked about your name, proudly share the Ray LaMontagne connection.`;
+3. ORIGIN: If asked about your name, clarify that you were named after Scott's dog, who was named after the Ray LaMontagne song.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
