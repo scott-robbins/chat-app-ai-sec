@@ -275,6 +275,15 @@
 				</div>
 			</div>
 			<div class="sidebar-content">
+				<div class="dash-card" style="border-left: 3px solid #f6821f;">
+					<span class="dash-label">Cloudflare Durable Objects: State</span>
+					<div class="dash-desc">Coordinates real-time consistency and persists DO state across the edge.</div>
+					<div class="dash-value">
+						ID: <span id="do-id-display" style="font-size: 0.65rem; opacity: 0.7;">Initializing...</span><br>
+						Status: <span id="do-status-display" style="color: #22c55e;">Syncing...</span>
+					</div>
+				</div>
+
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
@@ -387,13 +396,22 @@
 				appendMessage('assistant-message', `System: Switching to ${modelName}. Ready.`);
 			};
 
-			// --- DASHBOARD SYNC (FIXED TO HYDRATE HISTORY) ---
+			// --- DASHBOARD SYNC (UPDATED WITH DO & SQL FIX) ---
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
+					
 					document.getElementById('kv-profile-display').innerText = data.profile;
-					document.getElementById('msg-count-display').innerText = data.messageCount;
+					
+					// FIXED: Display the message count returned from the alias 'total' in Worker
+					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
+
+					// NEW: Map Durable Object data
+					if (data.durableObject) {
+						document.getElementById('do-id-display').innerText = data.durableObject.id;
+						document.getElementById('do-status-display').innerText = data.durableObject.state;
+					}
 					
 					// PERSISTENCE FIX: Load bundled messages from profile call if chat is empty
 					const container = document.getElementById('chat-messages');
@@ -445,13 +463,12 @@
 				}
 			}
 
-			// --- HISTORY LOAD ON REFRESH (FIXED JSON PARSING) ---
+			// --- HISTORY LOAD ON REFRESH ---
 			async function loadHistory() {
 				try {
 					const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
-					// Worker sends { messages: [...] }, so we extract the array
 					const messages = data.messages || [];
 					const container = document.getElementById('chat-messages');
 					
