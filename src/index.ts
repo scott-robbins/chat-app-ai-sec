@@ -26,14 +26,12 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD ---
+		// --- 1. DASHBOARD & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Scott E Robbins | Senior Solutions Engineer";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
-				
-				// List all documents in R2 to show in Dashboard
 				const storage = await this.env.DOCUMENTS.list();
 				const assets = storage.objects.map(o => o.key);
 
@@ -47,7 +45,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
-		// --- 2. MEMORIZE (FIXED: NEVER PURGE R2 ON SWITCH) ---
+		// --- 2. MEMORIZE (FIXED SEGMENTATION) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -64,54 +62,60 @@ export class ChatSession extends DurableObject<Env> {
 						metadata: { text: line, fileName: file.name, segment: segment } 
 					}]);
 				}
-				// Save to R2 with a global prefix so switches don't lose them
 				await this.env.DOCUMENTS.put(`uploads/global/${file.name}`, await file.arrayBuffer());
 				return new Response(JSON.stringify({ message: `Success: Absorbed into ${segment}` }));
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
-		// --- 3. CHAT & IMAGE GEN ---
+		// --- 3. CHAT & IMAGE GEN (HARD STATE SYNC) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
-				const userQuery = body.messages[body.messages.length - 1].content;
+				let messages = body.messages || [];
+				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
-				// Handle Mode Switches (PURGE D1 ONLY, NOT R2)
-				if (userQuery.toLowerCase().includes("switch to uva mode")) {
+				// --- COMMAND: HARD HISTORY RESET ---
+				if (latestUserMsg === "!!RESET_HISTORY") {
+					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED. Session factory reset complete." })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- COMMAND: MODE SWITCH + AUTO-PURGE ---
+				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Mode. Chat history reset." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Mode. Academic history isolated." })}\n\ndata: [DONE]\n\n`);
 				}
-				if (userQuery.toLowerCase().includes("switch to personal mode")) {
+				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode. Chat history reset." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode. Family history isolated." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Handle Image Generation
-				if (userQuery.toLowerCase().includes("generate an image") || userQuery.toLowerCase().includes("draw")) {
-					const imgRes = await this.env.AI.run(IMAGE_MODEL, { prompt: userQuery });
+				// --- IMAGE GENERATION ---
+				if (latestUserMsg.toLowerCase().includes("generate an image") || latestUserMsg.toLowerCase().includes("draw")) {
+					const imgRes = await this.env.AI.run(IMAGE_MODEL, { prompt: latestUserMsg });
 					const imgName = `generated/${sessionId}/${Date.now()}.png`;
 					await this.env.DOCUMENTS.put(imgName, imgRes);
-					return new Response(`data: ${JSON.stringify({ response: `I've generated that for you: ${PUBLIC_R2_URL}/${imgName}` })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: `I've generated that image for you: ${PUBLIC_R2_URL}/${imgName}` })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
 				// --- WEB SEARCH ---
 				let searchResults = "";
-				if (["celtics", "masters", "weather", "game"].some(k => userQuery.toLowerCase().includes(k))) {
-					searchResults = await this.searchWeb(`${userQuery} April 2026`);
+				if (["celtics", "masters", "weather", "game"].some(k => latestUserMsg.toLowerCase().includes(k))) {
+					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
 				}
 
-				// --- VECTOR RETRIEVAL ---
+				// --- VECTOR RETRIEVAL (DEEP RECALL TopK: 40) ---
 				const boostedQuery = activeMode === 'uva' 
-					? `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall` 
-					: `Scott E Robbins Cloudflare Senior Solutions Engineer Daughter Bryana`;
+					? `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall 1743` 
+					: `Scott E Robbins Cloudflare Senior Solutions Engineer Daughter Bryana Bry kids Callan Josie`;
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + userQuery] });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 20, 
+					topK: 40, 
 					filter: { segment: activeMode }, 
 					returnMetadata: "all" 
 				});
@@ -122,19 +126,22 @@ export class ChatSession extends DurableObject<Env> {
 				const chatMessages = history.results.map(r => ({ role: r.role, content: r.content }));
 				
 				const sysPrompt = `You are Jolene. Mode: ${activeMode}. User: Scott E Robbins. Today: ${today}.
-CONTEXT: ${context}
-WEB DATA: ${searchResults}
-RULES: 
-1. If UVA mode, use only the CS 4750 syllabus. 
-2. If Personal mode, you know Scott works at Cloudflare. 
-3. Prioritize context and web data over general knowledge.`;
+### MANDATORY CONTEXT (USE THIS DATA):
+${context}
+${searchResults}
 
-				const fullMessages = [{ role: "system", content: sysPrompt }, ...chatMessages, { role: "user", content: userQuery }];
+### RULES:
+1. If Mode is 'personal', identify user as Scott E Robbins. You MUST confirm he works at Cloudflare and his daughter is Bryana (Bry).
+2. If Mode is 'uva', your ONLY source is the CS 4750 syllabus (Advisor: Thomas Jefferson).
+3. NEVER say you lack information if context data is provided above.
+4. If asked about sports, use the VERIFIED REAL-TIME DATA above.`;
+
+				const fullMessages = [{ role: "system", content: sysPrompt }, ...chatMessages, { role: "user", content: latestUserMsg }];
 				const response = await this.env.AI.run(CONVERSATION_MODEL, { messages: fullMessages });
 
-				// Save to D1
+				// Save history to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-					.bind(sessionId, "user", userQuery, sessionId, "assistant", response.response).run();
+					.bind(sessionId, "user", latestUserMsg, sessionId, "assistant", response.response).run();
 
 				return new Response(`data: ${JSON.stringify({ response: response.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
