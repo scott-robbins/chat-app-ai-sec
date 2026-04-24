@@ -387,7 +387,7 @@
 				appendMessage('assistant-message', `System: Switching to ${modelName}. Ready.`);
 			};
 
-			// --- DASHBOARD SYNC ---
+			// --- DASHBOARD SYNC (FIXED TO HYDRATE HISTORY) ---
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
@@ -395,6 +395,15 @@
 					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('msg-count-display').innerText = data.messageCount;
 					
+					// PERSISTENCE FIX: Load bundled messages from profile call if chat is empty
+					const container = document.getElementById('chat-messages');
+					if (data.messages && data.messages.length > 0 && container.children.length <= 1) {
+						container.innerHTML = '';
+						data.messages.forEach(msg => {
+							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
+						});
+					}
+
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
 					
@@ -436,18 +445,22 @@
 				}
 			}
 
-			// --- HISTORY LOAD ON REFRESH ---
+			// --- HISTORY LOAD ON REFRESH (FIXED JSON PARSING) ---
 			async function loadHistory() {
 				try {
 					const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-					const messages = await res.json();
+					const data = await res.json();
+					
+					// Worker sends { messages: [...] }, so we extract the array
+					const messages = data.messages || [];
 					const container = document.getElementById('chat-messages');
 					
-					if (messages.length > 0) container.innerHTML = '';
-					
-					messages.forEach(msg => {
-						appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
-					});
+					if (messages.length > 0) {
+						container.innerHTML = '';
+						messages.forEach(msg => {
+							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
+						});
+					}
 				} catch (e) { console.error("History load failed", e); }
 			}
 
