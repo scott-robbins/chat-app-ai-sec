@@ -31,7 +31,6 @@ export class ChatSession extends DurableObject<Env> {
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
 				
-				// Returning 'messages' inside the profile object to force frontend persistence
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
 					messages: history.results, 
@@ -50,41 +49,46 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "Memory Cleared." })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- DYNAMIC SEARCH & RETRIEVAL ---
+				// --- DYNAMIC WEB SEARCH ---
 				let webContext = "";
-				if (["celtics", "76ers", "tonight", "weather"].some(k => userMsg.toLowerCase().includes(k))) {
-					webContext = await this.searchWeb(`${userMsg} tonight ${today}`);
+				if (["celtics", "76ers", "tonight", "weather", "date"].some(k => userMsg.toLowerCase().includes(k))) {
+					webContext = await this.searchWeb(`${userMsg} today is ${today}`);
 				}
 
-				// Unified Retrieval Key for Personal Mode
-				const retrievalQuery = activeMode === 'personal' 
-					? `wife Renee daughter Bryana dogs Jolene Hanna dachshunds grandkids Callan Josie` 
-					: `Syllabus CS 4750 Advisor Thomas Jefferson Room 1743`;
+				// --- VECTOR RETRIEVAL (The "Researcher" Logic) ---
+				// We boost the query with broad keywords to ensure the search hits the right chunks
+				const retrievalKey = activeMode === 'personal' 
+					? `family wife daughter grandkids dogs pets dachshunds home life` 
+					: `syllabus course advisor office hours location`;
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalQuery + " " + userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, filter: { segment: activeMode }, returnMetadata: "all" });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
+					topK: 25, 
+					filter: { segment: activeMode }, 
+					returnMetadata: "all" 
+				});
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
 
+				// History for continuity
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 10").bind(sessionId).all();
 				
 				const sysPrompt = `You are Jolene, Scott's AI Assistant. Mode: ${activeMode}.
 DATE: ${today}.
-### DOCUMENT CONTEXT:
+### RETRIEVED FILE DATA:
 ${fileContext}
-### WEB CONTEXT:
+### RETRIEVED WEB DATA:
 ${webContext}
 
 ### INSTRUCTIONS:
-1. Identify family/pets ONLY using DOCUMENT CONTEXT. 
-   - Grandkids: Callan (3), Josie (2)[cite: 7]. 
-   - Dogs: Jolene (oldest), Hanna (youngest). Both mini dachshunds[cite: 11, 12].
-2. Use WEB CONTEXT for sports/dates.
-3. If information is in the DOCUMENT CONTEXT, do not say you don't have it.`;
+1. Answer questions ONLY using the RETRIEVED FILE DATA provided above. 
+2. If the user asks about family or pets, look for names like Renee, Bryana, Callan, Josie, Jolene, and Hanna in the File Data.
+3. Use WEB DATA for sports or current events.
+4. If the data is present in the File Data, you MUST use it. Be detailed.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...history.results, { role: "user", content: userMsg }] 
