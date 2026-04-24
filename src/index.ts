@@ -6,7 +6,6 @@ const REASONING_MODEL = "@cf/meta/llama-3.1-70b-instruct";
 const IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 const PUBLIC_R2_URL = "https://pub-20c45c92e45947c1bac6958b971f59a1.r2.dev";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
-const GATEWAY_ID = "ai-sec-gateway"; 
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -15,11 +14,10 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const response = await fetch("https://api.tavily.com/search", {
 				method: "POST", headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: query, search_depth: "advanced", include_answer: true, max_results: 5 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
-			if (data.answer) return `VERIFIED REAL-TIME DATA (Today: April 22, 2026): ${data.answer}`;
-			return data.results.map((r: any) => `Source: ${r.url}\nContent: ${r.content}`).join("\n\n");
+			return data.answer ? `VERIFIED REAL-TIME DATA: ${data.answer}` : data.results.map((r: any) => r.content).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -28,97 +26,75 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-		// --- 1. DASHBOARD & PROFILE ---
+		// --- 1. DASHBOARD ---
 		if (url.pathname === "/api/profile") {
-			try {
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const kvKey = activeMode === "uva" ? `uva_student_profile` : `global_user_profile`;
-				const profile = await this.env.SETTINGS.get(kvKey) || "Standard Profile";
-				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
-				const storage = await this.env.DOCUMENTS.list();
-				const assets = storage.objects.map(o => o.key).filter(key => !key.endsWith('/'));
-				return new Response(JSON.stringify({ profile, messageCount: stats?.count || 0, knowledgeAssets: assets, status: "Live", mode: activeMode }), { headers: { "Content-Type": "application/json" } });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
+			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").bind(sessionId).first();
+			return new Response(JSON.stringify({ status: "Live", mode: activeMode, messageCount: stats?.count || 0 }), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// --- 2. MEMORIZE (LINE-BY-LINE INDEXING) ---
-		if (url.pathname === "/api/memorize" && request.method === "POST") {
-			try {
-				const formData = await request.formData();
-				const file = formData.get("file") as File;
-				const textToIndex = await file.text();
-				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
-				const lines = textToIndex.split('\n').filter(l => l.trim().length > 2);
-				for (const line of lines) {
-					const emb = await this.env.AI.run(EMBEDDING_MODEL, { text: [line] });
-					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: emb.data[0], metadata: { text: line, fileName: file.name, segment: segment } }]);
-				}
-				await this.env.DOCUMENTS.put(`uploads/${sessionId}/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: `Success: Absorbed into ${segment}` }));
-			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
-		}
-
-		// --- 3. CHAT (HARD STATE SYNC INTEGRATED) ---
+		// --- 2. CHAT & IMAGE GENERATION ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
-				let messages = body.messages || [];
-				const latestUserMsg = messages[messages.length - 1]?.content || "";
+				const userQuery = body.messages[body.messages.length - 1].content;
 
-				// Mode Switches with IMMEDIATE History Purge to prevent state confusion
-				if (latestUserMsg.toLowerCase().includes("switch to uva mode")) {
+				// Handle Mode Switches
+				if (userQuery.toLowerCase().includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Academic Mode. History Reset." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System: Switched to UVA Mode. History Reset." })}\n\ndata: [DONE]\n\n`);
 				}
-				if (latestUserMsg.toLowerCase().includes("switch to personal mode")) {
+				if (userQuery.toLowerCase().includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
 					return new Response(`data: ${JSON.stringify({ response: "System: Switched to Personal Mode. History Reset." })}\n\ndata: [DONE]\n\n`);
 				}
-				if (latestUserMsg === "!!RESET_HISTORY") {
-					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED." })}\n\ndata: [DONE]\n\n`);
+
+				// Handle Image Generation
+				if (userQuery.toLowerCase().includes("generate an image") || userQuery.toLowerCase().includes("draw")) {
+					const imgRes = await this.env.AI.run(IMAGE_MODEL, { prompt: userQuery });
+					const imgName = `generated/${sessionId}/${Date.now()}.png`;
+					await this.env.DOCUMENTS.put(imgName, imgRes);
+					return new Response(`data: ${JSON.stringify({ response: `Generated image: ${PUBLIC_R2_URL}/${imgName}` })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- WEB SEARCH TRIGGER ---
+				// --- HYBRID RETRIEVAL ---
 				let searchResults = "";
-				const webKeywords = ["celtics", "masters", "weather", "game", "score", "schedule", "who is", "when is"];
-				if (webKeywords.some(k => latestUserMsg.toLowerCase().includes(k))) {
-					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
+				if (["celtics", "weather", "score", "schedule"].some(k => userQuery.toLowerCase().includes(k))) {
+					searchResults = await this.searchWeb(`${userQuery} April 2026`);
 				}
 
-				// --- VECTOR SEARCH (TopK: 40) ---
-				const boostedQuery = activeMode === 'uva' ? `Syllabus CS 4750 Advisor Room Thornton Hall 1743 Dr. Thomas Jefferson` : latestUserMsg;
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 40, 
-					returnMetadata: "all", 
-					filter: { segment: activeMode } 
-				});
-				const contextText = matches.matches.map(m => m.metadata.text).join("\n");
+				const boostedQuery = activeMode === 'uva' 
+					? `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall` 
+					: `Scott E Robbins Cloudflare Senior Solutions Engineer Personal Biography`;
 
-				// --- DYNAMIC SYSTEM PROMPT ---
-				let sysPrompt = `You are Jolene. CURRENT MODE: ${activeMode}. Today: ${today}.
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + userQuery] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
+				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-### VERIFIED CONTEXT (MANDATORY SOURCE):
-${contextText}
-${searchResults}
+				// --- PERSISTENT HISTORY ---
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 10").bind(sessionId).all();
+				const chatMessages = history.results.map(r => ({ role: r.role, content: r.content }));
+				
+				const sysPrompt = `You are Jolene. Mode: ${activeMode}. Today: ${today}.
+CONTEXT: ${context}
+WEB: ${searchResults}
+RULES: 
+1. If mode is UVA, identify as UVA Academic Success Agent. 
+2. If mode is Personal, identify as Scott's Assistant. You know he works at Cloudflare as a Senior Solutions Engineer.
+3. Use the provided context for all facts.`;
 
-### STRICT RULES:
-1. Identify user as Scott E Robbins.
-2. If Mode is 'uva', your student is Scott E Robbins. Identify advisor as Dr. Thomas Jefferson in Thornton Hall 1743.
-3. If Mode is 'uva', NEVER mention family details or job titles from Personal Mode.
-4. If searchResults are present, ALWAYS use them for sports/current events even in UVA mode.
-5. If details are in the Context, provide them exactly. Do not say unavailable.`;
+				const fullMessages = [{ role: "system", content: sysPrompt }, ...chatMessages, { role: "user", content: userQuery }];
+				const response = await this.env.AI.run(CONVERSATION_MODEL, { messages: fullMessages });
 
-				messages.unshift({ role: "system", content: sysPrompt });
-				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages });
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatRun.response).run();
-				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
+				// Save history to D1
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
+					.bind(sessionId, "user", userQuery, sessionId, "assistant", response.response).run();
+
+				return new Response(`data: ${JSON.stringify({ response: response.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
@@ -127,8 +103,6 @@ ${searchResults}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
