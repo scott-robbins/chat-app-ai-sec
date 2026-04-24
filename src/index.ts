@@ -24,21 +24,35 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- 1. DASHBOARD & PROFILE (With DO Metrics & SQL Fix) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				
+				// Fix: Explicitly alias the count to "total" and use .first() to get the object
+				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+				
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
+				
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
 					messages: history.results, 
+					messageCount: stats?.total || 0, // Maps to msg-count-display
 					knowledgeAssets: storage.objects.map(o => o.key), 
 					status: "Live",
-					mode: activeMode 
+					mode: activeMode,
+					// Addition: Durable Object Metadata for the Sidebar
+					durableObject: {
+						id: sessionId,
+						state: "Active",
+						location: "Cloudflare Edge"
+					}
 				}), { headers });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
+		// --- 2. CHAT ENGINE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
