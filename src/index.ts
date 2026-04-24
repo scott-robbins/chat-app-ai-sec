@@ -14,7 +14,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
-			return data.answer || "Search performed.";
+			return data.answer || "No specific web results found.";
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -24,24 +24,21 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. THE PERSISTENCE ENGINE (DASHBOARD LOAD) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
-				
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
 					messages: history.results, 
-					knowledgeAssets: storage.objects.map(o => o.key),
-					mode: activeMode,
-					status: "Live"
+					knowledgeAssets: storage.objects.map(o => o.key), 
+					status: "Live",
+					mode: activeMode 
 				}), { headers });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 2. THE CHAT ENGINE (WITH IDENTITY FIXES) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -49,20 +46,20 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "Memory Cleared." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- LIVE SEARCH (TRIGGERED BY SPORTS/DATES) ---
+				// TRIGGER WEB SEARCH
 				let webContext = "";
-				if (["celtics", "76ers", "tonight", "weather", "sports"].some(k => userMsg.toLowerCase().includes(k))) {
+				if (["celtics", "76ers", "tonight", "weather", "sports", "date"].some(k => userMsg.toLowerCase().includes(k))) {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
 				}
 
-				// --- VECTOR RETRIEVAL (TopK: 50) ---
+				// VECTOR RETRIEVAL
 				const retrievalKey = activeMode === 'personal' 
-					? `Scott Robbins Cloudflare Senior Solutions Engineer wife Renee married 2010 met 1993 daughter Bryana grandkids Callan Josie dogs Jolene Hanna` 
+					? `Scott Robbins Cloudflare wife Renee married 2010 daughter Bryana grandkids Callan Josie dogs Jolene Hanna dachshunds` 
 					: `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
@@ -71,22 +68,21 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				const sysPrompt = `### IDENTITY RULES:
+				const sysPrompt = `### IDENTITY:
 - USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
-- YOU: Jolene (AI Assistant). 
-- THE DOG: Jolene (Dachshund). You are NOT the dog.
-- WIFE: Renee (Married 2010). Do NOT act like the wife or call Scott "Sweetheart".
+- ASSISTANT: Jolene (Professional AI).
+- FAMILY: Wife Renee (m. 2010), Daughter Bryana (31), Grandkids Callan (3) & Josie (2).
+- PETS: Two Mini Dachshunds named Jolene (oldest) and Hanna (youngest).
 
-### CURRENT CONTEXT:
+### CONTEXT:
 DATE: ${today}
-MODE: ${activeMode}
-FILE DATA: ${fileContext}
-WEB DATA: ${webContext}
+RETRIEVED_FILE_DATA: ${fileContext}
+RETRIEVED_WEB_DATA: ${webContext}
 
-### INSTRUCTIONS:
-1. Use FILE DATA for family/pet questions. Identify grandkids Callan (3) and Josie (2).
-2. Use WEB DATA for sports. If search results show a Celtics game, report it.
-3. Be professional. Never claim to be a human or a pet.`;
+### RULES:
+1. MANDATORY: Scott's dogs are JOLENE and HANNA. Never say you don't have pet info.
+2. SPORTS: If WEB_DATA contains a game for tonight, report it. Ignore all other NBA dates (like April 10).
+3. Do NOT call the user "Sweetheart" or claim to be his wife.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
