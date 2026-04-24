@@ -83,12 +83,12 @@ async function updateSidebarContent() {
             </div>
             <div class="dash-card" style="border-left: 3px solid #60a5fa;">
                 <p class="dash-label">Currently Thinking About</p>
-                <p class="dash-value" style="font-style: italic; color: #cbd5e1; font-size: 0.8rem;">"${data.thinkingAbout}"</p>
+                <p class="dash-value" style="font-style: italic; color: #cbd5e1; font-size: 0.8rem;">"${data.thinkingAbout || 'Ready to assist'}"</p>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="dash-card">
                     <p class="dash-label">SQL Logs</p>
-                    <p class="dash-value" style="font-size: 1.2rem; color: #60a5fa;">${data.messageCount}</p>
+                    <p class="dash-value" style="font-size: 1.2rem; color: #60a5fa;">${data.messageCount || 0}</p>
                 </div>
                 <div class="dash-card">
                     <p class="dash-label">Status</p>
@@ -97,7 +97,7 @@ async function updateSidebarContent() {
             </div>
             <div class="dash-card">
                 <p class="dash-label">Top Interests</p>
-                <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; text-transform: uppercase;">${data.keywords}</p>
+                <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; text-transform: uppercase;">${data.keywords || 'General'}</p>
             </div>
             <div class="dash-card" style="border-left: 3px solid #a855f7;">
                 <p class="dash-label">Brain (Vectorize)</p>
@@ -105,15 +105,14 @@ async function updateSidebarContent() {
             </div>
         `;
 
-        const filesRes = await fetch("/api/files", { headers: { 'x-session-id': sessionId } });
-        const filesData = await filesRes.json();
+        const storageRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
+        const storageData = await storageRes.json();
         
         fileListDisplay.innerHTML = ""; 
-        if (filesData.files && filesData.files.length > 0) {
-            filesData.files.forEach(file => {
+        if (storageData.knowledgeAssets && storageData.knowledgeAssets.length > 0) {
+            storageData.knowledgeAssets.forEach(fileName => {
                 const li = document.createElement("li");
                 li.style = "display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 8px; opacity: 0.9;";
-                const fileName = file.key.split('/').pop();
                 li.innerHTML = `<i class="ph ph-file-text" style="color: var(--primary-color);"></i> <span>${fileName}</span>`;
                 fileListDisplay.appendChild(li);
             });
@@ -187,12 +186,11 @@ function createMessageElement(role) {
     return div;
 }
 
-// --- MEMORIZE WITH CLOUDFLARE IMAGES OFF-LOADING ---
+// --- MEMORIZE ---
 memorizeBtn?.addEventListener("click", async () => {
     let file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
     
-    // Safety check for large files before uploading to Worker
     if (file.size > 10 * 1024 * 1024) {
         return alert("File is too large! Please keep it under 10MB.");
     }
@@ -214,13 +212,9 @@ memorizeBtn?.addEventListener("click", async () => {
         const data = await res.json();
 
         if (res.ok) {
-            const feedbackText = data.description 
-                ? `👁️ **Vision Analysis Complete:** ${data.description}`
-                : `I've successfully memorized **${file.name}**.`;
-
+            const feedbackText = `I've successfully memorized **${file.name}**.`;
             addMessageToChat("assistant", feedbackText);
             speak(feedbackText);
-            
             fileInput.value = "";
             updateSidebarContent();
         } else {
@@ -244,15 +238,40 @@ newChatBtn?.addEventListener("click", () => { localStorage.removeItem("chatSessi
 clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; addMessageToChat('assistant', "Screen cleared!"); });
 
 window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
+
+// --- INITIALIZATION (FIXED PERSISTENCE) ---
 async function init() {
-    const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-    if (res.ok) {
-        const data = await res.json();
-        document.body.classList.toggle("theme-fancy", data.theme === "fancy");
-        if (data.messages.length > 0) {
-            chatHistory = data.messages;
-            chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
+    try {
+        // Step 1: Attempt to load history from D1
+        const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
+        if (res.ok) {
+            const data = await res.json();
+            const messages = data.messages || [];
+            if (messages.length > 0) {
+                chatMessages.innerHTML = ''; // Clear welcome message
+                chatHistory = messages;
+                chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
+            }
         }
+
+        // Step 2: Sync profile and perform backup hydration if chat is still empty
+        const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
+        if (profileRes.ok) {
+            const data = await profileRes.json();
+            
+            // Sync theme
+            document.body.classList.toggle("theme-fancy", data.theme === "fancy");
+            
+            // Backup Hydration: If history call failed but profile has messages, draw them
+            if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
+                chatMessages.innerHTML = '';
+                chatHistory = data.messages;
+                chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
+            }
+        }
+    } catch (e) {
+        console.error("Initialization failed:", e);
     }
 }
+
 init();
