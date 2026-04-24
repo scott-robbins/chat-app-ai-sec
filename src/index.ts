@@ -26,6 +26,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+		// --- 1. DASHBOARD & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -38,6 +39,15 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
 		}
 
+		// --- 2. PERSISTENT HISTORY (The Refresh Fix) ---
+		if (url.pathname === "/api/history" && request.method === "GET") {
+			try {
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
+				return new Response(JSON.stringify({ messages: history.results }), { headers: { "Content-Type": "application/json" } });
+			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
+		}
+
+		// --- 3. MEMORIZE ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -45,7 +55,6 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// Granular splitting to capture individual pet/family facts
 				const lines = textToIndex.split(/[.\n]/).filter(l => l.trim().length > 3);
 				
 				for (const line of lines) {
@@ -61,12 +70,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500 }); }
 		}
 
+		// --- 4. CHAT & IMAGE GEN ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
 				const latestUserMsg = messages[messages.length - 1]?.content || "";
 
+				// Reset / Switch Commands
 				if (latestUserMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
 					return new Response(`data: ${JSON.stringify({ response: "HISTORY CLEARED. Fresh start ready." })}\n\ndata: [DONE]\n\n`);
@@ -85,26 +96,27 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// Web Search for Sports/General
+				// Web Search
 				let searchResults = "";
 				if (["celtics", "masters", "weather", "game"].some(k => latestUserMsg.toLowerCase().includes(k))) {
 					searchResults = await this.searchWeb(`${latestUserMsg} April 2026`);
 				}
 
-				// --- VECTOR RETRIEVAL (STABLE TopK: 50) ---
+				// Vector Retrieval
 				const boostedQuery = activeMode === 'uva' 
 					? `Syllabus CS 4750 Advisor Thomas Jefferson Thornton Hall 1743` 
 					: `Scott Robbins Cloudflare Daughter Bryana Dogs Hanna Jolene Dachshund grandkids Callan Josie`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [boostedQuery + " " + latestUserMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { 
-					topK: 50, // Fixed to maximum allowed value for metadata retrieval
+					topK: 50, 
 					filter: { segment: activeMode }, 
 					returnMetadata: "all" 
 				});
 				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 5").bind(sessionId).all();
+				// Get History for Context (Last 20 messages)
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 20").bind(sessionId).all();
 				const chatMessages = history.results.map(r => ({ role: r.role, content: r.content }));
 				
 				const sysPrompt = `You are Jolene. Mode: ${activeMode}. User: Scott E Robbins. Today: ${today}.
@@ -114,13 +126,14 @@ ${searchResults}
 
 ### RULES:
 1. Identify user as Scott E Robbins. Confirm he works at Cloudflare.
-2. You MUST use the context to provide details on dogs (Jolene and Hanna), grandkids (Callan and Josie), and daughter (Bryana).
-3. If asked about pets, provide breeds (Mini Dachshunds) and specific personality traits exactly as listed.
-4. Do NOT say information is missing if it exists in the lines provided above.`;
+2. Use the context to provide details on dogs (Jolene and Hanna), grandkids (Callan and Josie), and daughter (Bryana).
+3. If asked about pets, provide breeds and specific traits from context.
+4. Do NOT say information is missing if it exists in the context lines provided.`;
 
 				const fullMessages = [{ role: "system", content: sysPrompt }, ...chatMessages, { role: "user", content: latestUserMsg }];
 				const response = await this.env.AI.run(CONVERSATION_MODEL, { messages: fullMessages });
 
+				// Save history to D1 (SQL Persistence)
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 					.bind(sessionId, "user", latestUserMsg, sessionId, "assistant", response.response).run();
 
@@ -133,6 +146,8 @@ ${searchResults}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
