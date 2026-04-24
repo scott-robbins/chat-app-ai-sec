@@ -17,7 +17,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query, search_depth: "advanced", include_answer: true, max_results: 5 })
 			});
 			const data = await response.json() as any;
-			return data.answer ? `VERIFIED REAL-TIME DATA: ${data.answer}` : data.results.map((r: any) => r.content).join("\n\n");
+			return data.answer ? `VERIFIED DATA: ${data.answer}` : data.results.map((r: any) => r.content).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -27,13 +27,13 @@ export class ChatSession extends DurableObject<Env> {
 		const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. DASHBOARD & PROFILE (HISTORY BUNDLED FOR PERSISTENCE) ---
+		// --- 1. DASHBOARD & PROFILE (HANDLES PERSISTENCE ON REFRESH) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const profile = await this.env.SETTINGS.get(`global_user_profile`) || "Scott E Robbins | Senior Solutions Engineer";
 				
-				// FETCH HISTORY HERE SO REFRESH WORKS
+				// Fetch History here so it re-renders on screen refresh automatically
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				
 				const storage = await this.env.DOCUMENTS.list();
@@ -41,8 +41,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				return new Response(JSON.stringify({ 
 					profile, 
-					messages: history.results, // This pushes the chat back to the screen on refresh
-					messageCount: history.results.length, 
+					messages: history.results, 
+					messageCount: history.results.length,
 					knowledgeAssets: assets, 
 					status: "Live", 
 					mode: activeMode 
@@ -50,7 +50,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 2. GRANULAR MEMORIZATION (SENTENCE LEVEL) ---
+		// --- 2. MEMORIZE (SENTENCE-LEVEL CHUNKING) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -58,7 +58,7 @@ export class ChatSession extends DurableObject<Env> {
 				const textToIndex = await file.text();
 				const segment = file.name.toUpperCase().includes("UVA") ? "uva" : "personal";
 				
-				// BETTER CHUNKING: Splits specifically into sentences to ensure "Bryana" is its own fact
+				// Splits by sentence to ensure facts don't get buried in big chunks
 				const chunks = textToIndex.match(/[^\.!\?]+[\.!\?]+/g) || [textToIndex];
 				
 				for (const chunk of chunks) {
@@ -70,53 +70,64 @@ export class ChatSession extends DurableObject<Env> {
 					}]);
 				}
 				await this.env.DOCUMENTS.put(`uploads/global/${file.name}`, await file.arrayBuffer());
-				return new Response(JSON.stringify({ message: "Index Updated" }), { headers });
+				return new Response(JSON.stringify({ message: "Memory Synced" }), { headers });
 			} catch (err: any) { return new Response(JSON.stringify({ error: err.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT (DAUGHTER BOOSTED RETRIEVAL) ---
+		// --- 3. CHAT (RELOAD FIX + IMAGE GEN) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				let messages = body.messages || [];
-				const latestUserMsg = messages[messages.length - 1]?.content || "";
+				const userMsg = messages[messages.length - 1]?.content || "";
 
-				if (latestUserMsg === "!!RESET_HISTORY") {
+				// Reset / Commands
+				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "History Reset." })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "System Reset Complete." })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// Image Generation restored
+				if (userMsg.toLowerCase().includes("generate an image") || userMsg.toLowerCase().includes("draw")) {
+					const imgRes = await this.env.AI.run(IMAGE_MODEL, { prompt: userMsg });
+					const imgName = `generated/${sessionId}/${Date.now()}.png`;
+					await this.env.DOCUMENTS.put(imgName, imgRes);
+					return new Response(`data: ${JSON.stringify({ response: `Generated for you: ${PUBLIC_R2_URL}/${imgName}` })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// MEGA-BOOSTED SEARCH KEY
+				// MEGA-BOOSTED Retrieval Key
 				const searchKey = activeMode === 'personal' 
-					? `Daughter Bryana Bry 31 wife Renee 2010 met 1993 dogs Jolene Hanna dachshunds` 
-					: `Syllabus CS 4750 Advisor Thomas Jefferson Thornton Hall 1743`;
+					? `Daughter Bryana Bry 31 years old wife Renee married 2010 met 1993 dogs Jolene Hanna dachshunds` 
+					: `Syllabus CS 4750 Advisor Thomas Jefferson Room 1743 Thornton Hall`;
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchKey + " " + latestUserMsg] });
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
 				const context = matches.matches.map(m => m.metadata.text).join("\n");
 
+				// Pull History from D1 for the AI
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 20").bind(sessionId).all();
 				const chatHistory = historyResults.results.map(r => ({ role: r.role, content: r.content }));
 				
 				const sysPrompt = `You are Jolene, a Student Assistant AI. Mode: ${activeMode}.
-### FAMILY FACTS (MANDATORY):
+### SCOT'S PERSONAL FACTS:
 - Wife: Renee (Married 2010).
-- Daughter: Bryana (Bry), she is 31 years old.
+- Daughter: Bryana (Bry), age 31.
 - Dogs: Jolene and Hanna (Mini Dachshunds).
-- You are an AI, NOT the wife or the dog.
+- You are an AI, NOT the wife or the dog Jolene.
 
-### CONTEXT DATA:
+### CONTEXT:
 ${context}
 
-RULES: Identify Bryana as the daughter. If asked her age, she is 31. Do not hallucinate.`;
+RULES: Always reference Bryana as the 31-year-old daughter. Be helpful and professional.`;
 
-				const finalMessages = [{ role: "system", content: sysPrompt }, ...chatHistory, { role: "user", content: latestUserMsg }];
+				const finalMessages = [{ role: "system", content: sysPrompt }, ...chatHistory, { role: "user", content: userMsg }];
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: finalMessages });
 
+				// Save to D1
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-					.bind(sessionId, "user", latestUserMsg, sessionId, "assistant", chatRun.response).run();
+					.bind(sessionId, "user", userMsg, sessionId, "assistant", chatRun.response).run();
 
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: e.message })}\n\ndata: [DONE]\n\n`); }
@@ -127,8 +138,6 @@ RULES: Identify Bryana as the daughter. If asked her age, she is 31. Do not hall
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
