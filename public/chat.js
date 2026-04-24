@@ -70,34 +70,27 @@ modelSelector?.addEventListener("change", () => {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 });
 
-// --- DASHBOARD UPDATER ---
+// --- DASHBOARD UPDATER (UPDATED WITH DO & D1 VOLUME FIX) ---
 async function updateSidebarContent() {
     try {
         const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const data = await res.json();
         
+        // 1. Update Profile/Identity Info
         kvDisplay.innerHTML = `
             <div class="dash-card">
                 <p class="dash-label">Global Identity (KV)</p>
                 <p class="dash-value">${data.profile}</p>
             </div>
-            <div class="dash-card" style="border-left: 3px solid #60a5fa;">
-                <p class="dash-label">Currently Thinking About</p>
-                <p class="dash-value" style="font-style: italic; color: #cbd5e1; font-size: 0.8rem;">"${data.thinkingAbout || 'Ready to assist'}"</p>
-            </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="dash-card">
-                    <p class="dash-label">SQL Logs</p>
-                    <p class="dash-value" style="font-size: 1.2rem; color: #60a5fa;">${data.messageCount || 0}</p>
+                    <p class="dash-label">SQL Logs (D1)</p>
+                    <p class="dash-value" id="msg-count-display" style="font-size: 1.2rem; color: #60a5fa;">${data.messageCount || 0}</p>
                 </div>
                 <div class="dash-card">
                     <p class="dash-label">Status</p>
                     <p class="dash-value"><i class="ph ph-circle-wavy-check" style="color: #22c55e;"></i> Live</p>
                 </div>
-            </div>
-            <div class="dash-card">
-                <p class="dash-label">Top Interests</p>
-                <p class="dash-value" style="color: #fbbf24; font-size: 0.75rem; text-transform: uppercase;">${data.keywords || 'General'}</p>
             </div>
             <div class="dash-card" style="border-left: 3px solid #a855f7;">
                 <p class="dash-label">Brain (Vectorize)</p>
@@ -105,12 +98,16 @@ async function updateSidebarContent() {
             </div>
         `;
 
-        const storageRes = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
-        const storageData = await storageRes.json();
-        
+        // 2. Update Durable Object Metrics (New Card)
+        if (data.durableObject) {
+            document.getElementById('do-id-display').innerText = data.durableObject.id;
+            document.getElementById('do-status-display').innerText = data.durableObject.state;
+        }
+
+        // 3. Update Knowledge Assets (R2)
         fileListDisplay.innerHTML = ""; 
-        if (storageData.knowledgeAssets && storageData.knowledgeAssets.length > 0) {
-            storageData.knowledgeAssets.forEach(fileName => {
+        if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
+            data.knowledgeAssets.forEach(fileName => {
                 const li = document.createElement("li");
                 li.style = "display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 8px; opacity: 0.9;";
                 li.innerHTML = `<i class="ph ph-file-text" style="color: var(--primary-color);"></i> <span>${fileName}</span>`;
@@ -239,35 +236,32 @@ clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; a
 
 window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
 
-// --- INITIALIZATION (FIXED PERSISTENCE) ---
+// --- INITIALIZATION ---
 async function init() {
     try {
-        // Step 1: Attempt to load history from D1
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
         if (res.ok) {
             const data = await res.json();
             const messages = data.messages || [];
             if (messages.length > 0) {
-                chatMessages.innerHTML = ''; // Clear welcome message
+                chatMessages.innerHTML = ''; 
                 chatHistory = messages;
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
         }
 
-        // Step 2: Sync profile and perform backup hydration if chat is still empty
         const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
         if (profileRes.ok) {
             const data = await profileRes.json();
-            
-            // Sync theme
             document.body.classList.toggle("theme-fancy", data.theme === "fancy");
             
-            // Backup Hydration: If history call failed but profile has messages, draw them
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
+            // Populate metrics immediately on load
+            updateSidebarContent();
         }
     } catch (e) {
         console.error("Initialization failed:", e);
