@@ -30,8 +30,6 @@ export class ChatSession extends DurableObject<Env> {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
-				
-				// Explicitly list R2 objects so they appear in the Command Center
 				const storage = await this.env.DOCUMENTS.list();
 				
 				return new Response(JSON.stringify({ 
@@ -50,19 +48,17 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 2. MEMORIZE (FIX: Hardened R2 Write & Vector Indexing) ---
+		// --- 2. MEMORIZE (R2 Write & Vector Indexing) ---
 		if (url.pathname === "/api/memorize" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// Write raw file to R2 so it shows in Dashboard
 				await this.env.DOCUMENTS.put(file.name, await file.arrayBuffer(), {
 					customMetadata: { segment: activeMode }
 				});
 
-				// Extract text and create Vector embeddings
 				const text = await file.text();
 				const chunks = text.match(/[\s\S]{1,1500}/g) || [];
 				
@@ -97,7 +93,6 @@ export class ChatSession extends DurableObject<Env> {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
 				}
 
-				// EXPANDED RETRIEVAL KEY: Now includes Tax Preparation terms
 				const retrievalKey = activeMode === 'personal' 
 					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna dachshunds tax engagement letter 2025 Cozby CPA fees deadlines` 
 					: `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall`;
@@ -108,11 +103,16 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				const sysPrompt = `### IDENTITY:
+				const sysPrompt = `### IDENTITY & ORIGIN:
 - USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
 - ASSISTANT: Jolene (Professional AI).
-- FAMILY: Wife Renee (m. 2010), Daughter Bryana (31), Grandkids Callan (3) & Josie (2).
-- PETS: Two Mini Dachshunds named Jolene (oldest) and Hanna (youngest).
+- NAMING: You were named after Scott's oldest dog, Jolene (a Mini Dachshund).
+- MUSIC LORE: The dog Jolene was named after the **Ray LaMontagne song "Jolene"**. 
+- CRITICAL: You were NOT named after the Dolly Parton song. Do not mention Dolly Parton.
+
+### FAMILY & PETS:
+- Wife Renee (m. 2010), Daughter Bryana (31), Grandkids Callan (3) & Josie (2).
+- Dogs: Jolene (Namesake/Oldest) and Hanna (Youngest). Both are Mini Dachshunds.
 
 ### CONTEXT:
 DATE: ${today}
@@ -122,7 +122,8 @@ RETRIEVED_WEB_DATA: ${webContext}
 ### RULES:
 1. TAX DATA: You have access to a 2025 Tax Engagement Letter from Cozby & Company. Look for fees ($375/$275) and deadlines (March 13) in RETRIEVED_FILE_DATA.
 2. MANDATORY: Scott's dogs are JOLENE and HANNA. 
-3. Always check RETRIEVED_FILE_DATA before saying you don't have information.`;
+3. Always check RETRIEVED_FILE_DATA before saying you don't have information.
+4. If asked about your name, proudly share the Ray LaMontagne connection.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
