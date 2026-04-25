@@ -34,15 +34,12 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- 2. COMMAND CENTER SYNC (FULL HISTORY RESTORED) ---
+		// --- 2. COMMAND CENTER SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
-				
-				// Fetch full history so the UI re-populates chat bubbles on refresh
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-				
 				const storage = await this.env.DOCUMENTS.list();
 				const activePool = await this.ctx.storage.get("quiz_pool");
 
@@ -58,21 +55,31 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH HARDENED LOGIC-BASED GRADER) ---
+		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR & STOP QUIZ) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// Save User Input for persistence
+				// Save User Input
 				await this.saveMsg(sessionId, 'user', userMsg);
+
+				// --- NEW FEATURE: STOP QUIZ ---
+				if (lowMsg === "stop quiz" || lowMsg === "exit quiz" || lowMsg === "cancel quiz") {
+					await this.ctx.storage.delete("quiz_pool");
+					await this.ctx.storage.delete("session_state");
+					await this.ctx.storage.delete("current_q_idx");
+					const stopRes = "### 🛑 Quiz Stopped\nI've cleared the quiz session. I'm back in UVA Academic mode and ready for your general questions!";
+					await this.saveMsg(sessionId, 'assistant', stopRes);
+					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
+				}
 
 				const sessionState = await this.ctx.storage.get("session_state");
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
 
-				// A. STATE: GRADING (STRICT FACT INJECTION)
+				// A. STATE: GRADING (PERSONABLE & DIRECT)
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c][\.\s]?$/i.test(lowMsg)) {
 					const currentQ = pool[index];
 					const userLetter = lowMsg[0].toUpperCase();
@@ -82,27 +89,22 @@ export class ChatSession extends DurableObject<Env> {
 					const correctIdx = correctLetter.charCodeAt(0) - 65;
 					const correctText = currentQ.options[correctIdx];
 
-					// Explicitly tell the AI what the founding vs classes dates are to stop halls
+					// Updated Prompt: Demands direct address ("You") and friendly tone
 					const graderPrompt = `
-					USER ANSWERED: ${userLetter}
-					CORRECT ANSWER: ${correctLetter}
-					RESULT: ${isCorrect ? 'CORRECT' : 'INCORRECT'}
-					EXPLANATION FACT: ${correctText}
+					YOUR DATA:
+					- User answered: ${userLetter}
+					- Correct answer: ${correctLetter}
+					- Correct result: ${isCorrect ? 'Correct' : 'Incorrect'}
+					- Explanation fact: ${correctText}
 					
-					CONTEXT DATA: 
-					- UVA Founded: 1819
-					- First Classes: March 25, 1825
-					- Fall 2026 Starts: August 25
-					- Registrar: (434) 982-5300
-
 					TASK:
-					1. State if the user was right or wrong.
-					2. Explain clearly using the EXPLANATION FACT. 
-					3. If right, be happy. If wrong, correct them gently.
-					4. If this is not Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
+					1. Address the user directly as "you". Do NOT say "the user".
+					2. Tell them clearly if they were right or wrong (e.g. "You got it!", "Actually, that's not quite right").
+					3. Explain the fact using the UVA reference: "${correctText}".
+					4. If this isn't Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are the UVA Academic Tutor. Ground your logic ONLY in the provided EXPLANATION FACT." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are Jolene, a friendly and supportive UVA Academic Tutor. Always address the user directly as 'you'." }, { role: "user", content: graderPrompt }] 
 					});
 					const gradeTxt = gradeRun.response || gradeRun;
 
@@ -125,7 +127,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 					
 					const optionsLines = nextQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
-					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C!*`;
+					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C (or say 'stop quiz')!*`;
 					
 					await this.saveMsg(sessionId, 'assistant', uiRes);
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
@@ -152,7 +154,7 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
-						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar.` }, 
+						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar. Always be friendly and direct.` }, 
 						{ role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }
 					] 
 				});
@@ -173,11 +175,7 @@ export class ChatSession extends DurableObject<Env> {
 	async initQuizPool(sessionId: string): Promise<Response> {
 		try {
 			const facts = "FACTS: 1. Fall 2026 courses begin August 25. 2. Thanksgiving recess is Nov 25-29. 3. Registrar phone is (434) 982-5300. 4. UVA was founded in 1819. 5. First classes began March 25, 1825.";
-			const prompt = `${facts}\nTASK: Generate exactly 5 MCQs. 
-			- For Question 2: Use "When did first classes begin at UVA?". 
-			- Options for Q2: A. March 25, 1825 B. March 25, 1819 C. August 25. 
-			- Hidden Answer for Q2: A.
-			Return raw JSON array ONLY: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
+			const prompt = `${facts}\nTASK: Generate exactly 5 MCQs. Return raw JSON array ONLY: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
 			
 			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON API." }, { role: "user", content: prompt }] });
 			let raw = typeof quizGen.response === 'string' ? quizGen.response : JSON.stringify(quizGen.response || quizGen);
@@ -191,7 +189,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			const firstQ = pool[0];
 			const optionsText = firstQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
-			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${optionsText}\n\n*Reply A, B, or C!*`;
+			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${optionsText}\n\n*Reply A, B, or C (or say 'stop quiz')!*`;
 			
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
