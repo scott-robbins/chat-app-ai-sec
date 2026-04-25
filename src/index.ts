@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 
 const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; 
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -75,25 +76,42 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE ---
+		// --- 3. CHAT ENGINE (With Image Gen Logic) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
+				const lowMsg = userMsg.toLowerCase();
 
+				// --- RESET HANDLER ---
 				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
 					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- IMAGE GENERATION HANDLER ---
+				if (lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("picture of")) {
+					const imagePrompt = userMsg.replace(/generate|draw|create|picture of|an image of/gi, "").trim();
+					const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: imagePrompt || "A dachshund in Cloudflare orange" });
+					
+					const binary = String.fromCharCode(...new Uint8Array(imgBlob));
+					const base64 = btoa(binary);
+					const responseText = `I've created that for you! \n\n![Generated Image](data:image/png;base64,${base64})`;
+
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
+						.bind(sessionId, "user", userMsg, sessionId, "assistant", responseText).run();
+
+					return new Response(`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- STANDARD CHAT LOGIC ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
 				let webContext = "";
-				if (["celtics", "76ers", "tonight", "weather", "sports", "date"].some(k => userMsg.toLowerCase().includes(k))) {
+				if (["celtics", "76ers", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
 				}
 
-				// Enhanced Retrieval Key to include Tax/Cozby keywords
 				const retrievalKey = activeMode === 'personal' 
 					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna dachshunds 2025 Tax Engagement Letter Cozby CPA fees deadlines base fee hourly rate` 
 					: `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall`;
@@ -109,7 +127,8 @@ export class ChatSession extends DurableObject<Env> {
 - ASSISTANT: Jolene (Professional AI).
 - NAMING: You were named after Scott's oldest dog, Jolene (a Mini Dachshund). 
 - MUSIC LORE: The dog Jolene was named after the **Ray LaMontagne song "Jolene"**.
-- CRITICAL: You are an AI named after a dog who was named after a song. You were NOT named after the Dolly Parton song. Do not mention Dolly Parton.
+- CRITICAL: You are an AI named after a dog. You were NOT named after the Dolly Parton song.
+- CAPABILITY: You CAN generate images using FLUX. When asked to draw, do so!
 
 ### FAMILY & PETS:
 - Wife Renee (m. 2010), Daughter Bryana (31), Grandkids Callan (3) & Josie (2).
@@ -121,9 +140,8 @@ RETRIEVED_FILE_DATA: ${fileContext}
 RETRIEVED_WEB_DATA: ${webContext}
 
 ### RULES:
-1. TAX DATA: Use RETRIEVED_FILE_DATA to answer questions about the 2025 Tax Engagement Letter. Look for the base fee ($375), hourly rate ($275), and information deadline (March 13, 2026).
-2. MANDATORY: Scott's dogs are JOLENE and HANNA. 
-3. ORIGIN: If asked about your name, clarify that you were named after Scott's dog, who was named after the Ray LaMontagne song.`;
+1. TAX DATA: Use RETRIEVED_FILE_DATA for Cozby & Company questions (Fees: $375/$275, Deadline: March 13).
+2. ORIGIN: If asked about your name, share the Ray LaMontagne connection.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
