@@ -24,7 +24,6 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- RESTORED: PERSISTENT HISTORY LOADER ---
 		if (url.pathname === "/api/history") {
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 			return new Response(JSON.stringify({ messages: history.results }), { headers });
@@ -75,7 +74,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaResponse = "### 🎓 UVA Mode Activated\nI am now your **UVA Academic Assistant**. Access to personal tax/family files is locked.";
+					const uvaResponse = "### 🎓 UVA Academic Study Companion Activated\nI have shifted my focus to your UVA Academic Calendar and CS 4750 materials. Personal records are now locked.";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 						.bind(sessionId, "user", userMsg, sessionId, "assistant", uvaResponse).run();
 					return new Response(`data: ${JSON.stringify({ response: uvaResponse })}\n\ndata: [DONE]\n\n`);
@@ -83,7 +82,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const pResponse = "### 🏠 Personal Mode Activated\nI have restored access to your family and tax records.";
+					const pResponse = "### 🏠 Personal Assistant Mode Activated\nI have restored access to your family and tax records.";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 						.bind(sessionId, "user", userMsg, sessionId, "assistant", pResponse).run();
 					return new Response(`data: ${JSON.stringify({ response: pResponse })}\n\ndata: [DONE]\n\n`);
@@ -91,7 +90,6 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- HARDENED QUIZ ENGINE ---
 				if (lowMsg === "generate quiz" || lowMsg === "start quiz") {
 					const quizQuery = activeMode === 'uva' ? "UVA Academic Calendar dates" : "Tax deadlines";
 					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
@@ -99,10 +97,13 @@ export class ChatSession extends DurableObject<Env> {
 					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
 					const quizPrompt = `Generate a 3-question multiple-choice quiz based on: ${quizContext}. Output ONLY a JSON array: [{"q":"question","options":["a","b","c"],"hidden_answer":"a"}]. No intro text.`;
-					const quizGen = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON-only API." }, { role: "user", content: quizPrompt }] });
+					
+					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON-only API." }, { role: "user", content: quizPrompt }] });
 
-					// SANITIZER: Clean up JSON if LLM adds markdown or chatter
-					let cleanJson = quizGen.response.trim();
+					// FIX: Access response string safely to avoid .trim() error
+					let rawResponse = quizGen.response || quizGen;
+					let cleanJson = typeof rawResponse === 'string' ? rawResponse.trim() : "";
+					
 					if (cleanJson.includes("```json")) cleanJson = cleanJson.split("```json")[1].split("```")[0].trim();
 					
 					await this.ctx.storage.put("current_quiz_data", cleanJson);
@@ -122,7 +123,7 @@ export class ChatSession extends DurableObject<Env> {
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				let sysPrompt = activeMode === 'uva' ? `UVA Mode: Only discuss Syllabus/Calendar. Named after Scott's dog Jolene (Ray LaMontagne song).` : `Personal Mode: Discuss family/tax. Named after dog Jolene (Ray LaMontagne song).`;
+				let sysPrompt = activeMode === 'uva' ? `You are the UVA Academic Study Companion. Only discuss Syllabus/Calendar. Named after Scott's dog Jolene (Ray LaMontagne song).` : `Personal Mode: Discuss family/tax. Named after dog Jolene (Ray LaMontagne song).`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] });
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
