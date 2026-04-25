@@ -27,7 +27,6 @@
 				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 			}
 
-			/* --- FANCY THEME (GLASSMORPHISM) --- */
 			body.theme-fancy {
 				--app-bg: rgba(30, 41, 59, 0.4); 
 				--light-bg: transparent; 
@@ -50,11 +49,6 @@
 				background-color: rgba(0, 0, 0, 0.2);
 				color: white;
 				border: 1px solid rgba(255, 255, 255, 0.1);
-			}
-
-			body.theme-fancy header h1 {
-				color: #ffffff;
-				text-shadow: 0 0 20px rgba(246, 130, 31, 0.4);
 			}
 
 			* { box-sizing: border-box; margin: 0; padding: 0; }
@@ -94,13 +88,11 @@
 
 			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 800px; }
 			h1 { font-size: 2rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
-			header p { color: var(--text-light); font-size: 1rem; margin-top: 0.25rem; opacity: 0.8; }
 
 			.chat-container {
 				display: flex; flex-direction: column; width: 100%; max-width: 850px;
 				height: calc(100vh - 280px); min-height: 500px; background-color: var(--app-bg);
 				border-radius: 24px; overflow: hidden; border: 1px solid var(--border-color);
-				transition: all 0.3s ease;
 			}
 
 			#chat-messages {
@@ -109,7 +101,7 @@
 			}
 
 			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
-			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
+			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
 			/* --- IMAGE RENDERING FIX --- */
@@ -126,8 +118,6 @@
 			
 			.typing-dots { display: flex; align-items: center; gap: 4px; }
 			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
-			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-			.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
 			.message-input {
@@ -137,90 +127,24 @@
 
 			#user-input {
 				flex: 1; padding: 1rem; border: 1px solid var(--border-color);
-				border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none;
+				border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; resize: none; outline: none;
 			}
 
 			#send-button {
 				padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white;
-				border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s;
+				border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem;
 			}
-			#send-button:hover { transform: scale(1.05); }
-
-			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
-			
-			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
-
-			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
 
 			.sidebar {
 				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
 				background: var(--app-bg); border-left: 1px solid var(--border-color);
-				transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 15px;
-				overflow-y: auto;
+				transition: right 0.4s ease; z-index: 1000; padding: 30px; overflow-y: auto;
 			}
 			.sidebar.open { right: 0; }
-			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
-			/* --- DASHBOARD STYLES --- */
-			.dash-card {
-				background: rgba(255, 255, 255, 0.08);
-				border: 1px solid var(--border-color);
-				border-radius: 12px;
-				padding: 12px;
-				margin-bottom: 8px;
-			}
-			.dash-label {
-				font-size: 0.65rem;
-				font-weight: 800;
-				color: var(--primary-color);
-				text-transform: uppercase;
-				letter-spacing: 1px;
-				margin-bottom: 4px;
-				display: block;
-			}
-			.dash-value {
-				font-size: 0.85rem;
-				font-weight: 500;
-				line-height: 1.3;
-				word-break: break-word;
-			}
-			.dash-desc {
-				font-size: 0.7rem;
-				color: var(--text-light);
-				margin-top: 4px;
-				font-style: italic;
-				margin-bottom: 4px;
-			}
-
-			#file-list-display {
-				margin-top: 10px;
-				padding: 0;
-			}
-			#file-list-display li {
-				font-size: 0.75rem;
-				padding: 6px 0;
-				border-bottom: 1px solid rgba(255,255,255,0.05);
-				color: #38bdf8;
-				list-style: none;
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-			}
-			
-			.delete-file-btn {
-				background: none;
-				border: none;
-				color: #ef4444;
-				cursor: pointer;
-				font-size: 1rem;
-				opacity: 0.6;
-				transition: opacity 0.2s;
-				padding: 4px;
-			}
-			.delete-file-btn:hover { opacity: 1; }
-
+			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; margin-bottom: 4px; display: block; }
+			.dash-value { font-size: 0.85rem; font-weight: 500; }
 		</style>
 	</head>
 	<body class="theme-fancy">
@@ -234,298 +158,82 @@
 			<h1>Jolene</h1>
 			<p>Your Personal AI Agent</p>
 			
-			<div class="controls-row">
+			<div class="controls-row" style="margin-top: 1rem; display: flex; justify-content: center; gap: 10px;">
 				<select id="model-selector" class="btn-secondary">
 					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
-					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
 				</select>
-				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
-				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
-				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+				<button id="theme-toggle-btn" class="btn-secondary">Theme</button>
+				<button id="toggle-sidebar-btn" class="btn-secondary">Memory</button>
+				<button id="new-chat-btn" class="btn-primary">New Chat</button>
 			</div>
 		</header>
 
 		<div class="chat-container">
 			<div id="chat-messages">
 				<div class="message assistant-message">
-					<div class="message-content">
-						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
-					</div>
+					<div class="message-content">Hi! I'm Jolene. I can draw images or answer questions about your tax documents. What's up?</div>
 				</div>
 			</div>
 			
 			<div id="typing-indicator" class="message assistant-message">
-				<div class="message-content">
-					<div class="typing-dots">
-						<span></span><span></span><span></span>
-					</div>
-				</div>
+				<div class="typing-dots"><span></span><span></span><span></span></div>
 			</div>
 
 			<div class="message-input">
-				<div style="width: 100%; margin-bottom: 10px; display: flex; gap: 10px;">
-					<input type="file" id="file-input" accept=".txt,.md,.pdf,.png,.jpg,.jpeg" />
-					<button id="memorize-file-btn" class="btn-secondary"><i class="ph ph-paperclip"></i> Memorize File</button>
-				</div>
 				<textarea id="user-input" placeholder="Message Jolene..." rows="1"></textarea>
-				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
+				<button id="send-button">Send</button>
 			</div>
 		</div>
 
 		<div id="memory-sidebar" class="sidebar">
-			<div class="sidebar-header">
-				<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px;">
-					<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
-					<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
-				</div>
-			</div>
-			<div class="sidebar-content">
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
-					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
-				</div>
-
-				<div class="dash-card" style="border-left: 3px solid #f6821f;">
-					<span class="dash-label">Cloudflare Durable Objects: State</span>
-					<div class="dash-desc">Coordinates real-time consistency and persists DO state across the edge.</div>
-					<div class="dash-value">
-						ID: <span id="do-id-display" style="font-size: 0.65rem; opacity: 0.7;">Initializing...</span><br>
-						Status: <span id="do-status-display" style="color: #22c55e;">Syncing...</span>
-					</div>
-				</div>
-
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-					<div class="dash-desc">Relational database tracking chat history and interaction frequency.</div>
-					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
-				</div>
-
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-					<div class="dash-desc">Stores text embeddings from files for semantic search and "learning."</div>
-					<div class="dash-value" id="vector-status">Active Index</div>
-				</div>
-
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare R2: Knowledge Assets</span>
-					<div class="dash-desc">Object storage for raw uploaded documents and generated images.</div>
-					<ul id="file-list-display">
-						<li>Scanning storage...</li>
-					</ul>
-				</div>
-			</div>
-			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
+			<h2 style="color: var(--primary-color); margin-bottom: 1rem;">Command Center</h2>
+            <div id="kv-profile-display" class="dash-card"><span class="dash-label">KV: Profile</span><div class="dash-value">...</div></div>
+            <div class="dash-card"><span class="dash-label">D1: Messages</span><div class="dash-value" id="msg-count-display">0</div></div>
+            <div class="dash-card"><span class="dash-label">DO: Session</span><div class="dash-value" id="do-id-display">...</div></div>
+			<ul id="file-list-display"></ul>
+			<button id="close-sidebar-btn" class="btn-secondary">Close</button>
 		</div>
 
-		<footer>
-			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
-		</footer>
-
 		<script>
-			const sessionId = "global";
+			const sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
+            localStorage.setItem("chatSessionId", sessionId);
+            let chatHistory = [];
 			let isTyping = false;
-			let voiceEnabled = false;
 
-			// --- UI TOGGLES ---
-			document.getElementById('toggle-sidebar-btn').onclick = () => {
-				document.getElementById('memory-sidebar').classList.add('open');
-				updateDashboard();
-			};
-			document.getElementById('close-sidebar-btn').onclick = () => {
-				document.getElementById('memory-sidebar').classList.remove('open');
-			};
+			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
+			document.getElementById('close-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.remove('open'); };
+			document.getElementById('theme-toggle-btn').onclick = () => { document.body.classList.toggle('theme-fancy'); };
 
-			document.getElementById('clear-screen-btn').onclick = () => {
-				document.getElementById('chat-messages').innerHTML = '';
-				appendMessage('assistant-message', "Screen cleared. How can I help you now?");
-			};
-
-			document.getElementById('new-chat-btn').onclick = () => {
-				const chatMessages = document.getElementById('chat-messages');
-				chatMessages.innerHTML = ''; 
-				appendMessage('assistant-message', "New session started. I'm Jolene, ready to assist with your documents, sports updates, or image generation. What's on your agenda?");
-				chatMessages.scrollTop = 0;
-			};
-
-			document.getElementById('theme-toggle-btn').onclick = () => {
-				document.body.classList.toggle('theme-fancy');
-			};
-
-			// --- SAFE WIPE HANDLER ---
-			document.getElementById('clear-vector-btn').onclick = async () => {
-				if(!confirm("This will reset your profile identity and chat history. Your R2 files and Vectorize memory will remain untouched. Proceed?")) return;
-				
-				try {
-					const res = await fetch('/api/wipe-knowledge', {
-						method: 'POST',
-						headers: { 'x-session-id': sessionId }
-					});
-					
-					if(res.ok) {
-						alert("Identity and history reset successfully.");
-						location.reload(); 
-					}
-				} catch (e) {
-					alert("Failed to reset identity.");
-				}
-			};
-
-			// --- VOICE TOGGLE ---
-			document.getElementById('voice-toggle-btn').onclick = () => {
-				voiceEnabled = !voiceEnabled;
-				const icon = document.getElementById('voice-icon');
-				const btn = document.getElementById('voice-toggle-btn');
-				if (voiceEnabled) {
-					icon.className = 'ph ph-speaker-high';
-					btn.style.borderColor = 'var(--primary-color)';
-					appendMessage('assistant-message', "System: Voice output enabled.");
-				} else {
-					icon.className = 'ph ph-speaker-slash';
-					btn.style.borderColor = 'var(--border-color)';
-					window.speechSynthesis.cancel();
-					appendMessage('assistant-message', "System: Voice output disabled.");
-				}
-			};
-
-			function speakText(text) {
-				if (!voiceEnabled) return;
-				const cleanText = text.replace(/[#*`_]/g, '');
-				const utterance = new SpeechSynthesisUtterance(cleanText);
-				window.speechSynthesis.speak(utterance);
-			}
-
-			// --- MODEL SWITCHER ---
-			document.getElementById('model-selector').onchange = (e) => {
-				const modelName = e.target.options[e.target.selectedIndex].text;
-				appendMessage('assistant-message', `System: Switching to ${modelName}. Ready.`);
-			};
-
-			// --- DASHBOARD SYNC ---
 			async function updateDashboard() {
-				try {
-					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
-					const data = await res.json();
-					
-					document.getElementById('kv-profile-display').innerText = data.profile;
-					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
-
-					// Map Durable Object data
-					if (data.durableObject) {
-						document.getElementById('do-id-display').innerText = data.durableObject.id;
-						document.getElementById('do-status-display').innerText = data.durableObject.state;
-					}
-					
-					const container = document.getElementById('chat-messages');
-					if (data.messages && data.messages.length > 0 && container.children.length <= 1) {
-						container.innerHTML = '';
-						data.messages.forEach(msg => {
-							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
-						});
-					}
-
-					const list = document.getElementById('file-list-display');
-					list.innerHTML = '';
-					
-					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
-						data.knowledgeAssets.forEach(f => {
-							const li = document.createElement('li');
-							li.innerHTML = `
-								<span>📄 ${f}</span>
-								<button class="delete-file-btn" onclick="deleteFile('${f}')">
-									<i class="ph ph-trash"></i>
-								</button>
-							`;
-							list.appendChild(li);
-						});
-					} else {
-						list.innerHTML = '<li>No assets in R2 storage.</li>';
-					}
-				} catch (e) { 
-					console.error("Dashboard error:", e); 
-					document.getElementById('file-list-display').innerHTML = '<li>Error connecting to storage.</li>';
-				}
+				const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
+				const data = await res.json();
+				document.getElementById('msg-count-display').innerText = data.messageCount;
+                if (data.durableObject) {
+                    document.getElementById('do-id-display').innerText = data.durableObject.id.substring(0, 8) + '...';
+                }
 			}
-
-			async function deleteFile(key) {
-				if(!confirm(`Are you sure you want to delete ${key}?`)) return;
-				try {
-					const res = await fetch('/api/delete-file', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ key })
-					});
-					if(res.ok) {
-						updateDashboard();
-					} else {
-						alert("Delete failed.");
-					}
-				} catch (e) {
-					alert("Error deleting file.");
-				}
-			}
-
-			async function loadHistory() {
-				try {
-					const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-					const data = await res.json();
-					const messages = data.messages || [];
-					const container = document.getElementById('chat-messages');
-					
-					if (messages.length > 0) {
-						container.innerHTML = '';
-						messages.forEach(msg => {
-							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
-						});
-					}
-				} catch (e) { console.error("History load failed", e); }
-			}
-
-			document.getElementById('memorize-file-btn').onclick = async () => {
-				const fileInput = document.getElementById('file-input');
-				if (!fileInput.files[0]) return alert("Select a file first");
-				const btn = document.getElementById('memorize-file-btn');
-				const originalHtml = btn.innerHTML;
-				btn.innerHTML = '<i class="ph ph-circle-notch"></i> Memorizing...';
-				const formData = new FormData();
-				formData.append('file', fileInput.files[0]);
-				try {
-					const res = await fetch('/api/memorize', {
-						method: 'POST',
-						body: formData,
-						headers: { 'x-session-id': sessionId }
-					});
-					if (res.ok) {
-						btn.innerHTML = '<i class="ph ph-check"></i> Memorized!';
-						setTimeout(() => btn.innerHTML = originalHtml, 2000);
-						updateDashboard();
-					}
-				} catch (e) { btn.innerHTML = originalHtml; alert("Upload failed."); }
-			};
 
 			async function sendMessage() {
 				const input = document.getElementById('user-input');
 				const content = input.value.trim();
 				if (!content || isTyping) return;
-				appendMessage('user-message', content);
+
+				appendMessage('user', content);
+                chatHistory.push({ role: 'user', content });
 				input.value = '';
 				showTyping(true);
+
 				try {
 					const res = await fetch('/api/chat', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ 
-							messages: [{ role: 'user', content }],
-							model: document.getElementById('model-selector').value 
-						})
+						body: JSON.stringify({ messages: chatHistory, model: document.getElementById('model-selector').value })
 					});
+					
 					const reader = res.body.getReader();
 					const decoder = new TextDecoder();
 					let assistantText = "";
+					
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
@@ -541,38 +249,27 @@
 						}
 					}
 					showTyping(false);
-					appendMessage('assistant-message', assistantText);
-					if (voiceEnabled) speakText(assistantText);
+					appendMessage('assistant', assistantText);
+                    chatHistory.push({ role: 'assistant', content: assistantText });
 					updateDashboard();
-				} catch (e) {
-					showTyping(false);
-					appendMessage('assistant-message', "Error. Please try again.");
-				}
+				} catch (e) { showTyping(false); }
 			}
 
-			function appendMessage(cls, text) {
+			function appendMessage(role, text) {
 				const container = document.getElementById('chat-messages');
 				const div = document.createElement('div');
-				div.className = `message ${cls}`;
-				if (cls === 'assistant-message') {
-					div.innerHTML = marked.parse(text);
-				} else {
-					div.innerText = text;
-				}
+				div.className = `message ${role}-message`;
+				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
 				container.appendChild(div);
 				container.scrollTop = container.scrollHeight;
 			}
 
-			function showTyping(show) {
-				isTyping = show;
-				document.getElementById('typing-indicator').classList.toggle('visible', show);
-			}
+			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 
 			document.getElementById('send-button').onclick = sendMessage;
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
 			
 			updateDashboard();
-			loadHistory();
 		</script>
 	</body>
 </html>
