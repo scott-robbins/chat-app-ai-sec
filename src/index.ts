@@ -103,19 +103,27 @@ export class ChatSession extends DurableObject<Env> {
 					- Correct result: ${isCorrect ? 'Correct' : 'Incorrect'}
 					- Explanation fact: ${correctText}
 					
+					STRICT GROUNDING RULE: 
+					- Use ONLY the Explanation Fact provided. 
+					- DO NOT bring in outside history (e.g., WWII, Founding dates not listed).
+					
 					TASK:
 					1. Address the user directly as "you". 
 					2. Tell them clearly if they were right or wrong (e.g., "That's exactly right!", "Actually, that's not quite correct.").
-					3. Explain the fact: "${correctText}".
+					3. Explain the fact strictly using: "${correctText}".
 					4. If this is Question 5, do NOT ask if they are ready for the next question.
-					5. If this is NOT Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
+					5. If this is NOT Question 5, you MUST end with the specific phrase: "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Always address the user as 'you'." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Always address the user as 'you'. Stick strictly to the provided UVA facts." }, { role: "user", content: graderPrompt }] 
 					});
 					let gradeTxt = gradeRun.response || gradeRun;
 
+					// Continuity Enforcement: If the AI failed to ask, append it.
 					if (index + 1 < pool.length) {
+						if (!gradeTxt.includes(`question ${index + 2}`)) {
+							gradeTxt += `\n\nReady for question ${index + 2}?`;
+						}
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
@@ -138,7 +146,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 					
 					const optionsLines = nextQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
-					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C (or say 'stop quiz')!*`;
+					const uiRes = `### 📝 UVA Academic Calendar Quiz: Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C (or say 'stop quiz')!*`;
 					
 					await this.saveMsg(sessionId, 'assistant', uiRes);
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
@@ -166,7 +174,7 @@ What academic information can I find for you today?`;
 					return this.initQuizPool(sessionId);
 				}
 
-				// --- STANDARD RAG ---
+				// --- STANDARD RAG CHAT ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const retrievalKey = activeMode === 'personal' ? "tax Scott Robbins" : "UVA Academic Calendar August 25 Registrar";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
