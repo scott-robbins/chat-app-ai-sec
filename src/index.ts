@@ -2,8 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"; // FIXED: Typo corrected from 'get' to 'bge'
-const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; 
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"; 
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -25,7 +24,6 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. DASHBOARD & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -45,72 +43,40 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 2. MEMORIZE (R2 Write & Vector Indexing) ---
-		if (url.pathname === "/api/memorize" && request.method === "POST") {
-			try {
-				const formData = await request.formData();
-				const file = formData.get("file") as File;
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-
-				await this.env.DOCUMENTS.put(file.name, await file.arrayBuffer(), {
-					customMetadata: { segment: activeMode }
-				});
-
-				const text = await file.text();
-				const chunks = text.match(/[\s\S]{1,1500}/g) || [];
-				
-				for (const chunk of chunks) {
-					const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-					await this.env.VECTORIZE.insert([{
-						id: crypto.randomUUID(),
-						values: embedding.data[0],
-						metadata: { text: chunk, segment: activeMode, source: file.name }
-					}]);
-				}
-
-				return new Response(JSON.stringify({ success: true }), { headers });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
-		}
-
-		// --- 3. CHAT ENGINE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase();
 
-				if (userMsg === "!!RESET_HISTORY") {
-					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
-				}
-
-				// --- IMAGE GENERATION HANDLER ---
-				if (lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("picture of")) {
-					const imagePrompt = userMsg.replace(/generate|draw|create|picture of|an image of/gi, "").trim();
-					const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: imagePrompt || "A dachshund in Cloudflare orange" });
-					
-					// FIXED: Proper binary to base64 conversion
-					const binaryString = String.fromCharCode(...new Uint8Array(imgBlob as ArrayBuffer));
-					const base64String = btoa(binaryString);
-					const responseText = `I've created that for you! \n\n![Generated Image](data:image/png;base64,${base64String})`;
-
+				// --- 1. DEDICATED MODE SWITCHER GATE ---
+				if (lowMsg.includes("switch to uva mode") || lowMsg.includes("activate uva mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					const uvaResponse = "### 🎓 UVA Mode Activated\nI have shifted my focus to your academic documents. I am now acting as your **UVA Academic Assistant**. I will prioritize the CS 4750 Syllabus for all retrieval requests.";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-						.bind(sessionId, "user", userMsg, sessionId, "assistant", responseText).run();
-
-					return new Response(`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`);
+						.bind(sessionId, "user", userMsg, sessionId, "assistant", uvaResponse).run();
+					return new Response(`data: ${JSON.stringify({ response: uvaResponse })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- STANDARD RAG LOGIC ---
+				if (lowMsg.includes("switch to personal mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const personalResponse = "### 🏠 Personal Mode Activated\nI am back in Personal Mode. I will prioritize your tax documents, family lore, and dog namesake history.";
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
+						.bind(sessionId, "user", userMsg, sessionId, "assistant", personalResponse).run();
+					return new Response(`data: ${JSON.stringify({ response: personalResponse })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- 2. STANDARD LOGIC ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
 				let webContext = "";
-				if (["celtics", "76ers", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
+				if (["celtics", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
 				}
 
 				const retrievalKey = activeMode === 'personal' 
-					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna dachshunds 2025 Tax Engagement Letter Cozby CPA fees deadlines base fee hourly rate` 
-					: `Syllabus CS 4750 Advisor Dr. Thomas Jefferson Thornton Hall`;
+					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna tax engagement` 
+					: `UVA CS 4750 Syllabus Instructor Advisor Thomas Jefferson Room Thornton Hall`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
@@ -118,26 +84,22 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				const sysPrompt = `### IDENTITY & ORIGIN:
-- USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
-- ASSISTANT: Jolene (Professional AI).
-- NAMING: You were named after Scott's oldest dog, Jolene (a Mini Dachshund). 
-- MUSIC LORE: The dog Jolene was named after the **Ray LaMontagne song "Jolene"**.
-- CRITICAL: You are an AI named after a dog. You were NOT named after the Dolly Parton song.
-- CAPABILITY: You CAN generate images using FLUX. When asked to draw, do so!
-
-### FAMILY & PETS:
-- Wife Renee (m. 2010), Daughter Bryana (31), Grandkids Callan (3) & Josie (2).
-- Dogs: Jolene (Your Namesake) and Hanna (Youngest). Both are Mini Dachshunds.
+				const sysPrompt = `### IDENTITY:
+- USER: Scott E Robbins. ASSISTANT: Jolene.
+- CURRENT MODE: ${activeMode === 'uva' ? 'UVA Academic Assistant' : 'Personal Assistant'}.
+- ORIGIN: Named after Scott's dog (named after Ray LaMontagne song). 
 
 ### CONTEXT:
 DATE: ${today}
 RETRIEVED_FILE_DATA: ${fileContext}
 RETRIEVED_WEB_DATA: ${webContext}
 
-### RULES:
-1. TAX DATA: Use RETRIEVED_FILE_DATA for Cozby & Company questions (Fees: $375/$275, Deadline: March 13).
-2. ORIGIN: If asked about your name, share the Ray LaMontagne connection.`;
+### UVA RULES (ACTIVE IF MODE IS UVA):
+1. Prioritize CS 4750 Syllabus info. If asked about an advisor or room, check FILE_DATA.
+2. Maintain a scholarly but helpful academic persona.
+
+### PERSONAL RULES (ACTIVE IF MODE IS PERSONAL):
+1. Prioritize Tax Letter ($375 fee) and family info.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
