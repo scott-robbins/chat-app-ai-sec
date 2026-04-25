@@ -109,7 +109,7 @@ export class ChatSession extends DurableObject<Env> {
 					
 					TASK:
 					1. Address the user directly as "you". 
-					2. Tell them clearly if they were right or wrong (e.g., "That's exactly right!", "Actually, that's not quite correct.").
+					2. Tell them clearly if they were right or wrong.
 					3. Explain the fact strictly using: "${correctText}".
 					4. If this is Question 5, do NOT ask if they are ready for the next question.
 					5. If this is NOT Question 5, you MUST end with the specific phrase: "Ready for question ${index + 2}?"`;
@@ -119,7 +119,6 @@ export class ChatSession extends DurableObject<Env> {
 					});
 					let gradeTxt = gradeRun.response || gradeRun;
 
-					// Continuity Enforcement: If the AI failed to ask, append it.
 					if (index + 1 < pool.length) {
 						if (!gradeTxt.includes(`question ${index + 2}`)) {
 							gradeTxt += `\n\nReady for question ${index + 2}?`;
@@ -140,8 +139,10 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// B. STATE: HANDLING "CONTINUE"
-				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ready") || lowMsg.includes("next") || lowMsg.includes("continue"))) {
+				// B. STATE: HANDLING "CONTINUE" (ROBUST FUZZY MATCHING)
+				const isContinueIntent = /^(yes|yea|yep|y|sure|ready|next|continue|ok|k|yers|go|bring it)/i.test(lowMsg) || lowMsg.includes("next question") || lowMsg.includes("ready");
+				
+				if (sessionState === "WAITING_FOR_CONTINUE" && isContinueIntent) {
 					const nextQ = pool[index];
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 					
@@ -150,6 +151,11 @@ export class ChatSession extends DurableObject<Env> {
 					
 					await this.saveMsg(sessionId, 'assistant', uiRes);
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
+				} else if (sessionState === "WAITING_FOR_CONTINUE" && !lowMsg.includes("switch")) {
+					// State Trap: Nudge the user back to the quiz if they type something unexpected like "yers"
+					const nudge = "Are you ready for the next question? Just say 'yes' or 'next' to continue, or 'stop quiz' to exit.";
+					await this.saveMsg(sessionId, 'assistant', nudge);
+					return new Response(`data: ${JSON.stringify({ response: nudge })}\n\ndata: [DONE]\n\n`);
 				}
 
 				// --- COMMANDS ---
