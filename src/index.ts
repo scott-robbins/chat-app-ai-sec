@@ -32,6 +32,9 @@ export class ChatSession extends DurableObject<Env> {
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
 				
+				// Check for active quiz state in DO storage
+				const currentQuiz = await this.ctx.storage.get("current_quiz_data");
+
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
 					messages: history.results, 
@@ -39,6 +42,7 @@ export class ChatSession extends DurableObject<Env> {
 					knowledgeAssets: storage.objects.map(o => o.key), 
 					status: "Live",
 					mode: activeMode,
+					activeQuiz: !!currentQuiz,
 					durableObject: { id: sessionId, state: "Active", location: "Cloudflare Edge" }
 				}), { headers });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
@@ -97,7 +101,51 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- RETRIEVAL ---
+				// --- REFINED QUIZ ENGINE ---
+				if (lowMsg === "generate quiz" || lowMsg === "start quiz") {
+					// 1. Strict retrieval based on active mode
+					const quizQuery = activeMode === 'uva' 
+						? "UVA Academic Calendar dates, courses start, recess, registrar contact" 
+						: "Tax organizer deadlines, base fees, and dog names";
+					
+					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
+					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
+					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
+
+					// 2. Instruct LLM to generate questions but HIDE answers
+					const quizPrompt = `### CONTEXT:
+${quizContext}
+
+### TASK:
+Generate a 3-question multiple-choice quiz based ONLY on the provided context.
+1. DO NOT include the correct answers in the visible response.
+2. Return ONLY a JSON array: [{"q": "question", "options": ["a", "b", "c"], "hidden_answer": "correct option text"}].`;
+
+					const quizGen = await this.env.AI.run(CONVERSATION_MODEL, {
+						messages: [
+							{ role: "system", content: "You are an academic examiner. Output ONLY raw JSON." }, 
+							{ role: "user", content: quizPrompt }
+						]
+					});
+
+					// 3. Persist quiz data in Durable Object state
+					await this.ctx.storage.put("current_quiz_data", quizGen.response);
+
+					// 4. Format UI response (No answers shown)
+					const quizData = JSON.parse(quizGen.response);
+					let uiResponse = `### 📝 ${activeMode === 'uva' ? 'UVA Knowledge Check' : 'Personal Knowledge Check'}\n\n`;
+					quizData.forEach((item: any, i: number) => {
+						uiResponse += `**${i+1}. ${item.q}**\n${item.options.map((o: string) => `- ${o}`).join("\n")}\n\n`;
+					});
+					uiResponse += "--- \n**Reply with your answers to see how you did!**";
+
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
+						.bind(sessionId, "user", userMsg, sessionId, "assistant", uiResponse).run();
+
+					return new Response(`data: ${JSON.stringify({ response: uiResponse })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- STANDARD RETRIEVAL & CHAT ---
 				let webContext = "";
 				if (["celtics", "76ers", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
@@ -113,13 +161,12 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				// --- REFINED DYNAMIC SYSTEM PROMPT (WITH GROUNDING RULES) ---
 				let sysPrompt = "";
 				if (activeMode === 'uva') {
 					sysPrompt = `### IDENTITY: UVA ACADEMIC ASSISTANT
 - USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
 - YOUR ROLE: You are Jolene, a professional academic aide for the University of Virginia.
-- **GROUNDING RULE**: You MUST use RETRIEVED_FILE_DATA for all dates and contact info. If the file says Fall courses start Aug 25 or Thanksgiving is Nov 25-29, use THOSE dates.
+- **GROUNDING RULE**: You MUST use RETRIEVED_FILE_DATA for all dates and contact info.
 - ACCESS RULE: Only discuss CS 4750 Syllabus and Academic Calendar info. 
 - DATA RESTRICTION: Do NOT discuss Scott's tax returns or family. State they are locked in Personal Mode.
 - NAMING: Named after Scott's dog, who was named after the Ray LaMontagne song.`;
