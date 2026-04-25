@@ -34,13 +34,13 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- 2. COMMAND CENTER SYNC (FULL HISTORY RESTORED) ---
+		// --- 2. COMMAND CENTER SYNC (RESTORED PROFILE & ASSETS) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				// Fetch history so the UI stays consistent on refresh
+				// Fetch history so the UI re-populates correctly on refresh
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				
 				const storage = await this.env.DOCUMENTS.list();
@@ -65,7 +65,7 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- IMMEDIATE USER MESSAGE PERSISTENCE ---
+				// --- IMMEDIATE PERSISTENCE (SAVE USER INPUT) ---
 				await this.saveMsg(sessionId, 'user', userMsg);
 
 				const sessionState = await this.ctx.storage.get("session_state");
@@ -86,7 +86,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
-						// Quiz finished, cleanup DO storage
+						// Cleanup quiz state
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.ctx.storage.delete("current_q_idx");
@@ -96,7 +96,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// B. STATE: HANDLING CONTINUE (YES/NEXT)
+				// B. STATE: HANDLING "YES/NEXT"
 				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("ready") || lowMsg.includes("sure") || lowMsg.includes("next"))) {
 					const nextQ = pool[index];
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
@@ -130,12 +130,15 @@ export class ChatSession extends DurableObject<Env> {
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
+				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
+				let sysPrompt = activeMode === 'uva' 
+					? `### ROLE: UVA Academic Study Companion. ONLY discuss UVA Academic Calendar. GROUNDING: Courses start Aug 25. Thanksgiving is Nov 25-29. Registrar is (434) 982-5300. LOCK PERSONAL RECORDS.` 
+					: `### ROLE: Personal Assistant. Discuss family/tax.`;
+				sysPrompt += ` Named after Scott's dog Jolene (Ray LaMontagne song).`;
+
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-					messages: [
-						{ role: "system", content: `You are Jolene. Mode: ${activeMode}. Ground all dates in: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar.` }, 
-						{ role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }
-					] 
+					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }] 
 				});
 				const chatTxt = chatRun.response || chatRun;
 
@@ -167,7 +170,7 @@ export class ChatSession extends DurableObject<Env> {
 			
 			const pool = JSON.parse(jsonMatch[0]);
 			
-			// INITIALIZE STATE IN DURABLE OBJECT
+			// INITIALIZE STATE IN DURABLE OBJECT STORAGE
 			await this.ctx.storage.put("quiz_pool", pool);
 			await this.ctx.storage.put("current_q_idx", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
@@ -186,6 +189,7 @@ export class ChatSession extends DurableObject<Env> {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(id);
+		// Ensure we pass the request to the Durable Object
+		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
