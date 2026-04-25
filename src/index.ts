@@ -7,154 +7,104 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	async searchWeb(query: string): Promise<string> {
-		try {
-			const response = await fetch("https://api.tavily.com/search", {
-				method: "POST", headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query, search_depth: "advanced", include_answer: true, max_results: 5 })
-			});
-			const data = await response.json() as any;
-			return data.answer || "No web results found.";
-		} catch (e) { return "Search failed."; }
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
-		const today = "Saturday, April 25, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PERSISTENCE FIX: D1 SQL HISTORY LOADER ---
+		// --- 1. PERSISTENCE FIX: RELIABLE HISTORY LOADER ---
 		if (url.pathname === "/api/history") {
-			try {
-				const history = await this.env.jolene_db.prepare(
-					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50"
-				).bind(sessionId).all();
-				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
-			} catch (e) { 
-				return new Response(JSON.stringify({ messages: [] }), { headers }); 
-			}
+			const history = await this.env.jolene_db.prepare(
+				"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50"
+			).bind(sessionId).all();
+			return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
 		}
 
-		// --- 2. DASHBOARD SYNC ---
 		if (url.pathname === "/api/profile") {
-			try {
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
-				const storage = await this.env.DOCUMENTS.list();
-				const currentQuiz = await this.ctx.storage.get("current_quiz_data");
+			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+			const storage = await this.env.DOCUMENTS.list();
+			const currentQuiz = await this.ctx.storage.get("active_quiz_question");
 
-				return new Response(JSON.stringify({ 
-					profile: "Scott E Robbins | Senior Solutions Engineer", 
-					messageCount: stats?.total || 0,
-					knowledgeAssets: storage.objects.map(o => o.key), 
-					status: "Live",
-					mode: activeMode,
-					activeQuiz: !!currentQuiz,
-					durableObject: { id: sessionId, state: "Active", location: "Cloudflare Edge" }
-				}), { headers });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
+			return new Response(JSON.stringify({ 
+				profile: "Scott E Robbins | Senior Solutions Engineer", 
+				messageCount: stats?.total || 0,
+				knowledgeAssets: storage.objects.map(o => o.key), 
+				mode: activeMode,
+				activeQuiz: !!currentQuiz,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
 		}
 
-		// --- 3. CHAT ENGINE (WITH STATEFUL GRADER) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- GRADER ENGINE: CATCH ANSWERS BEFORE CHAT ---
-				const currentQuizRaw = await this.ctx.storage.get("current_quiz_data");
-				if (currentQuizRaw) {
-					// Regex to detect letter patterns like "1A", "1. A", "A, B, C"
-					const isLetterPattern = /^[a-cA-C]$|^[0-9]\.?\s*[a-cA-C]|,\s*[a-cA-C]/i.test(lowMsg);
+				// --- 2. TUTOR MODE: SINGLE QUESTION GRADER ---
+				const activeQuiz = await this.ctx.storage.get("active_quiz_question") as any;
+				if (activeQuiz && /^[a-c]$/i.test(lowMsg)) {
+					const graderPrompt = `QUESTION: ${activeQuiz.q}\nCORRECT ANSWER: ${activeQuiz.hidden_answer}\nUSER ANSWER: ${userMsg}\nTASK: Tell the user if they were right. Provide a 1-sentence UVA-fact-based explanation. Then say "Ask for another question to keep going!"`;
 					
-					if (isLetterPattern || lowMsg.length < 12) {
-						const graderPrompt = `QUIZ DATA: ${currentQuizRaw}\nUSER ANSWER: "${userMsg}"\nTASK: Grade the user. Be encouraging but accurate to UVA facts. Show the correct answers for any they missed. Use Markdown.`;
-						const gradeRun = await this.env.AI.run(CONVERSATION_MODEL, { 
-							messages: [{ role: "system", content: "You are a UVA Study Companion. Grade the user's letter-based answers." }, { role: "user", content: graderPrompt }] 
-						});
+					const gradeRun = await this.env.AI.run(CONVERSATION_MODEL, { 
+						messages: [{ role: "system", content: "You are a UVA Tutor." }, { role: "user", content: graderPrompt }] 
+					});
 
-						await this.ctx.storage.delete("current_quiz_data"); // End quiz session
-						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
-							.bind(sessionId, userMsg, sessionId, gradeRun.response).run();
+					await this.ctx.storage.delete("active_quiz_question"); // Clear state
+					
+					// SAVE TO D1 IMMEDIATELY
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
+						.bind(sessionId, userMsg, sessionId, gradeRun.response).run();
 
-						return new Response(`data: ${JSON.stringify({ response: gradeRun.response })}\n\ndata: [DONE]\n\n`);
-					}
+					return new Response(`data: ${JSON.stringify({ response: gradeRun.response })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- MODE SWITCHERS ---
+				// --- 3. MODE SWITCHERS ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nI'm ready to quiz you on the syllabus or calendar.";
+					const res = "### 🎓 UVA Academic Study Companion Activated\nAsk me for a 'quiz question' to start studying!";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
-						.bind(sessionId, userMsg, sessionId, uvaRes).run();
-					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (lowMsg.includes("switch to personal mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const pRes = "### 🏠 Personal Assistant Mode Activated";
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
-						.bind(sessionId, userMsg, sessionId, pRes).run();
-					return new Response(`data: ${JSON.stringify({ response: pRes })}\n\ndata: [DONE]\n\n`);
+						.bind(sessionId, userMsg, sessionId, res).run();
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- QUIZ GENERATION ENGINE ---
-				if (lowMsg === "generate quiz") {
-					const quizQuery = activeMode === 'uva' ? "UVA Registrar phone, August 25 classes begin, Thanksgiving break dates" : "Tax fees $375 and deadlines";
-					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
-					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
-					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
+				// --- 4. TUTOR MODE: GENERATE ONE QUESTION ---
+				if (lowMsg.includes("quiz question") || lowMsg.includes("generate question")) {
+					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar dates registrar contact"] });
+					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 5, filter: { segment: "uva" }, returnMetadata: "all" });
+					const context = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
-					const quizPrompt = `Grounded in: ${quizContext}\nGenerate 3 MCQ questions. Label options A, B, C. Return raw JSON: [{"q":"...","options":["A. ...","B. ...","C. ..."],"hidden_answer":"A"}].`;
+					const prompt = `Based on: ${context}\nGenerate ONE MCQ. Options A, B, C. Return raw JSON: {"q":"...","options":["A...","B...","C..."],"hidden_answer":"A"}. No markdown.`;
+					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "JSON API" }, { role: "user", content: prompt }] });
 					
-					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You provide raw JSON quiz data with A, B, C options." }, { role: "user", content: quizPrompt }] 
-					});
+					let clean = (quizGen.response || quizGen).toString().replace(/```json|```/g, "").trim();
+					const qData = JSON.parse(clean);
+					await this.ctx.storage.put("active_quiz_question", qData); // Store one question
 
-					let raw = quizGen.response || quizGen;
-					let cleanText = (typeof raw === 'string') ? raw : JSON.stringify(raw);
-					cleanText = cleanText.replace(/```json|```/g, "").trim();
-
-					await this.ctx.storage.put("current_quiz_data", cleanText); // LOCK THE STATE
-					const quizData = JSON.parse(cleanText);
-					
-					let uiRes = `### 📝 UVA Study Quiz\n\n`;
-					quizData.forEach((item: any, i: number) => {
-						uiRes += `**${i+1}. ${item.q}**\n${item.options.map((o: string) => `- ${o}`).join("\n")}\n\n`;
-					});
-					uiRes += "--- \n**Reply with just the letters (e.g. '1A, 2B, 3C') to see your score!**";
-
+					const uiRes = `### 📝 Study Question\n**${qData.q}**\n${qData.options.join("\n")}\n\n*Reply with A, B, or C!*`;
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 						.bind(sessionId, userMsg, sessionId, uiRes).run();
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- STANDARD RAG CHAT ---
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar 2026 Registrar Thanksgiving Aug 25";
+				// --- 5. STANDARD RAG ---
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
-				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				let sysPrompt = activeMode === 'uva' 
-					? `UVA Academic Study Companion. Named after Scott's dog Jolene (Ray LaMontagne song). GROUNDING: Courses start Aug 25. Thanksgiving is Nov 25-29. Registrar is (434) 982-5300.` 
-					: `Personal Assistant. Named after dog Jolene (Ray LaMontagne song).`;
-
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
-					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
+					messages: [{ role: "system", content: `You are Jolene. Mode: ${activeMode}. Ground all dates in FILE_DATA.` }, { role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }] 
 				});
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 					.bind(sessionId, userMsg, sessionId, chatRun.response).run();
 
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { 
-				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); 
-			}
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
