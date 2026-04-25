@@ -24,6 +24,7 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Friday, April 24, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- 1. DASHBOARD & PROFILE ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -43,16 +44,44 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
+		// --- 2. MEMORIZE (R2 Write & Vector Indexing) ---
+		if (url.pathname === "/api/memorize" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+
+				await this.env.DOCUMENTS.put(file.name, await file.arrayBuffer(), {
+					customMetadata: { segment: activeMode }
+				});
+
+				const text = await file.text();
+				const chunks = text.match(/[\s\S]{1,1500}/g) || [];
+				
+				for (const chunk of chunks) {
+					const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+					await this.env.VECTORIZE.insert([{
+						id: crypto.randomUUID(),
+						values: embedding.data[0],
+						metadata: { text: chunk, segment: activeMode, source: file.name }
+					}]);
+				}
+
+				return new Response(JSON.stringify({ success: true }), { headers });
+			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
+		}
+
+		// --- 3. CHAT ENGINE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase();
 
-				// --- 1. DEDICATED MODE SWITCHER GATE ---
+				// --- MODE SWITCHER GATES ---
 				if (lowMsg.includes("switch to uva mode") || lowMsg.includes("activate uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaResponse = "### 🎓 UVA Mode Activated\nI have shifted my focus to your academic documents. I am now acting as your **UVA Academic Assistant**. I will prioritize the CS 4750 Syllabus for all retrieval requests.";
+					const uvaResponse = "### 🎓 UVA Mode Activated\nI am now your **UVA Academic Assistant**. I have locked away your personal files and am focusing exclusively on your CS 4750 Syllabus and academic needs.";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 						.bind(sessionId, "user", userMsg, sessionId, "assistant", uvaResponse).run();
 					return new Response(`data: ${JSON.stringify({ response: uvaResponse })}\n\ndata: [DONE]\n\n`);
@@ -60,15 +89,15 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const personalResponse = "### 🏠 Personal Mode Activated\nI am back in Personal Mode. I will prioritize your tax documents, family lore, and dog namesake history.";
+					const personalResponse = "### 🏠 Personal Mode Activated\nI am back in **Personal Assistant** mode. I have restored access to your tax documents, family details, and dog namesake history.";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 						.bind(sessionId, "user", userMsg, sessionId, "assistant", personalResponse).run();
 					return new Response(`data: ${JSON.stringify({ response: personalResponse })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. STANDARD LOGIC ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
+				// --- RETRIEVAL ---
 				let webContext = "";
 				if (["celtics", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
@@ -84,22 +113,23 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				const sysPrompt = `### IDENTITY:
-- USER: Scott E Robbins. ASSISTANT: Jolene.
-- CURRENT MODE: ${activeMode === 'uva' ? 'UVA Academic Assistant' : 'Personal Assistant'}.
-- ORIGIN: Named after Scott's dog (named after Ray LaMontagne song). 
-
-### CONTEXT:
-DATE: ${today}
-RETRIEVED_FILE_DATA: ${fileContext}
-RETRIEVED_WEB_DATA: ${webContext}
-
-### UVA RULES (ACTIVE IF MODE IS UVA):
-1. Prioritize CS 4750 Syllabus info. If asked about an advisor or room, check FILE_DATA.
-2. Maintain a scholarly but helpful academic persona.
-
-### PERSONAL RULES (ACTIVE IF MODE IS PERSONAL):
-1. Prioritize Tax Letter ($375 fee) and family info.`;
+				// --- DYNAMIC SYSTEM PROMPT (STRICT PERSONA LOCK) ---
+				let sysPrompt = "";
+				if (activeMode === 'uva') {
+					sysPrompt = `### IDENTITY: UVA ACADEMIC ASSISTANT
+- USER: Scott E Robbins. 
+- YOUR ROLE: You are a professional academic aide for the University of Virginia.
+- YOUR DATA: You ONLY have access to the CS 4750 Syllabus and academic records.
+- RULES: Do NOT answer questions about Scott's wife, dogs, or tax returns. If asked, politely remind the user you are in UVA Mode.
+- NAMING: You are Jolene. You were named after Scott's dog, who was named after the Ray LaMontagne song.`;
+				} else {
+					sysPrompt = `### IDENTITY: PERSONAL ASSISTANT
+- USER: Scott E Robbins. 
+- YOUR ROLE: You are Scott's personal assistant.
+- FAMILY & PETS: Wife Renee, Daughter Bryana, Grandkids Callan & Josie, Dogs Jolene & Hanna.
+- LORE: You are named after the dog Jolene (Ray LaMontagne song).
+- TAX DATA: Access to the Cozby CPA letter ($375 fee, March 13 deadline).`;
+				}
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
