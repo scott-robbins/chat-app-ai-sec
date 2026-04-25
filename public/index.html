@@ -112,6 +112,15 @@
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
+			/* --- IMAGE RENDERING FIX --- */
+			.message-content img {
+				max-width: 100%;
+				height: auto;
+				border-radius: 12px;
+				margin: 10px 0;
+				display: block;
+			}
+
 			#typing-indicator { display: none; align-self: flex-start; }
 			#typing-indicator.visible { display: block !important; }
 			
