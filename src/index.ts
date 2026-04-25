@@ -18,24 +18,32 @@ export class ChatSession extends DurableObject<Env> {
 	}
 
 	// --- HELPER: TAVILY WEB SEARCH ---
-	async tavilySearch(query: string) {
+	async tavilySearch(query: string, strictUva: boolean = false) {
 		try {
+			const searchBody: any = {
+				api_key: this.env.TAVILY_API_KEY || "", 
+				query: query, 
+				search_depth: "advanced",
+				include_answer: true,
+				max_results: 5
+			};
+
+			// If strictUva is true, we force the search to stay on campus domains
+			if (strictUva) {
+				searchBody.query = `site:news.virginia.edu OR site:virginia.edu ${query}`;
+			} else {
+				searchBody.query = `${query} (Search for current data in 2026)`;
+			}
+
 			const response = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} (Search for current data in 2026)`, 
-					search_depth: "advanced",
-					include_answer: true,
-					max_results: 5
-				})
+				body: JSON.stringify(searchBody)
 			});
 			const data: any = await response.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nURL: ${r.url}\nContent: ${r.content}`).join("\n\n") || "No real-time web results found.";
+			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No results found.";
 		} catch (e) {
-			console.error("Tavily Error:", e);
-			return "Web search is currently unavailable.";
+			return "Web search service is currently unavailable.";
 		}
 	}
 
@@ -51,9 +59,7 @@ export class ChatSession extends DurableObject<Env> {
 					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100"
 				).bind(sessionId).all();
 				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
-			} catch (e) { 
-				return new Response(JSON.stringify({ messages: [] }), { headers }); 
-			}
+			} catch (e) { return new Response(JSON.stringify({ messages: [] }), { headers }); }
 		}
 
 		// --- 2. COMMAND CENTER SYNC ---
@@ -77,64 +83,76 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR, SEARCH & MODES) ---
+		// --- 3. CHAT ENGINE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// Save User Input
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// --- FEATURE: MODE SWITCHING ---
-				if (lowMsg.includes("switch to uva mode") || lowMsg.includes("change mode to uva")) {
+				// --- FEATURE: MODE SWITCHING (WITH NEWS PROMPT) ---
+				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
+					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const uvaRes = `### 🎓 UVA Mode: Full Study Companion Activated
 I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
 
 **What I can do for you now:**
-- **Practice Quizzes**: I generate 5-question sessions grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
-- **Syllabus Analysis**: I can extract exam dates and grading policies from your uploads.
-- **Academic Tutoring**: I strictly follow your academic files.
+- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+- **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
 
-*Note: In this mode, I do not access personal files or the live web.*`;
+*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+
+**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				if (lowMsg.includes("switch to personal mode") || lowMsg.includes("change mode to personal")) {
+				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
+					await this.ctx.storage.delete("session_state");
 					const personalRes = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode. I now have broader access to help with your daily life.
+I have switched to your general Personal Assistant mode. 
 
 **What I can do for you now:**
-- **Real-Time Web Search**: I use **Tavily Search** for current sports scores, news, and weather.
+- **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
 - **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
-- **General Inquiries**: I leverage the live web for up-to-the-minute information.
 
 *Note: This mode is best for real-time information and personal organization.*`;
 					await this.saveMsg(sessionId, 'assistant', personalRes);
 					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- FEATURE: STOP QUIZ ---
-				if (lowMsg === "stop quiz" || lowMsg === "exit quiz" || lowMsg === "cancel quiz") {
-					await this.ctx.storage.delete("quiz_pool");
+				const sessionState = await this.ctx.storage.get("session_state");
+
+				// --- STATE: CAMPUS NEWS FETCH ---
+				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
-					await this.ctx.storage.delete("current_q_idx");
-					await this.ctx.storage.delete("quiz_score");
-					const stopRes = "### 🛑 Quiz Stopped\nI've cleared the session. I'm still in UVA mode and ready for your document questions!";
-					await this.saveMsg(sessionId, 'assistant', stopRes);
-					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
+					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("yeah")) {
+						const newsContext = await this.tavilySearch("current campus news and events", true);
+						const newsRun: any = await this.env.AI.run(CONVERSATION_MODEL, {
+							messages: [
+								{ role: "system", content: "You are Jolene. You just fetched the latest UVA news. Summarize it in a friendly way for the student. Mention that you used a specific curated search of UVA's newsroom." },
+								{ role: "user", content: `LATEST NEWS CONTEXT:\n${newsContext}\n\nPlease summarize this for me!` }
+							]
+						});
+						const newsTxt = newsRun.response || newsRun;
+						await this.saveMsg(sessionId, 'assistant', newsTxt);
+						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
+					} else {
+						const skipRes = "No problem! I'm ready whenever you have questions about your documents or if you want to start a quiz.";
+						await this.saveMsg(sessionId, 'assistant', skipRes);
+						return new Response(`data: ${JSON.stringify({ response: skipRes })}\n\ndata: [DONE]\n\n`);
+					}
 				}
 
-				const sessionState = await this.ctx.storage.get("session_state");
+				// --- STATE: QUIZ FLOW ---
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
 				let score = await this.ctx.storage.get("quiz_score") as number || 0;
 
-				// A. STATE: QUIZ GRADING
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c][\.\s]?$/i.test(lowMsg)) {
 					const currentQ = pool[index];
 					const userLetter = lowMsg[0].toUpperCase();
@@ -144,9 +162,7 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 					const correctText = currentQ.options[correctLetter.charCodeAt(0) - 65];
 
 					const graderPrompt = `USER: ${userLetter}, CORRECT: ${correctLetter}, RESULT: ${isCorrect ? 'Correct' : 'Incorrect'}, FACT: "${correctText}". Explain using 'you' and ask "Ready for question ${index + 2}?" if not last.`;
-					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Namesake: Scott's dog + Ray LaMontagne song from 'The Town' credits." }, { role: "user", content: graderPrompt }] 
-					});
+					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Namesake: Scott's dog + Ray LaMontagne song from 'The Town' credits." }, { role: "user", content: graderPrompt }] });
 					let gradeTxt = gradeRun.response || gradeRun;
 
 					if (index + 1 < pool.length) {
@@ -161,18 +177,7 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// B. STATE: HANDLING "CONTINUE"
-				const isContinue = /^(yes|yea|yep|y|sure|ready|next|continue|ok|k|yers|go)/i.test(lowMsg);
-				if (sessionState === "WAITING_FOR_CONTINUE" && isContinue) {
-					const nextQ = pool[index];
-					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-					const optionsLines = nextQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt}`).join('\n');
-					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C!*`;
-					await this.saveMsg(sessionId, 'assistant', uiRes);
-					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
-				}
-
-				// --- 4. CORE ENGINE: RAG + REAL-TIME SEARCH ---
+				// --- STANDARD RAG + SEARCH ENGINE ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let webContext = "";
 				let docContext = "";
@@ -191,17 +196,15 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) return this.initQuizPool(sessionId);
 
 				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-				
-				// --- THE IDENTITY ANCHOR (UPDATED WITH "THE TOWN" CREDITS STORY) ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 Identity: You are Jolene. You are a friendly AI Agent and a Full Study Companion.
-Namesake Story: You are named after your creator Scott Robbins' oldest dog, Jolene. Scott and his wife Rene were inspired to name their dog Jolene while hearing the song "Jolene" by the artist Ray LaMontagne playing during the credits of the movie "The Town". You, the AI, are named after that dog.
-CRITICAL: Do NOT mention Dolly Parton. Do NOT mention bank tellers. If asked about your namesake, you MUST tell the specific story involving Scott, Rene, their dog, Ray LaMontagne, and the movie "The Town".
+Namesake Story: You are named after your creator Scott Robbins' oldest dog, Jolene. Scott and his wife Rene were inspired to name their dog Jolene while hearing the song "Jolene" by the artist Ray LaMontagne playing during the credits of the movie "The Town". 
+CRITICAL: Do NOT mention Dolly Parton. Do NOT mention bank tellers. 
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}
 Current Date: ${today}. Always address user as 'you'. 
-PERSONAL MODE: You have access to live web (Tavily) and all documents. Use web results for current 2026 information.
-UVA MODE: You are a Full Study Companion. Access ONLY UVA documents. No web access. No personal file access. Focus on quizzes and syllabus help.`;
+PERSONAL MODE: Access to live web (Tavily) and all documents. Use web for 2026 data.
+UVA MODE: Access ONLY UVA documents. No general web access.`;
 
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
@@ -213,9 +216,7 @@ UVA MODE: You are a Full Study Companion. Access ONLY UVA documents. No web acce
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { 
-				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); 
-			}
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
