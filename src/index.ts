@@ -96,26 +96,23 @@ export class ChatSession extends DurableObject<Env> {
 					const correctIdx = correctLetter.charCodeAt(0) - 65;
 					const correctText = currentQ.options[correctIdx];
 
+					// STRENGTHENED GRADER PROMPT: Passes question context to prevent mixing facts
 					const graderPrompt = `
-					YOUR DATA:
+					CONTEXT:
+					- Question Asked: "${currentQ.q}"
 					- User answered: ${userLetter}
-					- Correct answer: ${correctLetter}
-					- Correct result: ${isCorrect ? 'Correct' : 'Incorrect'}
-					- Explanation fact: ${correctText}
+					- Correct result: The user is ${isCorrect ? 'CORRECT' : 'INCORRECT'}
+					- Correct answer text: "${correctText}"
 					
 					STRICT GROUNDING RULE: 
-					- Use ONLY the Explanation Fact provided. 
-					- DO NOT bring in outside history (e.g., WWII, Founding dates not listed).
-					
-					TASK:
-					1. Address the user directly as "you". 
-					2. Tell them clearly if they were right or wrong.
-					3. Explain the fact strictly using: "${correctText}".
-					4. If this is Question 5, do NOT ask if they are ready for the next question.
-					5. If this is NOT Question 5, you MUST end with the specific phrase: "Ready for question ${index + 2}?"`;
+					- Address the user directly as "you". 
+					- Your ONLY job is to explain the specific fact associated with the answer: "${correctText}".
+					- DO NOT reference unrelated dates (like founding years) unless they were the subject of the question.
+					- Stay supportive and friendly.
+					- If this isn't Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Always address the user as 'you'. Stick strictly to the provided UVA facts." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Study Companion. Ground your response strictly in the provided question and answer context." }, { role: "user", content: graderPrompt }] 
 					});
 					let gradeTxt = gradeRun.response || gradeRun;
 
@@ -127,7 +124,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
 						// FINAL SCORE ANNOUNCEMENT (QUIZ CONCLUSION)
-						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your overall score for this session is ${score}/5.**\n\nYou're becoming quite the UVA expert! I'm here to act as your full study companion, so you can ask me to start another quiz or analyze your documents whenever you're ready.`;
+						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your overall score for this session is ${score}/5.**\n\nYou're becoming quite the UVA expert! Remember, I am here as your full study companion—I can help you analyze your uploaded documents, generate more quizzes, or break down complex syllabus details whenever you're ready.`;
 						
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
@@ -139,7 +136,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// B. STATE: HANDLING "CONTINUE" (ROBUST FUZZY MATCHING)
+				// B. STATE: HANDLING "CONTINUE" (FUZZY MATCHING)
 				const isContinueIntent = /^(yes|yea|yep|y|sure|ready|next|continue|ok|k|yers|go|bring it)/i.test(lowMsg) || lowMsg.includes("next question") || lowMsg.includes("ready");
 				
 				if (sessionState === "WAITING_FOR_CONTINUE" && isContinueIntent) {
@@ -152,7 +149,6 @@ export class ChatSession extends DurableObject<Env> {
 					await this.saveMsg(sessionId, 'assistant', uiRes);
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 				} else if (sessionState === "WAITING_FOR_CONTINUE" && !lowMsg.includes("switch")) {
-					// State Trap: Nudge the user back to the quiz if they type something unexpected like "yers"
 					const nudge = "Are you ready for the next question? Just say 'yes' or 'next' to continue, or 'stop quiz' to exit.";
 					await this.saveMsg(sessionId, 'assistant', nudge);
 					return new Response(`data: ${JSON.stringify({ response: nudge })}\n\ndata: [DONE]\n\n`);
@@ -164,12 +160,12 @@ export class ChatSession extends DurableObject<Env> {
 					const uvaRes = `### 🎓 UVA Academic Study Companion Activated
 Welcome to your specialized UVA environment! I am Jolene, and I am here to act as your **Full Study Companion**. 
 
-I am powered by your uploaded University of Virginia documents and syllabus records. Beyond simple answers, I can act as a personal tutor—helping you master your course material through practice tools and deep document analysis.
+I am powered by your uploaded University of Virginia documents and syllabus records. Beyond simple answers, I can act as a personal tutor—helping you master your course material through practice tools, custom quizzes, and deep document analysis.
 
 **How I can support your studies today:**
 - **Custom Quizzes**: I can generate practice tests grounded in your specific documents. Say **'Start the UVA Academic Calendar Quiz'** to begin a 5-question challenge regarding important dates and deadlines.
 - **Syllabus & Course Insights**: Ask me to find exam dates, grading policies, or office hours hidden in your uploaded files.
-- **Administrative Navigation**: I can retrieve contact details for the UVA Registrar or departmental offices from your documents.
+- **Academic Timeline**: I have detailed knowledge of the Fall/Spring schedules.
 
 What academic goals can I help you achieve today?`;
 					
