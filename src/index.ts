@@ -77,13 +77,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH HYBRID SEARCH & MODES) ---
+		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR, SEARCH & MODES) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
+				// Save User Input
 				await this.saveMsg(sessionId, 'user', userMsg);
 
 				// --- FEATURE: MODE SWITCHING ---
@@ -118,7 +119,7 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 				}
 
 				// --- FEATURE: STOP QUIZ ---
-				if (lowMsg === "stop quiz" || lowMsg === "exit quiz") {
+				if (lowMsg === "stop quiz" || lowMsg === "exit quiz" || lowMsg === "cancel quiz") {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
 					await this.ctx.storage.delete("current_q_idx");
@@ -143,7 +144,9 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 					const correctText = currentQ.options[correctLetter.charCodeAt(0) - 65];
 
 					const graderPrompt = `USER: ${userLetter}, CORRECT: ${correctLetter}, RESULT: ${isCorrect ? 'Correct' : 'Incorrect'}, FACT: "${correctText}". Explain using 'you' and ask "Ready for question ${index + 2}?" if not last.`;
-					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Namesake: Scott's dog + Ray LaMontagne song." }, { role: "user", content: graderPrompt }] });
+					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
+						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Namesake: Scott's dog + Ray LaMontagne song from 'The Town' credits." }, { role: "user", content: graderPrompt }] 
+					});
 					let gradeTxt = gradeRun.response || gradeRun;
 
 					if (index + 1 < pool.length) {
@@ -189,16 +192,16 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 
 				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 				
-				// --- THE IDENTITY ANCHOR (REJECTS DOLLY PARTON) ---
+				// --- THE IDENTITY ANCHOR (UPDATED WITH "THE TOWN" CREDITS STORY) ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-Identity: You are Jolene. You are a friendly AI Agent. 
-Namesake Story: You are named after your creator Scott Robbins' beloved dog, Jolene. She was named after the famous song "Jolene" by the artist Ray LaMontagne.
-CRITICAL: Do NOT mention Dolly Parton. Do NOT mention bank tellers. If asked about your namesake, you MUST tell the story of Scott's dog and Ray LaMontagne.
+Identity: You are Jolene. You are a friendly AI Agent and a Full Study Companion.
+Namesake Story: You are named after your creator Scott Robbins' oldest dog, Jolene. Scott and his wife Rene were inspired to name their dog Jolene while hearing the song "Jolene" by the artist Ray LaMontagne playing during the credits of the movie "The Town". You, the AI, are named after that dog.
+CRITICAL: Do NOT mention Dolly Parton. Do NOT mention bank tellers. If asked about your namesake, you MUST tell the specific story involving Scott, Rene, their dog, Ray LaMontagne, and the movie "The Town".
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}
 Current Date: ${today}. Always address user as 'you'. 
-PERSONAL MODE: You have access to live web (Tavily) and all documents. Use web results for 2026 sports/news.
-UVA MODE: You are a Full Study Companion. Access ONLY UVA documents. No web. No personal files.`;
+PERSONAL MODE: You have access to live web (Tavily) and all documents. Use web results for current 2026 information.
+UVA MODE: You are a Full Study Companion. Access ONLY UVA documents. No web access. No personal file access. Focus on quizzes and syllabus help.`;
 
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
