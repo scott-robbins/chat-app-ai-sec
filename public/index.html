@@ -331,9 +331,18 @@
 		</footer>
 
 		<script>
-			const sessionId = "global";
+			// --- 1. PERSISTENT SESSION HANDSHAKE ---
+			function getSessionId() {
+				let id = localStorage.getItem('jolene_session_id');
+				if (!id) {
+					id = crypto.randomUUID();
+					localStorage.setItem('jolene_session_id', id);
+				}
+				return id;
+			}
+
+			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false;
 
 			// --- UI TOGGLES ---
 			document.getElementById('toggle-sidebar-btn').onclick = () => {
@@ -350,17 +359,22 @@
 			};
 
 			document.getElementById('new-chat-btn').onclick = () => {
+				// Generate a fresh session ID to start a new chat history chain
+				sessionId = crypto.randomUUID();
+				localStorage.setItem('jolene_session_id', sessionId);
+				
 				const chatMessages = document.getElementById('chat-messages');
 				chatMessages.innerHTML = ''; 
 				appendMessage('assistant-message', "New session started. I'm Jolene, ready to assist with your documents, sports updates, or image generation. What's on your agenda?");
 				chatMessages.scrollTop = 0;
+				updateDashboard();
 			};
 
 			document.getElementById('theme-toggle-btn').onclick = () => {
 				document.body.classList.toggle('theme-fancy');
 			};
 
-			// --- DASHBOARD SYNC ---
+			// --- DASHBOARD & HISTORY SYNC ---
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
@@ -381,6 +395,15 @@
 						document.getElementById('quiz-status').innerText = "Idle";
 					}
 					
+					// --- RESTORE HISTORY FROM D1 ---
+					if (data.messages && data.messages.length > 0) {
+						const chatMessages = document.getElementById('chat-messages');
+						chatMessages.innerHTML = ''; // Clear the initial welcome message
+						data.messages.forEach(msg => {
+							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false);
+						});
+					}
+
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
 					
@@ -438,13 +461,13 @@
 				}
 			}
 
-			function appendMessage(cls, text) {
+			function appendMessage(cls, text, scroll = true) {
 				const container = document.getElementById('chat-messages');
 				const div = document.createElement('div');
 				div.className = `message ${cls}`;
 				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
 				container.appendChild(div);
-				container.scrollTop = container.scrollHeight;
+				if (scroll) container.scrollTop = container.scrollHeight;
 			}
 
 			function showTyping(show) {
@@ -453,9 +476,9 @@
 			}
 
 			document.getElementById('send-button').onclick = sendMessage;
-			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
+			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
 			
-			// Initial sync
+			// Initial sync - pulls from D1 on load
 			updateDashboard();
 		</script>
 	</body>
