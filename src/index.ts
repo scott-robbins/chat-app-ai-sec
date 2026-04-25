@@ -127,8 +127,8 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
-						// FINAL SCORE ANNOUNCEMENT
-						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your final score is ${score}/5.**\n\nYou're becoming quite the UVA expert! You can say 'start a quiz' to try again or ask me anything else about UVA.`;
+						// FINAL SCORE ANNOUNCEMENT (QUIZ CONCLUSION)
+						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your overall score for this session is ${score}/5.**\n\nYou're becoming quite the UVA expert! I'm here to act as your full study companion, so you can ask me to start another quiz or analyze your documents whenever you're ready.`;
 						
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
@@ -156,15 +156,16 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const uvaRes = `### 🎓 UVA Academic Study Companion Activated
-Welcome to your specialized UVA environment. I am powered by your uploaded University of Virginia documents and syllabus records.
+Welcome to your specialized UVA environment! I am Jolene, and I am here to act as your **Full Study Companion**. 
 
-**Here is how I can assist you:**
-- **Administrative Support**: I can retrieve contact details for the UVA Registrar or departmental offices.
-- **Syllabus & Deadlines**: Ask about course policies, exam dates, or grading rubrics found in your documents.
-- **Academic Timeline**: I have detailed knowledge of the Fall/Spring schedules.
-- **Knowledge Check**: Simply say **'Start the UVA Academic Calendar Quiz'** to begin a 5-question challenge designed to test your knowledge of important dates and deadlines.
+I am powered by your uploaded University of Virginia documents and syllabus records. Beyond simple answers, I can act as a personal tutor—helping you master your course material through practice tools and deep document analysis.
 
-What academic information can I find for you today?`;
+**How I can support your studies today:**
+- **Custom Quizzes**: I can generate practice tests grounded in your specific documents. Say **'Start the UVA Academic Calendar Quiz'** to begin a 5-question challenge regarding important dates and deadlines.
+- **Syllabus & Course Insights**: Ask me to find exam dates, grading policies, or office hours hidden in your uploaded files.
+- **Administrative Navigation**: I can retrieve contact details for the UVA Registrar or departmental offices from your documents.
+
+What academic goals can I help you achieve today?`;
 					
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
