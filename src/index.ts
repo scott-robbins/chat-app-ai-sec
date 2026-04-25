@@ -34,7 +34,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- 2. COMMAND CENTER SYNC (FULL HISTORY RESTORED) ---
+		// --- 2. COMMAND CENTER SYNC (FIXES PERSISTENT CHAT) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -55,43 +55,43 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH HARDENED GRADER) ---
+		// --- 3. CHAT ENGINE (WITH HARDENED LOGIC-BASED GRADER) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// Save User Input
+				// Save User Input for persistence
 				await this.saveMsg(sessionId, 'user', userMsg);
 
 				const sessionState = await this.ctx.storage.get("session_state");
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
 
-				// A. STATE: GRADING THE ANSWER (FIXED TO REMOVE 0/1 ERRORS)
+				// A. STATE: GRADING (CODE-LEVEL VALIDATION)
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c][\.\s]?$/i.test(lowMsg)) {
 					const currentQ = pool[index];
 					const userLetter = lowMsg[0].toUpperCase();
 					const correctLetter = currentQ.hidden_answer.toUpperCase();
+					const isCorrect = userLetter === correctLetter;
 					
-					// Map index for correct answer text
 					const correctIdx = correctLetter.charCodeAt(0) - 65;
 					const correctText = currentQ.options[correctIdx];
 
-					const graderPrompt = `QUESTION: ${currentQ.q}
-					USER ANSWER: ${userLetter}
-					CORRECT LETTER: ${correctLetter}
-					CORRECT FACT TEXT: ${correctText}
+					// Force the AI to be a descriptive explainer rather than a logic gate
+					const graderPrompt = `USER ANSWERED: ${userLetter}
+					CORRECT ANSWER: ${correctLetter}
+					RESULT: The user is ${isCorrect ? 'CORRECT' : 'INCORRECT'}.
+					FACT: ${correctText}
 
-					TASK: Tell the user if they were correct.
-					CRITICAL: Always refer to the answer by its LETTER (A, B, or C). 
-					Do NOT mention indices like "0" or "1".
-					Explain the fact: "${correctText}".
-					Ask "Ready for question ${index + 2}?" if questions remain.`;
+					TASK:
+					1. State clearly if they were right or wrong. 
+					2. Explain the fact: "${correctText}".
+					3. If this was not the last question, you MUST end with exactly: "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are the UVA Academic Tutor. Ground every grade in the provided FACT TEXT." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are the UVA Academic Tutor. Ground your explanation strictly in the FACT provided." }, { role: "user", content: graderPrompt }] 
 					});
 					const gradeTxt = gradeRun.response || gradeRun;
 
@@ -161,7 +161,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async initQuizPool(sessionId: string): Promise<Response> {
 		try {
-			const facts = "UVA FACTS: 1. Fall 2026 courses begin Aug 25. 2. Thanksgiving recess is Nov 25-29. 3. Registrar phone is (434) 982-5300. 4. UVA was founded in 1819. 5. First classes began March 25, 1825.";
+			const facts = "VERIFIED UVA FACTS: 1. Fall 2026 courses begin August 25. 2. Thanksgiving recess is November 25-29. 3. Registrar phone is (434) 982-5300. 4. UVA was founded in 1819. 5. First classes began March 25, 1825.";
 			const prompt = `${facts}\nTASK: Generate EXACTLY 5 MCQ questions. Return a raw JSON array ONLY: [{"q":"Question Text","options":["Option 1","Option 2","Option 3"],"hidden_answer":"A"}].`;
 			
 			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON-only API." }, { role: "user", content: prompt }] });
