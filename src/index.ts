@@ -17,6 +17,28 @@ export class ChatSession extends DurableObject<Env> {
 		}
 	}
 
+	// --- HELPER: TAVILY WEB SEARCH ---
+	async tavilySearch(query: string) {
+		try {
+			const response = await fetch('https://api.tavily.com/search', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: query,
+					search_depth: "basic",
+					include_answer: true,
+					max_results: 3
+				})
+			});
+			const data: any = await response.json();
+			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No search results found.";
+		} catch (e) {
+			console.error("Tavily Error:", e);
+			return "Web search is currently unavailable.";
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -55,7 +77,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR, SCORING & STOP QUIZ) ---
+		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR, SEARCH & MODES) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -64,6 +86,37 @@ export class ChatSession extends DurableObject<Env> {
 
 				// Save User Input
 				await this.saveMsg(sessionId, 'user', userMsg);
+
+				// --- FEATURE: MODE SWITCHING (EXPLICIT HANDSHAKE) ---
+				if (lowMsg.includes("switch to uva mode") || lowMsg.includes("change mode to uva")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					const uvaRes = `### 🎓 UVA Mode: Full Study Companion Activated
+I am now in specialized Study Companion mode. In this mode, I focus exclusively on your University of Virginia documents and academic materials.
+
+**What I can do for you now:**
+- **Practice Quizzes**: I can generate 5-question sessions grounded in your UVA documents to test your knowledge. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+- **Deep Document Analysis**: I can extract exam dates, grading rubrics, and specific syllabus details from your uploads.
+- **Academic Tutoring**: I can break down complex topics using your provided study aids.
+
+*Note: In this mode, I strictly follow your academic files and do not access personal documents or general web search.*`;
+					await this.saveMsg(sessionId, 'assistant', uvaRes);
+					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
+				}
+
+				if (lowMsg.includes("switch to personal mode") || lowMsg.includes("change mode to personal")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const personalRes = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched to your general Personal Assistant mode. I now have broader access to help with your daily life and real-time inquiries.
+
+**What I can do for you now:**
+- **Real-Time Web Search**: I can use **Tavily Search** to find current sports scores, news, or weather.
+- **Personal Document Access**: I can help you with your personal tax documents, family notes, and non-academic files.
+- **General Brainstorming**: Ask me anything on your mind!
+
+*Note: In this mode, I leverage the live web for the most up-to-date information.*`;
+					await this.saveMsg(sessionId, 'assistant', personalRes);
+					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
+				}
 
 				// --- FEATURE: STOP QUIZ ---
 				if (lowMsg === "stop quiz" || lowMsg === "exit quiz" || lowMsg === "cancel quiz") {
@@ -96,23 +149,26 @@ export class ChatSession extends DurableObject<Env> {
 					const correctIdx = correctLetter.charCodeAt(0) - 65;
 					const correctText = currentQ.options[correctIdx];
 
-					// STRENGTHENED GRADER PROMPT: Passes question context to prevent mixing facts
 					const graderPrompt = `
-					CONTEXT:
-					- Question Asked: "${currentQ.q}"
+					YOUR DATA:
 					- User answered: ${userLetter}
-					- Correct result: The user is ${isCorrect ? 'CORRECT' : 'INCORRECT'}
-					- Correct answer text: "${correctText}"
+					- Correct answer: ${correctLetter}
+					- Correct result: ${isCorrect ? 'Correct' : 'Incorrect'}
+					- Explanation fact: ${correctText}
 					
 					STRICT GROUNDING RULE: 
-					- Address the user directly as "you". 
-					- Your ONLY job is to explain the specific fact associated with the answer: "${correctText}".
-					- DO NOT reference unrelated dates (like founding years) unless they were the subject of the question.
-					- Stay supportive and friendly.
-					- If this isn't Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
+					- Use ONLY the Explanation Fact provided. 
+					- DO NOT bring in outside history.
+					
+					TASK:
+					1. Address the user directly as "you". 
+					2. Tell them clearly if they were right or wrong.
+					3. Explain the fact strictly using: "${correctText}".
+					4. If this is Question 5, do NOT ask if they are ready for the next question.
+					5. If this is NOT Question 5, you MUST end with the specific phrase: "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Study Companion. Ground your response strictly in the provided question and answer context." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Always address the user as 'you'." }, { role: "user", content: graderPrompt }] 
 					});
 					let gradeTxt = gradeRun.response || gradeRun;
 
@@ -124,7 +180,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
 						// FINAL SCORE ANNOUNCEMENT (QUIZ CONCLUSION)
-						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your overall score for this session is ${score}/5.**\n\nYou're becoming quite the UVA expert! Remember, I am here as your full study companion—I can help you analyze your uploaded documents, generate more quizzes, or break down complex syllabus details whenever you're ready.`;
+						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your overall score for this session is ${score}/5.**\n\nYou're becoming quite the UVA expert! I'm here to act as your full study companion, so you can ask me to start another quiz or analyze your documents whenever you're ready.`;
 						
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
@@ -137,8 +193,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// B. STATE: HANDLING "CONTINUE" (FUZZY MATCHING)
-				const isContinueIntent = /^(yes|yea|yep|y|sure|ready|next|continue|ok|k|yers|go|bring it)/i.test(lowMsg) || lowMsg.includes("next question") || lowMsg.includes("ready");
-				
+				const isContinueIntent = /^(yes|yea|yep|y|sure|ready|next|continue|ok|k|yers|go|bring it)/i.test(lowMsg);
 				if (sessionState === "WAITING_FOR_CONTINUE" && isContinueIntent) {
 					const nextQ = pool[index];
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
@@ -154,40 +209,27 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: nudge })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- COMMANDS ---
-				if (lowMsg.includes("switch to uva mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaRes = `### 🎓 UVA Academic Study Companion Activated
-Welcome to your specialized UVA environment! I am Jolene, and I am here to act as your **Full Study Companion**. 
-
-I am powered by your uploaded University of Virginia documents and syllabus records. Beyond simple answers, I can act as a personal tutor—helping you master your course material through practice tools, custom quizzes, and deep document analysis.
-
-**How I can support your studies today:**
-- **Custom Quizzes**: I can generate practice tests grounded in your specific documents. Say **'Start the UVA Academic Calendar Quiz'** to begin a 5-question challenge regarding important dates and deadlines.
-- **Syllabus & Course Insights**: Ask me to find exam dates, grading policies, or office hours hidden in your uploaded files.
-- **Academic Timeline**: I have detailed knowledge of the Fall/Spring schedules.
-
-What academic goals can I help you achieve today?`;
-					
-					await this.saveMsg(sessionId, 'assistant', uvaRes);
-					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz") || lowMsg.includes("start the uva academic calendar quiz")) {
-					return this.initQuizPool(sessionId);
-				}
-
-				// --- STANDARD RAG CHAT ---
+				// --- 4. CORE ENGINE: RAG OR REAL-TIME SEARCH ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const retrievalKey = activeMode === 'personal' ? "tax Scott Robbins" : "UVA Academic Calendar August 25 Registrar";
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
-				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
-				
+				let context = "";
+
+				if (activeMode === 'personal') {
+					// PERSONAL MODE: Trigger Tavily Search for real-time knowledge
+					context = await this.tavilySearch(userMsg);
+				} else {
+					// UVA MODE: Trigger Vectorize RAG for document knowledge
+					const retrievalKey = "UVA Academic Calendar August 25 Registrar phone";
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: "uva" }, returnMetadata: "all" });
+					context = matches.matches.map(m => m.metadata.text).join("\n");
+				}
+
+				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) return this.initQuizPool(sessionId);
+
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
-						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar. Always address the user directly as 'you'.` }, 
-						{ role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }
+						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving. Always address user as 'you'. Use the context provided to answer correctly.` }, 
+						{ role: "user", content: `Context:\n${context}\n\nQuestion: ${userMsg}` }
 					] 
 				});
 				const chatTxt = chatRun.response || chatRun;
