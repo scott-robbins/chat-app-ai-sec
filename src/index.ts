@@ -24,19 +24,12 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Saturday, April 25, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PERSISTENCE FIX: HISTORY LOADER ---
+		// --- 1. PERSISTENCE FIX: D1 SQL LOADER ---
 		if (url.pathname === "/api/history") {
-			try {
-				const history = await this.env.jolene_db.prepare(
-					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50"
-				).bind(sessionId).all();
-				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
-			} catch (e) { 
-				return new Response(JSON.stringify({ messages: [], error: e.message }), { headers }); 
-			}
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
+			return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
 		}
 
-		// --- 2. DASHBOARD SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -56,31 +49,13 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. MEMORIZE (R2 & VECTOR) ---
-		if (url.pathname === "/api/memorize" && request.method === "POST") {
-			try {
-				const formData = await request.formData();
-				const file = formData.get("file") as File;
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				await this.env.DOCUMENTS.put(file.name, await file.arrayBuffer(), { customMetadata: { segment: activeMode } });
-				const text = await file.text();
-				const chunks = text.match(/[\s\S]{1,1500}/g) || [];
-				for (const chunk of chunks) {
-					const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-					await this.env.VECTORIZE.insert([{ id: crypto.randomUUID(), values: embedding.data[0], metadata: { text: chunk, segment: activeMode, source: file.name } }]);
-				}
-				return new Response(JSON.stringify({ success: true }), { headers });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
-		}
-
-		// --- 4. CHAT ENGINE (WITH PERSISTENCE & QUIZ FIX) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase();
 
-				// MODE SWITCHERS (Grounded in Identity)
+				// --- MODE SWITCHERS ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nI am now focusing exclusively on your UVA materials. Personal records are locked.";
@@ -99,17 +74,21 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// QUIZ ENGINE (Safe Parser + Persona Lock)
+				// --- QUIZ ENGINE: STRICT CONTENT LOCK ---
 				if (lowMsg === "generate quiz") {
-					const quizQuery = activeMode === 'uva' ? "UVA Fall 2026 courses start, Thanksgiving recess, Registrar phone" : "Tax fees and deadlines";
+					const quizQuery = activeMode === 'uva' ? "UVA Registrar phone, August 25 classes begin, Thanksgiving break dates" : "Tax preparation $375 fee";
 					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
-					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
+					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
 					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
-					const quizPrompt = `Generate a 3-question multiple-choice quiz based ONLY on: ${quizContext}. Output ONLY a raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"..."}]. NO markdown backticks.`;
+					// PROMPT RE-ORDERED TO PREVENT FORMATTING HALLUCINATIONS
+					const quizPrompt = `Grounded strictly in this data: ${quizContext}\n\nGenerate a 3-question Multiple Choice Quiz about UVA DATES and CONTACT INFO. 
+					FORMAT REQUIREMENT: Output raw JSON array ONLY. 
+					STRUCTURE: [{"q": "Question Text", "options": ["a", "b", "c"], "hidden_answer": "correct option"}].
+					CRITICAL: Do NOT quiz the user about JSON or technology. Quiz them about UVA academic dates.`;
 					
 					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are a JSON-only Academic Examiner." }, { role: "user", content: quizPrompt }] 
+						messages: [{ role: "system", content: "You are a UVA Professor. You provide quiz data in JSON format only." }, { role: "user", content: quizPrompt }] 
 					});
 
 					let raw = quizGen.response || quizGen;
@@ -123,22 +102,24 @@ export class ChatSession extends DurableObject<Env> {
 					quizData.forEach((item: any, i: number) => {
 						uiRes += `**${i+1}. ${item.q}**\n${item.options.map((o: string) => `- ${o}`).join("\n")}\n\n`;
 					});
-					uiRes += "*Reply with your answers!*";
+					uiRes += "--- \n*Reply with your answers!*";
 
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 						.bind(sessionId, userMsg, sessionId, uiRes).run();
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// STANDARD RAG CHAT
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar 2026";
+				// --- STANDARD RAG CHAT ---
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar 2026 Registrar Thanksgiving Aug 25";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
 				let sysPrompt = activeMode === 'uva' 
-					? `### ROLE: UVA Academic Study Companion. ONLY discuss Syllabus/Calendar. Courses start Aug 25, 2026. Thanksgiving is Nov 25-29, 2026. Registrar is (434) 982-5300. LOCK PERSONAL RECORDS.` 
+					? `### ROLE: UVA Academic Study Companion. ONLY discuss UVA Academic Calendar data. 
+					   GROUNDING: Courses start Aug 25. Thanksgiving is Nov 25-29. Registrar is (434) 982-5300.
+					   LOCK: Refuse all family/tax/job questions.` 
 					: `### ROLE: Personal Assistant. Discuss family/tax.`;
 				sysPrompt += ` Named after Scott's dog Jolene (Ray LaMontagne song).`;
 
