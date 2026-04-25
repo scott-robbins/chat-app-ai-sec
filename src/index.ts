@@ -24,12 +24,19 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Saturday, April 25, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PERSISTENCE FIX: D1 SQL LOADER ---
+		// --- 1. PERSISTENCE: D1 SQL HISTORY LOADER ---
 		if (url.pathname === "/api/history") {
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
-			return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
+			try {
+				const history = await this.env.jolene_db.prepare(
+					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50"
+				).bind(sessionId).all();
+				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
+			} catch (e) { 
+				return new Response(JSON.stringify({ messages: [] }), { headers }); 
+			}
 		}
 
+		// --- 2. DASHBOARD & PROFILE SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -49,6 +56,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
+		// --- 3. CHAT ENGINE (WITH GRADER & PERSISTENCE FIX) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -74,21 +82,45 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- QUIZ ENGINE: STRICT CONTENT LOCK ---
+				// --- NEW: QUIZ GRADER ENGINE (STATEFUL AGENT) ---
+				const currentQuizRaw = await this.ctx.storage.get("current_quiz_data");
+				if (currentQuizRaw) {
+					// Check if message looks like an answer (1., A, B, C, or date format)
+					const isAnswering = /^[0-9]\.|^[a-cA-C]\b|aug|nov|sep|mar/i.test(lowMsg);
+					
+					if (isAnswering) {
+						const graderPrompt = `### QUIZ DATA (JSON):
+						${currentQuizRaw}
+						### USER ANSWER:
+						"${userMsg}"
+						### TASK:
+						Compare the User Answer to the 'hidden_answer' for each question. 
+						Provide a score and explain corrections based strictly on UVA dates. Output friendly Markdown.`;
+
+						const gradeRun = await this.env.AI.run(CONVERSATION_MODEL, { 
+							messages: [{ role: "system", content: "You are a grading assistant for UVA." }, { role: "user", content: graderPrompt }] 
+						});
+
+						await this.ctx.storage.delete("current_quiz_data"); // End the quiz session
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
+							.bind(sessionId, userMsg, sessionId, gradeRun.response).run();
+
+						return new Response(`data: ${JSON.stringify({ response: gradeRun.response })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+
+				// --- QUIZ GENERATION ENGINE ---
 				if (lowMsg === "generate quiz") {
 					const quizQuery = activeMode === 'uva' ? "UVA Registrar phone, August 25 classes begin, Thanksgiving break dates" : "Tax preparation $375 fee";
 					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
 					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
 					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
-					// PROMPT RE-ORDERED TO PREVENT FORMATTING HALLUCINATIONS
-					const quizPrompt = `Grounded strictly in this data: ${quizContext}\n\nGenerate a 3-question Multiple Choice Quiz about UVA DATES and CONTACT INFO. 
-					FORMAT REQUIREMENT: Output raw JSON array ONLY. 
-					STRUCTURE: [{"q": "Question Text", "options": ["a", "b", "c"], "hidden_answer": "correct option"}].
-					CRITICAL: Do NOT quiz the user about JSON or technology. Quiz them about UVA academic dates.`;
+					const quizPrompt = `Grounded strictly in this data: ${quizContext}\n\nGenerate a 3-question MCQ about UVA DATES. 
+					Return raw JSON array: [{"q": "...", "options": ["a", "b", "c"], "hidden_answer": "..."}]. NO markdown.`;
 					
 					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are a UVA Professor. You provide quiz data in JSON format only." }, { role: "user", content: quizPrompt }] 
+						messages: [{ role: "system", content: "You are a UVA Professor providing raw JSON." }, { role: "user", content: quizPrompt }] 
 					});
 
 					let raw = quizGen.response || quizGen;
@@ -102,7 +134,7 @@ export class ChatSession extends DurableObject<Env> {
 					quizData.forEach((item: any, i: number) => {
 						uiRes += `**${i+1}. ${item.q}**\n${item.options.map((o: string) => `- ${o}`).join("\n")}\n\n`;
 					});
-					uiRes += "--- \n*Reply with your answers!*";
+					uiRes += "--- \n*Reply with your answers (e.g. '1. Aug 25') to see your score!*";
 
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 						.bind(sessionId, userMsg, sessionId, uiRes).run();
@@ -117,9 +149,7 @@ export class ChatSession extends DurableObject<Env> {
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
 				let sysPrompt = activeMode === 'uva' 
-					? `### ROLE: UVA Academic Study Companion. ONLY discuss UVA Academic Calendar data. 
-					   GROUNDING: Courses start Aug 25. Thanksgiving is Nov 25-29. Registrar is (434) 982-5300.
-					   LOCK: Refuse all family/tax/job questions.` 
+					? `### ROLE: UVA Academic Study Companion. ONLY discuss UVA Academic Calendar. GROUNDING: Courses start Aug 25. Thanksgiving is Nov 25-29. Registrar is (434) 982-5300. LOCK PERSONAL RECORDS.` 
 					: `### ROLE: Personal Assistant. Discuss family/tax.`;
 				sysPrompt += ` Named after Scott's dog Jolene (Ray LaMontagne song).`;
 
