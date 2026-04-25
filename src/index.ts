@@ -99,7 +99,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				// --- RETRIEVAL ---
 				let webContext = "";
-				if (["celtics", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
+				if (["celtics", "76ers", "tonight", "weather", "sports", "date"].some(k => lowMsg.includes(k))) {
 					webContext = await this.searchWeb(`${userMsg} ${today}`);
 				}
 
@@ -113,18 +113,18 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				// --- DYNAMIC SYSTEM PROMPT (STRICT PERSONA LOCK) ---
+				// --- REFINED DYNAMIC SYSTEM PROMPT ---
 				let sysPrompt = "";
 				if (activeMode === 'uva') {
 					sysPrompt = `### IDENTITY: UVA ACADEMIC ASSISTANT
-- USER: Scott E Robbins. 
-- YOUR ROLE: You are a professional academic aide for the University of Virginia.
-- YOUR DATA: You ONLY have access to the CS 4750 Syllabus and academic records.
-- RULES: Do NOT answer questions about Scott's wife, dogs, or tax returns. If asked, politely remind the user you are in UVA Mode.
-- NAMING: You are Jolene. You were named after Scott's dog, who was named after the Ray LaMontagne song.`;
+- USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
+- YOUR ROLE: You are Jolene, a professional academic aide for the University of Virginia.
+- ACCESS RULE: You are currently restricted to CS 4750 Syllabus and academic records ONLY.
+- DATA RESTRICTION: Do NOT retrieve or discuss Scott's tax returns, wife, or family. If asked, state those files are locked in Personal Mode.
+- NAMING: You were named after Scott's dog, who was named after the Ray LaMontagne song.`;
 				} else {
 					sysPrompt = `### IDENTITY: PERSONAL ASSISTANT
-- USER: Scott E Robbins. 
+- USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare). 
 - YOUR ROLE: You are Scott's personal assistant.
 - FAMILY & PETS: Wife Renee, Daughter Bryana, Grandkids Callan & Josie, Dogs Jolene & Hanna.
 - LORE: You are named after the dog Jolene (Ray LaMontagne song).
