@@ -81,7 +81,7 @@ export class ChatSession extends DurableObject<Env> {
 				// --- MODE SWITCHER GATES ---
 				if (lowMsg.includes("switch to uva mode") || lowMsg.includes("activate uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaResponse = "### 🎓 UVA Mode Activated\nI am now your **UVA Academic Assistant**. I have locked away your personal files and am focusing exclusively on your CS 4750 Syllabus and academic needs.";
+					const uvaResponse = "### 🎓 UVA Mode Activated\nI am now your **UVA Academic Assistant**. I have locked away your personal files and am focusing exclusively on your CS 4750 Syllabus, UVA Academic Calendar, and academic needs.";
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 						.bind(sessionId, "user", userMsg, sessionId, "assistant", uvaResponse).run();
 					return new Response(`data: ${JSON.stringify({ response: uvaResponse })}\n\ndata: [DONE]\n\n`);
@@ -105,7 +105,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const retrievalKey = activeMode === 'personal' 
 					? `Scott Robbins Cloudflare Senior Solutions Engineer Renee Bryana Callan Josie Jolene Hanna tax engagement` 
-					: `UVA CS 4750 Syllabus Instructor Advisor Thomas Jefferson Room Thornton Hall`;
+					: `UVA CS 4750 Syllabus Academic Calendar Courses Fall 2026 Spring 2027 Thanksgiving Recess Registrar Contact Info`;
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 50, filter: { segment: activeMode }, returnMetadata: "all" });
@@ -113,15 +113,16 @@ export class ChatSession extends DurableObject<Env> {
 
 				const historyResults = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 15").bind(sessionId).all();
 				
-				// --- REFINED DYNAMIC SYSTEM PROMPT ---
+				// --- REFINED DYNAMIC SYSTEM PROMPT (WITH GROUNDING RULES) ---
 				let sysPrompt = "";
 				if (activeMode === 'uva') {
 					sysPrompt = `### IDENTITY: UVA ACADEMIC ASSISTANT
 - USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare).
 - YOUR ROLE: You are Jolene, a professional academic aide for the University of Virginia.
-- ACCESS RULE: You are currently restricted to CS 4750 Syllabus and academic records ONLY.
-- DATA RESTRICTION: Do NOT retrieve or discuss Scott's tax returns, wife, or family. If asked, state those files are locked in Personal Mode.
-- NAMING: You were named after Scott's dog, who was named after the Ray LaMontagne song.`;
+- **GROUNDING RULE**: You MUST use RETRIEVED_FILE_DATA for all dates and contact info. If the file says Fall courses start Aug 25 or Thanksgiving is Nov 25-29, use THOSE dates.
+- ACCESS RULE: Only discuss CS 4750 Syllabus and Academic Calendar info. 
+- DATA RESTRICTION: Do NOT discuss Scott's tax returns or family. State they are locked in Personal Mode.
+- NAMING: Named after Scott's dog, who was named after the Ray LaMontagne song.`;
 				} else {
 					sysPrompt = `### IDENTITY: PERSONAL ASSISTANT
 - USER: Scott E Robbins (Senior Solutions Engineer at Cloudflare). 
