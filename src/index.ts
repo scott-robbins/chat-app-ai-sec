@@ -13,7 +13,7 @@ export class ChatSession extends DurableObject<Env> {
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
 		} catch (e) {
-			console.error("D1 Persistence Error:", e);
+			console.error("D1 Sync Error:", e);
 		}
 	}
 
@@ -40,7 +40,7 @@ export class ChatSession extends DurableObject<Env> {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				// CRITICAL: Fetch full history so the UI re-populates chat bubbles on refresh
+				// CRITICAL: Force history reload to fix "Persistent Chat" issue
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				
 				const storage = await this.env.DOCUMENTS.list();
@@ -75,10 +75,10 @@ export class ChatSession extends DurableObject<Env> {
 				// A. STATE: GRADING ANSWER (A, B, or C)
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c]$/i.test(lowMsg)) {
 					const currentQ = pool[index];
-					const graderPrompt = `QUESTION: ${currentQ.q}\nOPTIONS: ${JSON.stringify(currentQ.options)}\nCORRECT_FACT: ${currentQ.hidden_answer}\nUSER_ANSWER: ${userMsg}\nTASK: Grade the user. Be encouraging. Explain using the UVA fact: ${currentQ.hidden_answer}. If they have questions left, say "Ready for question ${index + 2}?" otherwise say "Quiz complete!"`;
+					const graderPrompt = `QUESTION: ${currentQ.q}\nCORRECT_FACT: ${currentQ.hidden_answer}\nUSER_ANSWER: ${userMsg}\n\nTASK: Grade the user. You MUST reference this specific fact: ${currentQ.hidden_answer}. If wrong, explain why. If right, be enthusiastic. If more questions remain, ask "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are the UVA Academic Study Companion Tutor." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are the UVA Academic Tutor." }, { role: "user", content: graderPrompt }] 
 					});
 					const gradeTxt = gradeRun.response || gradeRun;
 
@@ -86,7 +86,6 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
-						// Quiz finished, cleanup
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.ctx.storage.delete("current_q_idx");
@@ -97,10 +96,14 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// B. STATE: HANDLING CONTINUE (YES/NEXT)
-				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("ready") || lowMsg.includes("sure") || lowMsg.includes("next"))) {
+				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ready") || lowMsg.includes("next"))) {
 					const nextQ = pool[index];
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o: string) => `${o}`).join("\n")}\n\n*Reply A, B, or C!*`;
+					
+					// FIXED: Force labels A, B, C programmatically
+					const optionsLines = nextQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
+					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C!*`;
+					
 					await this.saveMsg(sessionId, 'assistant', uiRes);
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 				}
@@ -108,7 +111,7 @@ export class ChatSession extends DurableObject<Env> {
 				// --- COMMANDS ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nAsk me to 'start a quiz' to begin your 5-question study session.";
+					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nSay 'start a quiz' to begin your 5-question study session.";
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
 				}
@@ -126,7 +129,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				// --- STANDARD RAG CHAT ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Academic Calendar August 25 Registrar phone (434) 982-5300";
+				const retrievalKey = activeMode === 'personal' ? "tax Scott Robbins" : "UVA Academic Calendar August 25 Registrar";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
 				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
@@ -154,31 +157,33 @@ export class ChatSession extends DurableObject<Env> {
 		return new Response("OK");
 	}
 
-	// --- HELPER: INITIALIZE 5-QUESTION QUIZ POOL ---
+	// --- HELPER: INITIALIZE 5-QUESTION QUIZ POOL (HARDENED JSON) ---
 	async initQuizPool(sessionId: string): Promise<Response> {
 		try {
 			const facts = "UVA FACTS: 1. Fall 2026 courses begin Aug 25. 2. Thanksgiving recess is Nov 25-29. 3. Registrar phone is (434) 982-5300. 4. UVA was founded in 1819. 5. First classes began March 25, 1825.";
 			const prompt = `${facts}\nTASK: Generate EXACTLY 5 MCQ questions. 
-			REQUIREMENT: Every option must be prefixed with 'A. ', 'B. ', or 'C. '.
-			Return a raw JSON array ONLY: [{"q":"Question Text","options":["A. Option Text","B. Option Text","C. Option Text"],"hidden_answer":"A"}].`;
+			JSON SCHEMA: [{"q":"Question Text","options":["Option 1","Option 2","Option 3"],"hidden_answer":"A"}]
+			RULES: Output ONLY a raw JSON array. NO markdown. No intro.`;
 			
 			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-				messages: [{ role: "system", content: "You are a JSON-only Academic API." }, { role: "user", content: prompt }] 
+				messages: [{ role: "system", content: "You are a JSON-only API." }, { role: "user", content: prompt }] 
 			});
 			
-			const raw = typeof quizGen.response === 'string' ? quizGen.response : JSON.stringify(quizGen.response || quizGen);
-			const jsonMatch = raw.match(/\[[\s\S]*\]/);
+			let raw = typeof quizGen.response === 'string' ? quizGen.response : JSON.stringify(quizGen.response || quizGen);
+			const jsonMatch = raw.match(/\[[\s\S]*\]/); // Regex to grab the array
 			if (!jsonMatch) throw new Error("AI failed to build question pool.");
 			
 			const pool = JSON.parse(jsonMatch[0]);
 			
-			// INITIALIZE STATE
 			await this.ctx.storage.put("quiz_pool", pool);
 			await this.ctx.storage.put("current_q_idx", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 			const firstQ = pool[0];
-			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o: string) => `${o}`).join("\n")}\n\n*Reply with A, B, or C!*`;
+			// Programmatic label injection to guarantee A, B, C
+			const optionsText = firstQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
+			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${optionsText}\n\n*Reply with A, B, or C!*`;
+			
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) {
