@@ -26,7 +26,7 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/history") {
 			try {
 				const history = await this.env.jolene_db.prepare(
-					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50"
+					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100"
 				).bind(sessionId).all();
 				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
 			} catch (e) { 
@@ -34,21 +34,21 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- 2. COMMAND CENTER SYNC (FULL HISTORY RESTORED) ---
+		// --- 2. COMMAND CENTER SYNC (FIXES PERSISTENT CHAT) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 				
-				// CRITICAL: Force history reload to fix "Persistent Chat" issue
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
+				// CRITICAL: We must fetch history here so the UI can re-populate the chat on refresh
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 				
 				const storage = await this.env.DOCUMENTS.list();
 				const activePool = await this.ctx.storage.get("quiz_pool");
 
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
-					messages: history.results || [],
+					messages: history.results || [], // RESTORES CHAT ON REFRESH
 					messageCount: stats?.total || 0,
 					knowledgeAssets: storage.objects.map(o => o.key), 
 					mode: activeMode,
@@ -65,20 +65,29 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// IMMEDIATE PERSISTENCE (SAVE USER INPUT)
+				// Save User Input for persistence
 				await this.saveMsg(sessionId, 'user', userMsg);
 
 				const sessionState = await this.ctx.storage.get("session_state");
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
 
-				// A. STATE: GRADING ANSWER (A, B, or C)
+				// A. STATE: GRADING ANSWER (STRICT LETTER FOCUS)
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c]$/i.test(lowMsg)) {
 					const currentQ = pool[index];
-					const graderPrompt = `QUESTION: ${currentQ.q}\nCORRECT_FACT: ${currentQ.hidden_answer}\nUSER_ANSWER: ${userMsg}\n\nTASK: Grade the user. You MUST reference this specific fact: ${currentQ.hidden_answer}. If wrong, explain why. If right, be enthusiastic. If more questions remain, ask "Ready for question ${index + 2}?"`;
+					
+					// FIXED: Grader prompt now explicitly demands Letter labels to stop the "1" and "2" confusion
+					const graderPrompt = `QUESTION: ${currentQ.q}
+					OPTIONS PROVIDED: A, B, and C.
+					THE CORRECT LETTER IS: ${currentQ.hidden_answer}
+					USER ANSWERED: ${userMsg}
+
+					TASK: Tell the user if they are correct. 
+					CRITICAL: Always refer to the answer by its LETTER (A, B, or C). Do NOT use numbers like "1" or "2".
+					Explain the fact clearly. If questions remain, ask "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are the UVA Academic Tutor." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are the UVA Academic Tutor. You only use letters (A, B, C) for grading." }, { role: "user", content: graderPrompt }] 
 					});
 					const gradeTxt = gradeRun.response || gradeRun;
 
@@ -96,11 +105,11 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// B. STATE: HANDLING CONTINUE (YES/NEXT)
-				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ready") || lowMsg.includes("next"))) {
+				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("ready") || lowMsg.includes("sure") || lowMsg.includes("next"))) {
 					const nextQ = pool[index];
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 					
-					// FIXED: Force labels A, B, C programmatically
+					// Force label rendering
 					const optionsLines = nextQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
 					const uiRes = `### 📝 Question ${index + 1} of 5\n**${nextQ.q}**\n\n${optionsLines}\n\n*Reply A, B, or C!*`;
 					
@@ -163,14 +172,14 @@ export class ChatSession extends DurableObject<Env> {
 			const facts = "UVA FACTS: 1. Fall 2026 courses begin Aug 25. 2. Thanksgiving recess is Nov 25-29. 3. Registrar phone is (434) 982-5300. 4. UVA was founded in 1819. 5. First classes began March 25, 1825.";
 			const prompt = `${facts}\nTASK: Generate EXACTLY 5 MCQ questions. 
 			JSON SCHEMA: [{"q":"Question Text","options":["Option 1","Option 2","Option 3"],"hidden_answer":"A"}]
-			RULES: Output ONLY a raw JSON array. NO markdown. No intro.`;
+			RULES: Options must NOT include letters. Output ONLY a raw JSON array. NO markdown. No intro.`;
 			
 			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 				messages: [{ role: "system", content: "You are a JSON-only API." }, { role: "user", content: prompt }] 
 			});
 			
 			let raw = typeof quizGen.response === 'string' ? quizGen.response : JSON.stringify(quizGen.response || quizGen);
-			const jsonMatch = raw.match(/\[[\s\S]*\]/); // Regex to grab the array
+			const jsonMatch = raw.match(/\[[\s\S]*\]/); 
 			if (!jsonMatch) throw new Error("AI failed to build question pool.");
 			
 			const pool = JSON.parse(jsonMatch[0]);
@@ -180,7 +189,6 @@ export class ChatSession extends DurableObject<Env> {
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 			const firstQ = pool[0];
-			// Programmatic label injection to guarantee A, B, C
 			const optionsText = firstQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
 			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${optionsText}\n\n*Reply with A, B, or C!*`;
 			
