@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
 const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; 
 
 export class ChatSession extends DurableObject<Env> {
@@ -76,7 +76,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (With Image Gen Logic) ---
+		// --- 3. CHAT ENGINE (With Hardened Image Gen & Ray LaMontagne Origin) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -89,14 +89,14 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- IMAGE GENERATION HANDLER ---
+				// --- IMAGE GENERATION HANDLER (FIXED ENCODING) ---
 				if (lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("picture of")) {
 					const imagePrompt = userMsg.replace(/generate|draw|create|picture of|an image of/gi, "").trim();
 					const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: imagePrompt || "A dachshund in Cloudflare orange" });
 					
-					const binary = String.fromCharCode(...new Uint8Array(imgBlob));
-					const base64 = btoa(binary);
-					const responseText = `I've created that for you! \n\n![Generated Image](data:image/png;base64,${base64})`;
+					// FIXED: Convert binary to base64 using Uint8Array for browser-safe rendering
+					const base64String = btoa(String.fromCharCode(...new Uint8Array(imgBlob as ArrayBuffer)));
+					const responseText = `I've created that for you! \n\n![Generated Image](data:image/png;base64,${base64String})`;
 
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
 						.bind(sessionId, "user", userMsg, sessionId, "assistant", responseText).run();
@@ -141,7 +141,8 @@ RETRIEVED_WEB_DATA: ${webContext}
 
 ### RULES:
 1. TAX DATA: Use RETRIEVED_FILE_DATA for Cozby & Company questions (Fees: $375/$275, Deadline: March 13).
-2. ORIGIN: If asked about your name, share the Ray LaMontagne connection.`;
+2. MANDATORY: Scott's dogs are JOLENE and HANNA. 
+3. ORIGIN: If asked about your name, clarify that you were named after Scott's dog, who was named after the Ray LaMontagne song.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
