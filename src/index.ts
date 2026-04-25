@@ -24,26 +24,28 @@ export class ChatSession extends DurableObject<Env> {
 		const today = "Saturday, April 25, 2026"; 
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. RESTORED: PERSISTENT HISTORY (D1) ---
+		// --- 1. PERSISTENCE FIX: HISTORY LOADER ---
 		if (url.pathname === "/api/history") {
 			try {
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
-				return new Response(JSON.stringify({ messages: history.results }), { headers });
-			} catch (e) { return new Response(JSON.stringify({ messages: [] }), { headers }); }
+				const history = await this.env.jolene_db.prepare(
+					"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50"
+				).bind(sessionId).all();
+				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
+			} catch (e) { 
+				return new Response(JSON.stringify({ messages: [], error: e.message }), { headers }); 
+			}
 		}
 
-		// --- 2. DASHBOARD & PROFILE ---
+		// --- 2. DASHBOARD SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
 				const currentQuiz = await this.ctx.storage.get("current_quiz_data");
 
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
-					messages: history.results, 
 					messageCount: stats?.total || 0,
 					knowledgeAssets: storage.objects.map(o => o.key), 
 					status: "Live",
@@ -71,48 +73,47 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 4. CHAT & QUIZ ENGINE ---
+		// --- 4. CHAT ENGINE (WITH PERSISTENCE & QUIZ FIX) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase();
 
-				// MODE SWITCHING
+				// MODE SWITCHERS (Grounded in Identity)
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nI am now focusing exclusively on CS 4750 and the Academic Calendar. Personal files are locked.";
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-						.bind(sessionId, "user", userMsg, sessionId, "assistant", uvaRes).run();
+					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nI am now focusing exclusively on your UVA materials. Personal records are locked.";
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
+						.bind(sessionId, userMsg, sessionId, uvaRes).run();
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const pRes = "### 🏠 Personal Assistant Mode Activated\nI have restored access to your family and tax records.";
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-						.bind(sessionId, "user", userMsg, sessionId, "assistant", pRes).run();
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
+						.bind(sessionId, userMsg, sessionId, pRes).run();
 					return new Response(`data: ${JSON.stringify({ response: pRes })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// QUIZ ENGINE
+				// QUIZ ENGINE (Safe Parser + Persona Lock)
 				if (lowMsg === "generate quiz") {
-					const quizQuery = activeMode === 'uva' ? "Fall 2026 courses start, Thanksgiving recess Nov 25, Registrar (434) 982-5300" : "Tax fees $375 and deadlines";
+					const quizQuery = activeMode === 'uva' ? "UVA Fall 2026 courses start, Thanksgiving recess, Registrar phone" : "Tax fees and deadlines";
 					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
 					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
 					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
-					const quizPrompt = `Based ONLY on: ${quizContext}\nGenerate a 3-question multiple-choice quiz. Return ONLY a raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"..."}]. NO markdown.`;
+					const quizPrompt = `Generate a 3-question multiple-choice quiz based ONLY on: ${quizContext}. Output ONLY a raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"..."}]. NO markdown backticks.`;
 					
 					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are a JSON-only API." }, { role: "user", content: quizPrompt }] 
+						messages: [{ role: "system", content: "You are a JSON-only Academic Examiner." }, { role: "user", content: quizPrompt }] 
 					});
 
-					// --- ULTIMATE SAFE PARSER ---
-					let result = quizGen.response || quizGen;
-					let cleanText = (typeof result === 'string') ? result : JSON.stringify(result);
+					let raw = quizGen.response || quizGen;
+					let cleanText = (typeof raw === 'string') ? raw : JSON.stringify(raw);
 					cleanText = cleanText.replace(/```json|```/g, "").trim();
 
 					await this.ctx.storage.put("current_quiz_data", cleanText);
@@ -124,8 +125,8 @@ export class ChatSession extends DurableObject<Env> {
 					});
 					uiRes += "*Reply with your answers!*";
 
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-						.bind(sessionId, "user", userMsg, sessionId, "assistant", uiRes).run();
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
+						.bind(sessionId, userMsg, sessionId, uiRes).run();
 					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 				}
 
@@ -145,8 +146,8 @@ export class ChatSession extends DurableObject<Env> {
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
 				});
 
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
-					.bind(sessionId, "user", userMsg, sessionId, "assistant", chatRun.response).run();
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
+					.bind(sessionId, userMsg, sessionId, chatRun.response).run();
 
 				return new Response(`data: ${JSON.stringify({ response: chatRun.response })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { 
