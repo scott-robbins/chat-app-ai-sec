@@ -12,7 +12,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PERSISTENCE FIX: MANDATORY D1 HISTORY LOAD ---
+		// --- 1. PERSISTENCE: D1 SQL HISTORY LOADER ---
 		if (url.pathname === "/api/history") {
 			try {
 				const history = await this.env.jolene_db.prepare(
@@ -24,14 +24,17 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
+		// --- 2. DASHBOARD SYNC ---
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+			const storage = await this.env.DOCUMENTS.list();
 			const activeQuiz = await this.ctx.storage.get("active_quiz_question");
 
 			return new Response(JSON.stringify({ 
 				profile: "Scott E Robbins | Senior Solutions Engineer", 
 				messageCount: stats?.total || 0,
+				knowledgeAssets: storage.objects.map(o => o.key), 
 				mode: activeMode,
 				activeQuiz: !!activeQuiz,
 				durableObject: { id: sessionId, state: "Active" }
@@ -44,53 +47,95 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- 2. TUTOR MODE: GRADER (RECOGNIZES BORDERLINE ANSWERS) ---
+				// --- STEP A: SAVE USER MESSAGE TO D1 IMMEDIATELY ---
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?)")
+					.bind(sessionId, userMsg).run();
+
+				// --- 3. TUTOR MODE: GRADER ---
 				const activeQuiz = await this.ctx.storage.get("active_quiz_question") as any;
 				if (activeQuiz && /^[a-c]$/i.test(lowMsg)) {
-					const graderPrompt = `QUESTION: ${activeQuiz.q}\nCORRECT: ${activeQuiz.hidden_answer}\nUSER: ${userMsg}\nTASK: Grade the user. Ground your explanation in UVA facts: Courses start Aug 25, Thanksgiving is Nov 25-29, Registrar phone is (434) 982-5300. Tell them to ask for another 'quiz question' to continue.`;
-					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "UVA Tutor" }, { role: "user", content: graderPrompt }] });
+					const graderPrompt = `QUESTION: ${activeQuiz.q}\nCORRECT: ${activeQuiz.hidden_answer}\nUSER_ANSWER: ${userMsg}\nTASK: Grade the user. Ground your explanation in UVA facts: Courses start Aug 25, Thanksgiving is Nov 25-29, Registrar phone is (434) 982-5300. Tell them to ask for another 'quiz question' to continue.`;
+					
+					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a UVA Study Companion." }, { role: "user", content: graderPrompt }] });
 					const gradeText = gradeRun.response || gradeRun;
 
 					await this.ctx.storage.delete("active_quiz_question");
 					
-					// SYNC TO D1 BEFORE RETURN
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
-						.bind(sessionId, userMsg, sessionId, gradeText).run();
+					// SAVE ASSISTANT RESPONSE
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'assistant', ?)")
+						.bind(sessionId, gradeText).run();
 
 					return new Response(`data: ${JSON.stringify({ response: gradeText })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. MODE SWITCHERS (PERSISTENT) ---
+				// --- 4. MODE SWITCHERS ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = "### 🎓 UVA Academic Study Companion Activated\nAsk me for a 'quiz question' based on your calendar!";
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
-						.bind(sessionId, userMsg, sessionId, res).run();
+					const res = "### 🎓 UVA Academic Study Companion Activated\nAsk me for a 'quiz question' to start studying!";
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'assistant', ?)")
+						.bind(sessionId, res).run();
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				if (lowMsg.includes("switch to personal mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const res = "### 🏠 Personal Assistant Mode Activated";
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'assistant', ?)")
+						.bind(sessionId, res).run();
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- 4. TUTOR MODE: GROUNDED GENERATION (FIXES HALLUCINATIONS) ---
+				// --- 5. TUTOR MODE: GROUNDED GENERATION ---
 				if (lowMsg.includes("quiz question") || lowMsg.includes("generate a quiz")) {
 					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar 2026 Fall classes begin August 25 Thanksgiving break November 25 Registrar phone (434) 982-5300"] });
 					const quizMatches = await this.env.VECTORIZE.query(quizVector.data[0], { topK: 5, filter: { segment: "uva" }, returnMetadata: "all" });
 					const context = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
-					const prompt = `CONTEXT: ${context}\nTASK: Generate ONE MCQ about UVA academic dates ONLY. Options A, B, C. Format: {"q":"...","options":["A...","B...","C..."],"hidden_answer":"A"}. No markdown.`;
-					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "JSON API" }, { role: "user", content: prompt }] });
+					const prompt = `CONTEXT: ${context}\nTASK: Generate ONE MCQ about UVA academic dates ONLY. Options A, B, C. Format: {"q":"...","options":["A...","B...","C..."],"hidden_answer":"A"}. No markdown. No intro.`;
+					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON-only Academic API." }, { role: "user", content: prompt }] });
 					
 					let rawContent = quizGen.response || quizGen;
-					let clean = typeof rawContent === 'string' ? rawContent.replace(/
-http://googleusercontent.com/immersive_entry_chip/0
+					let clean = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+					// Safe cleanup without breaking regex
+					clean = clean.replace("```json", "").replace("```", "").trim();
+					
+					const qData = JSON.parse(clean);
+					await this.ctx.storage.put("active_quiz_question", qData); 
 
-### 🧠 Why this reaches the "Final State" for your demo:
-* **Persistence Synchronicity**: By placing the `INSERT INTO messages` SQL command inside every logic branch *before* the final response is returned, the Worker is forced to commit the chat history to the **D1 database** while it still has active execution time. This ensures that even if you refresh the browser mid-conversation, the messages will be waiting in the history loader.
-* **Absolute Grounding**: The `quizVector` and system prompts are now hard-coded with the key document facts: **August 25** course start, **November 25-29** Thanksgiving recess, and the **(434) 982-5300** Registrar phone number. This prevents the AI from defaulting to its training data (like the capital of France) when generating study questions.
-* **Safe Data Parsing**: The `typeof rawContent === 'string'` check prevents the "[object Object]" error by gracefully converting non-string AI outputs into a parsable JSON string before the `JSON.parse()` step.
+					const uiRes = `### 📝 Study Question\n**${qData.q}**\n${qData.options.join("\n")}\n\n*Reply with A, B, or C!*`;
+					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'assistant', ?)")
+						.bind(sessionId, uiRes).run();
+					return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
+				}
 
-**Deploy this, refresh your page, and follow this flow:**
-1.  Type: *"Switch to UVA Mode"*
-2.  Type: *"Jolene, give me a quiz question."*
-3.  Answer with *"A"* (even if wrong) to see the **UVA Tutor** persona grade you.
-4.  **Refresh** to prove the persistent chat history is fixed.
+				// --- 6. STANDARD RAG ---
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins Cloudflare" : "UVA Syllabus Academic Calendar Courses begin August 25";
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
+				const fileContext = matches.matches.map(m => m.metadata.text).join("\n");
+				
+				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
+					messages: [{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar.` }, { role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }] 
+				});
+				const chatText = chatRun.response || chatRun;
+
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'assistant', ?)")
+					.bind(sessionId, chatText).run();
+
+				return new Response(`data: ${JSON.stringify({ response: chatText })}\n\ndata: [DONE]\n\n`);
+			} catch (e: any) { 
+				return new Response(`data: ${JSON.stringify({ response: "System Error: " + e.message })}\n\ndata: [DONE]\n\n`); 
+			}
+		}
+		return new Response("OK");
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
