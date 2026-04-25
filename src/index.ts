@@ -34,16 +34,21 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- 2. COMMAND CENTER SYNC ---
+		// --- 2. COMMAND CENTER SYNC (RESTORED HISTORY FETCH) ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+				
+				// CRITICAL FIX: Fetch history so the UI can reload it on refresh
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
+				
 				const storage = await this.env.DOCUMENTS.list();
 				const activeQuiz = await this.ctx.storage.get("active_quiz_question");
 
 				return new Response(JSON.stringify({ 
 					profile: "Scott E Robbins | Senior Solutions Engineer", 
+					messages: history.results || [], // RESTORED
 					messageCount: stats?.total || 0,
 					knowledgeAssets: storage.objects.map(o => o.key), 
 					mode: activeMode,
@@ -69,7 +74,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				// A. STATE: GRADING THE ANSWER
 				if (sessionState === "WAITING_FOR_ANSWER" && activeQuiz && /^[a-c]$/i.test(lowMsg)) {
-					const graderPrompt = `QUESTION: ${activeQuiz.q}\nCORRECT: ${activeQuiz.hidden_answer}\nUSER: ${userMsg}\nTASK: Grade the user. Be the UVA Academic Study Companion. Fact: ${activeQuiz.hidden_answer}. End with "Would you like another question?"`;
+					const graderPrompt = `QUESTION: ${activeQuiz.q}\nCORRECT: ${activeQuiz.hidden_answer}\nUSER: ${userMsg}\nTASK: Grade the user. Be the UVA Academic Study Companion. Facts: Courses start Aug 25, Thanksgiving Nov 25-29, Registrar (434) 982-5300. End with "Would you like another question?"`;
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 						messages: [{ role: "system", content: "You are the UVA Study Companion Tutor." }, { role: "user", content: graderPrompt }] 
 					});
@@ -135,15 +140,13 @@ export class ChatSession extends DurableObject<Env> {
 	async generateQuizQuestion(sessionId: string): Promise<Response> {
 		try {
 			const facts = "UVA Academic Calendar 2026: Courses begin Aug 25. Thanksgiving recess Nov 25-29. Registrar (434) 982-5300. Spring Recess March 6-14, 2027.";
-			const prompt = `FACTS: ${facts}\nGenerate ONE MCQ about UVA. Options A, B, C. Return raw JSON ONLY: {"q":"...","options":["A. ...","B. ...","C. ..."],"hidden_answer":"A"}. No markdown. No intro.`;
+			const prompt = `FACTS: ${facts}\nGenerate ONE MCQ about UVA academic dates. Options A, B, C. Return raw JSON ONLY: {"q":"...","options":["A. ...","B. ...","C. ..."],"hidden_answer":"A"}. No markdown. No intro.`;
 			
 			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "JSON API" }, { role: "user", content: prompt }] });
 			
-			// --- ULTIMATE SAFE PARSER ---
-			let raw = "";
-			if (quizGen && quizGen.response) raw = quizGen.response;
-			else if (typeof quizGen === 'string') raw = quizGen;
-			else raw = JSON.stringify(quizGen);
+			// --- ULTIMATE SAFE PARSER (FIX FOR raw.match ERROR) ---
+			const rawContent = quizGen.response || quizGen;
+			const raw = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
 
 			const jsonMatch = raw.match(/\{[\s\S]*\}/);
 			if (!jsonMatch) throw new Error("AI failed to provide valid JSON.");
