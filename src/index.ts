@@ -55,7 +55,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR & STOP QUIZ) ---
+		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR & SCORING) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -65,12 +65,13 @@ export class ChatSession extends DurableObject<Env> {
 				// Save User Input
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// --- NEW FEATURE: STOP QUIZ ---
+				// --- FEATURE: STOP QUIZ ---
 				if (lowMsg === "stop quiz" || lowMsg === "exit quiz" || lowMsg === "cancel quiz") {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
 					await this.ctx.storage.delete("current_q_idx");
-					const stopRes = "### 🛑 Quiz Stopped\nI've cleared the quiz session. I'm back in UVA Academic mode and ready for your general questions!";
+					await this.ctx.storage.delete("quiz_score");
+					const stopRes = "### 🛑 Quiz Stopped\nI've cleared the session and stopped the quiz. I'm still in UVA Academic mode, so feel free to ask me any questions about your syllabus or the academic calendar!";
 					await this.saveMsg(sessionId, 'assistant', stopRes);
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
 				}
@@ -78,6 +79,7 @@ export class ChatSession extends DurableObject<Env> {
 				const sessionState = await this.ctx.storage.get("session_state");
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
+				let score = await this.ctx.storage.get("quiz_score") as number || 0;
 
 				// A. STATE: GRADING (PERSONABLE & DIRECT)
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c][\.\s]?$/i.test(lowMsg)) {
@@ -86,10 +88,14 @@ export class ChatSession extends DurableObject<Env> {
 					const correctLetter = currentQ.hidden_answer.toUpperCase();
 					const isCorrect = userLetter === correctLetter;
 					
+					if (isCorrect) {
+						score++;
+						await this.ctx.storage.put("quiz_score", score);
+					}
+
 					const correctIdx = correctLetter.charCodeAt(0) - 65;
 					const correctText = currentQ.options[correctIdx];
 
-					// Updated Prompt: Demands direct address ("You") and friendly tone
 					const graderPrompt = `
 					YOUR DATA:
 					- User answered: ${userLetter}
@@ -98,23 +104,28 @@ export class ChatSession extends DurableObject<Env> {
 					- Explanation fact: ${correctText}
 					
 					TASK:
-					1. Address the user directly as "you". Do NOT say "the user".
-					2. Tell them clearly if they were right or wrong (e.g. "You got it!", "Actually, that's not quite right").
-					3. Explain the fact using the UVA reference: "${correctText}".
-					4. If this isn't Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
+					1. Address the user directly as "you". 
+					2. Tell them clearly if they were right or wrong.
+					3. Explain the fact: "${correctText}".
+					4. If this is Question 5, do NOT ask if they are ready for the next question.
+					5. If this is NOT Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
 					
 					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are Jolene, a friendly and supportive UVA Academic Tutor. Always address the user directly as 'you'." }, { role: "user", content: graderPrompt }] 
+						messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Always address the user as 'you'." }, { role: "user", content: graderPrompt }] 
 					});
-					const gradeTxt = gradeRun.response || gradeRun;
+					let gradeTxt = gradeRun.response || gradeRun;
 
 					if (index + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
+						// FINAL SCORE ANNOUNCEMENT
+						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Your final score is ${score}/5.**\n\nYou're becoming quite the UVA expert! You can say 'start a quiz' to try again or ask me anything else about UVA.`;
+						
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.ctx.storage.delete("current_q_idx");
+						await this.ctx.storage.delete("quiz_score");
 					}
 
 					await this.saveMsg(sessionId, 'assistant', gradeTxt);
@@ -136,7 +147,14 @@ export class ChatSession extends DurableObject<Env> {
 				// --- COMMANDS ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nSay 'start a quiz' to begin your 5-question study session.";
+					const uvaRes = `### 🎓 UVA Academic Study Companion Activated
+I am now focusing exclusively on your University of Virginia materials. I can help you navigate your syllabus, clarify administrative deadlines, or find contact information for the Registrar.
+
+**What you can do now:**
+- **General Inquiry**: Ask me things like "When is Thanksgiving break?" or "What is the Registrar's phone number?"
+- **Knowledge Check**: Type **'start a quiz'** to begin a 5-question session about the **UVA Academic Calendar**.
+- **Context Search**: I will prioritize data from your uploaded UVA documents for every answer.`;
+					
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
 				}
@@ -154,7 +172,7 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
-						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar. Always be friendly and direct.` }, 
+						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar. Be friendly.` }, 
 						{ role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }
 					] 
 				});
@@ -175,7 +193,7 @@ export class ChatSession extends DurableObject<Env> {
 	async initQuizPool(sessionId: string): Promise<Response> {
 		try {
 			const facts = "FACTS: 1. Fall 2026 courses begin August 25. 2. Thanksgiving recess is Nov 25-29. 3. Registrar phone is (434) 982-5300. 4. UVA was founded in 1819. 5. First classes began March 25, 1825.";
-			const prompt = `${facts}\nTASK: Generate exactly 5 MCQs. Return raw JSON array ONLY: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
+			const prompt = `${facts}\nTASK: Generate exactly 5 MCQs specifically about the **UVA Academic Calendar**. Return raw JSON array ONLY: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
 			
 			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON API." }, { role: "user", content: prompt }] });
 			let raw = typeof quizGen.response === 'string' ? quizGen.response : JSON.stringify(quizGen.response || quizGen);
@@ -185,11 +203,12 @@ export class ChatSession extends DurableObject<Env> {
 			const pool = JSON.parse(jsonMatch[0]);
 			await this.ctx.storage.put("quiz_pool", pool);
 			await this.ctx.storage.put("current_q_idx", 0);
+			await this.ctx.storage.put("quiz_score", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 			const firstQ = pool[0];
 			const optionsText = firstQ.options.map((opt: string, i: number) => `${['A','B','C'][i]}. ${opt.replace(/^[A-C]\.\s*/, '')}`).join('\n');
-			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${optionsText}\n\n*Reply A, B, or C (or say 'stop quiz')!*`;
+			const uiRes = `### 📝 UVA Academic Calendar Quiz: Question 1 of 5\n**${firstQ.q}**\n\n${optionsText}\n\n*Reply A, B, or C (or say 'stop quiz')!*`;
 			
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
