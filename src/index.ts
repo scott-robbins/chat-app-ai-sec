@@ -25,7 +25,7 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} (current year 2026)`, 
+					query: `${query} (Search for current data in 2026)`, 
 					search_depth: "advanced",
 					include_answer: true,
 					max_results: 5
@@ -143,7 +143,7 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 					const correctText = currentQ.options[correctLetter.charCodeAt(0) - 65];
 
 					const graderPrompt = `USER: ${userLetter}, CORRECT: ${correctLetter}, RESULT: ${isCorrect ? 'Correct' : 'Incorrect'}, FACT: "${correctText}". Explain using 'you' and ask "Ready for question ${index + 2}?" if not last.`;
-					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are Jolene, a UVA Tutor." }, { role: "user", content: graderPrompt }] });
+					const gradeRun: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are Jolene, a supportive UVA Tutor. Namesake: Scott's dog + Ray LaMontagne song." }, { role: "user", content: graderPrompt }] });
 					let gradeTxt = gradeRun.response || gradeRun;
 
 					if (index + 1 < pool.length) {
@@ -151,7 +151,7 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
-						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Final score: ${score}/5.**`;
+						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Overall score: ${score}/5.**\n\nI am your full study companion—ask me to analyze docs or start another quiz whenever!`;
 						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
 					}
 					await this.saveMsg(sessionId, 'assistant', gradeTxt);
@@ -175,13 +175,11 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 				let docContext = "";
 
 				if (activeMode === 'personal') {
-					// HYBRID PERSONAL: Web + All Docs
 					webContext = await this.tavilySearch(userMsg);
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					docContext = matches.matches.map(m => m.metadata.text).join("\n");
 				} else {
-					// STRICT UVA: Only Study Docs (No Web)
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar " + userMsg] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: "uva" }, returnMetadata: "all" });
 					docContext = matches.matches.map(m => m.metadata.text).join("\n");
@@ -190,13 +188,22 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) return this.initQuizPool(sessionId);
 
 				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+				
+				// --- THE IDENTITY ANCHOR (REJECTS DOLLY PARTON) ---
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
+Identity: You are Jolene. You are a friendly AI Agent. 
+Namesake Story: You are named after your creator Scott Robbins' beloved dog, Jolene. She was named after the famous song "Jolene" by the artist Ray LaMontagne.
+CRITICAL: Do NOT mention Dolly Parton. Do NOT mention bank tellers. If asked about your namesake, you MUST tell the story of Scott's dog and Ray LaMontagne.
+
+### OPERATIONAL MODE: ${activeMode.toUpperCase()}
+Current Date: ${today}. Always address user as 'you'. 
+PERSONAL MODE: You have access to live web (Tavily) and all documents. Use web results for 2026 sports/news.
+UVA MODE: You are a Full Study Companion. Access ONLY UVA documents. No web. No personal files.`;
+
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
-						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Current Date: ${today}. Always address user as 'you'. 
-						PERSONAL MODE: You have access to the live web and all documents. Use web results for current events/sports.
-						UVA MODE: You are a Study Companion. Access ONLY UVA documents.
-						If web results contain the Celtics schedule for April 2026, it is CURRENT information. Do NOT say you only have data until 2025.` }, 
-						{ role: "user", content: `WEB SEARCH CONTEXT:\n${webContext}\n\nDOCUMENT CONTEXT:\n${docContext}\n\nQUESTION: ${userMsg}` }
+						{ role: "system", content: systemPrompt }, 
+						{ role: "user", content: `WEB CONTEXT:\n${webContext}\n\nDOC CONTEXT:\n${docContext}\n\nQUESTION: ${userMsg}` }
 					] 
 				});
 				const chatTxt = chatRun.response || chatRun;
@@ -214,7 +221,7 @@ I have switched to your general Personal Assistant mode. I now have broader acce
 		try {
 			const facts = "UVA FACTS: Fall 2026 starts Aug 25. Thanksgiving Nov 25-29. Registrar (434) 982-5300. Founded 1819. Classes began March 25, 1825.";
 			const prompt = `${facts}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
-			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "JSON API" }, { role: "user", content: prompt }] });
+			const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { messages: [{ role: "system", content: "You are a JSON API." }, { role: "user", content: prompt }] });
 			let raw = typeof quizGen.response === 'string' ? quizGen.response : JSON.stringify(quizGen.response || quizGen);
 			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("Pool error");
 			const pool = JSON.parse(jsonMatch[0]);
