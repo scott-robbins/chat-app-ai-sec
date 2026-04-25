@@ -27,7 +27,6 @@
 				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 			}
 
-			/* --- FANCY THEME (GLASSMORPHISM) --- */
 			body.theme-fancy {
 				--app-bg: rgba(30, 41, 59, 0.4); 
 				--light-bg: transparent; 
@@ -112,7 +111,6 @@
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 
-			/* --- IMAGE RENDERING FIX --- */
 			.message-content img {
 				max-width: 100%;
 				height: auto;
@@ -163,7 +161,6 @@
 			.sidebar.open { right: 0; }
 			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
-			/* --- DASHBOARD STYLES --- */
 			.dash-card {
 				background: rgba(255, 255, 255, 0.08);
 				border: 1px solid var(--border-color);
@@ -284,6 +281,13 @@
 				</div>
 			</div>
 			<div class="sidebar-content">
+				
+				<div class="dash-card" id="learning-card" style="border-left: 3px solid #22c55e;">
+					<span class="dash-label">Active Learning Session</span>
+					<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
+					<div class="dash-value">Session Status: <span id="quiz-status" style="color: #22c55e;">Idle</span></div>
+				</div>
+
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
@@ -356,55 +360,6 @@
 				document.body.classList.toggle('theme-fancy');
 			};
 
-			// --- SAFE WIPE HANDLER ---
-			document.getElementById('clear-vector-btn').onclick = async () => {
-				if(!confirm("This will reset your profile identity and chat history. Your R2 files and Vectorize memory will remain untouched. Proceed?")) return;
-				
-				try {
-					const res = await fetch('/api/wipe-knowledge', {
-						method: 'POST',
-						headers: { 'x-session-id': sessionId }
-					});
-					
-					if(res.ok) {
-						alert("Identity and history reset successfully.");
-						location.reload(); 
-					}
-				} catch (e) {
-					alert("Failed to reset identity.");
-				}
-			};
-
-			// --- VOICE TOGGLE ---
-			document.getElementById('voice-toggle-btn').onclick = () => {
-				voiceEnabled = !voiceEnabled;
-				const icon = document.getElementById('voice-icon');
-				const btn = document.getElementById('voice-toggle-btn');
-				if (voiceEnabled) {
-					icon.className = 'ph ph-speaker-high';
-					btn.style.borderColor = 'var(--primary-color)';
-					appendMessage('assistant-message', "System: Voice output enabled.");
-				} else {
-					icon.className = 'ph ph-speaker-slash';
-					btn.style.borderColor = 'var(--border-color)';
-					window.speechSynthesis.cancel();
-					appendMessage('assistant-message', "System: Voice output disabled.");
-				}
-			};
-
-			function speakText(text) {
-				if (!voiceEnabled) return;
-				const cleanText = text.replace(/[#*`_]/g, '');
-				const utterance = new SpeechSynthesisUtterance(cleanText);
-				window.speechSynthesis.speak(utterance);
-			}
-
-			// --- MODEL SWITCHER ---
-			document.getElementById('model-selector').onchange = (e) => {
-				const modelName = e.target.options[e.target.selectedIndex].text;
-				appendMessage('assistant-message', `System: Switching to ${modelName}. Ready.`);
-			};
-
 			// --- DASHBOARD SYNC ---
 			async function updateDashboard() {
 				try {
@@ -414,98 +369,32 @@
 					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
 
-					// Map Durable Object data
 					if (data.durableObject) {
 						document.getElementById('do-id-display').innerText = data.durableObject.id;
 						document.getElementById('do-status-display').innerText = data.durableObject.state;
 					}
-					
-					const container = document.getElementById('chat-messages');
-					if (data.messages && data.messages.length > 0 && container.children.length <= 1) {
-						container.innerHTML = '';
-						data.messages.forEach(msg => {
-							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
-						});
-					}
 
+					// Update Quiz Status UI
+					if (data.activeQuiz) {
+						document.getElementById('quiz-status').innerText = "Quiz Active";
+					} else {
+						document.getElementById('quiz-status').innerText = "Idle";
+					}
+					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
 					
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
 						data.knowledgeAssets.forEach(f => {
 							const li = document.createElement('li');
-							li.innerHTML = `
-								<span>📄 ${f}</span>
-								<button class="delete-file-btn" onclick="deleteFile('${f}')">
-									<i class="ph ph-trash"></i>
-								</button>
-							`;
+							li.innerHTML = `<span>📄 ${f}</span>`;
 							list.appendChild(li);
 						});
 					} else {
 						list.innerHTML = '<li>No assets in R2 storage.</li>';
 					}
-				} catch (e) { 
-					console.error("Dashboard error:", e); 
-					document.getElementById('file-list-display').innerHTML = '<li>Error connecting to storage.</li>';
-				}
+				} catch (e) { console.error("Dashboard error:", e); }
 			}
-
-			async function deleteFile(key) {
-				if(!confirm(`Are you sure you want to delete ${key}?`)) return;
-				try {
-					const res = await fetch('/api/delete-file', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ key })
-					});
-					if(res.ok) {
-						updateDashboard();
-					} else {
-						alert("Delete failed.");
-					}
-				} catch (e) {
-					alert("Error deleting file.");
-				}
-			}
-
-			async function loadHistory() {
-				try {
-					const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
-					const data = await res.json();
-					const messages = data.messages || [];
-					const container = document.getElementById('chat-messages');
-					
-					if (messages.length > 0) {
-						container.innerHTML = '';
-						messages.forEach(msg => {
-							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content);
-						});
-					}
-				} catch (e) { console.error("History load failed", e); }
-			}
-
-			document.getElementById('memorize-file-btn').onclick = async () => {
-				const fileInput = document.getElementById('file-input');
-				if (!fileInput.files[0]) return alert("Select a file first");
-				const btn = document.getElementById('memorize-file-btn');
-				const originalHtml = btn.innerHTML;
-				btn.innerHTML = '<i class="ph ph-circle-notch"></i> Memorizing...';
-				const formData = new FormData();
-				formData.append('file', fileInput.files[0]);
-				try {
-					const res = await fetch('/api/memorize', {
-						method: 'POST',
-						body: formData,
-						headers: { 'x-session-id': sessionId }
-					});
-					if (res.ok) {
-						btn.innerHTML = '<i class="ph ph-check"></i> Memorized!';
-						setTimeout(() => btn.innerHTML = originalHtml, 2000);
-						updateDashboard();
-					}
-				} catch (e) { btn.innerHTML = originalHtml; alert("Upload failed."); }
-			};
 
 			async function sendMessage() {
 				const input = document.getElementById('user-input');
@@ -542,11 +431,10 @@
 					}
 					showTyping(false);
 					appendMessage('assistant-message', assistantText);
-					if (voiceEnabled) speakText(assistantText);
 					updateDashboard();
 				} catch (e) {
 					showTyping(false);
-					appendMessage('assistant-message', "Error. Please try again.");
+					appendMessage('assistant-message', "Error connecting to Worker AI.");
 				}
 			}
 
@@ -554,11 +442,7 @@
 				const container = document.getElementById('chat-messages');
 				const div = document.createElement('div');
 				div.className = `message ${cls}`;
-				if (cls === 'assistant-message') {
-					div.innerHTML = marked.parse(text);
-				} else {
-					div.innerText = text;
-				}
+				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
 				container.appendChild(div);
 				container.scrollTop = container.scrollHeight;
 			}
@@ -571,8 +455,8 @@
 			document.getElementById('send-button').onclick = sendMessage;
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
 			
+			// Initial sync
 			updateDashboard();
-			loadHistory();
 		</script>
 	</body>
 </html>
