@@ -56,14 +56,14 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH GRADER & PERSISTENCE FIX) ---
+		// --- 3. CHAT ENGINE (WITH LETTER-BASED GRADER & PERSISTENCE FIX) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase();
+				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- MODE SWITCHERS ---
+				// MODE SWITCHERS
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const uvaRes = "### 🎓 UVA Academic Study Companion Activated\nI am now focusing exclusively on your UVA materials. Personal records are locked.";
@@ -82,26 +82,27 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- NEW: QUIZ GRADER ENGINE (STATEFUL AGENT) ---
+				// --- QUIZ GRADER ENGINE (NOW RECOGNIZING LETTERS A, B, C) ---
 				const currentQuizRaw = await this.ctx.storage.get("current_quiz_data");
 				if (currentQuizRaw) {
-					// Check if message looks like an answer (1., A, B, C, or date format)
-					const isAnswering = /^[0-9]\.|^[a-cA-C]\b|aug|nov|sep|mar/i.test(lowMsg);
+					// Detect answer pattern: "A", "1. A", "1a", or letter strings
+					const isLetterAnswer = /^[a-cA-C]$|^[0-9]\.\s*[a-cA-C]|^[a-cA-C]\b/i.test(lowMsg);
 					
-					if (isAnswering) {
+					if (isLetterAnswer || lowMsg.length < 10) {
 						const graderPrompt = `### QUIZ DATA (JSON):
 						${currentQuizRaw}
-						### USER ANSWER:
+						### USER LETTER ANSWER:
 						"${userMsg}"
 						### TASK:
-						Compare the User Answer to the 'hidden_answer' for each question. 
-						Provide a score and explain corrections based strictly on UVA dates. Output friendly Markdown.`;
+						The user has provided letter-based answers (A, B, or C). 
+						Compare these to the 'hidden_answer' field in the JSON. 
+						Provide a clear score (e.g., 3/3) and list the correct fact for any missed questions. Output friendly Markdown.`;
 
 						const gradeRun = await this.env.AI.run(CONVERSATION_MODEL, { 
-							messages: [{ role: "system", content: "You are a grading assistant for UVA." }, { role: "user", content: graderPrompt }] 
+							messages: [{ role: "system", content: "You are a UVA grading assistant. You grade A/B/C answers." }, { role: "user", content: graderPrompt }] 
 						});
 
-						await this.ctx.storage.delete("current_quiz_data"); // End the quiz session
+						await this.ctx.storage.delete("current_quiz_data"); 
 						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 							.bind(sessionId, userMsg, sessionId, gradeRun.response).run();
 
@@ -109,7 +110,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- QUIZ GENERATION ENGINE ---
+				// --- QUIZ GENERATION ENGINE (NOW WITH LETTER LABELS) ---
 				if (lowMsg === "generate quiz") {
 					const quizQuery = activeMode === 'uva' ? "UVA Registrar phone, August 25 classes begin, Thanksgiving break dates" : "Tax preparation $375 fee";
 					const quizVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [quizQuery] });
@@ -117,10 +118,11 @@ export class ChatSession extends DurableObject<Env> {
 					const quizContext = quizMatches.matches.map(m => m.metadata.text).join("\n");
 
 					const quizPrompt = `Grounded strictly in this data: ${quizContext}\n\nGenerate a 3-question MCQ about UVA DATES. 
-					Return raw JSON array: [{"q": "...", "options": ["a", "b", "c"], "hidden_answer": "..."}]. NO markdown.`;
+					CRITICAL: Options must be labeled A, B, and C.
+					Return raw JSON array: [{"q": "...", "options": ["A. ...", "B. ...", "C. ..."], "hidden_answer": "A"}]. NO markdown.`;
 					
 					const quizGen: any = await this.env.AI.run(CONVERSATION_MODEL, { 
-						messages: [{ role: "system", content: "You are a UVA Professor providing raw JSON." }, { role: "user", content: quizPrompt }] 
+						messages: [{ role: "system", content: "You provide raw JSON quiz data with A, B, C options." }, { role: "user", content: quizPrompt }] 
 					});
 
 					let raw = quizGen.response || quizGen;
@@ -134,7 +136,7 @@ export class ChatSession extends DurableObject<Env> {
 					quizData.forEach((item: any, i: number) => {
 						uiRes += `**${i+1}. ${item.q}**\n${item.options.map((o: string) => `- ${o}`).join("\n")}\n\n`;
 					});
-					uiRes += "--- \n*Reply with your answers (e.g. '1. Aug 25') to see your score!*";
+					uiRes += "--- \n**Reply with just the letters (e.g. '1A, 2B, 3C') to see your score!**";
 
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 						.bind(sessionId, userMsg, sessionId, uiRes).run();
@@ -157,6 +159,7 @@ export class ChatSession extends DurableObject<Env> {
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
 				});
 
+				// PERSISTENCE REINFORCEMENT: Write to D1 BEFORE returning the response
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)")
 					.bind(sessionId, userMsg, sessionId, chatRun.response).run();
 
