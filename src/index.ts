@@ -55,7 +55,7 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR & SCORING) ---
+		// --- 3. CHAT ENGINE (WITH PERSONABLE TUTOR, SCORING & STOP QUIZ) ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -105,7 +105,7 @@ export class ChatSession extends DurableObject<Env> {
 					
 					TASK:
 					1. Address the user directly as "you". 
-					2. Tell them clearly if they were right or wrong.
+					2. Tell them clearly if they were right or wrong (e.g., "That's exactly right!", "Actually, that's not quite correct.").
 					3. Explain the fact: "${correctText}".
 					4. If this is Question 5, do NOT ask if they are ready for the next question.
 					5. If this is NOT Question 5, you MUST end with: "Ready for question ${index + 2}?"`;
@@ -133,7 +133,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// B. STATE: HANDLING "CONTINUE"
-				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ready") || lowMsg.includes("next"))) {
+				if (sessionState === "WAITING_FOR_CONTINUE" && (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ready") || lowMsg.includes("next") || lowMsg.includes("continue"))) {
 					const nextQ = pool[index];
 					await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 					
@@ -148,18 +148,21 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const uvaRes = `### 🎓 UVA Academic Study Companion Activated
-I am now focusing exclusively on your University of Virginia materials. I can help you navigate your syllabus, clarify administrative deadlines, or find contact information for the Registrar.
+Welcome to your specialized UVA environment. I am powered by your uploaded University of Virginia documents and syllabus records.
 
-**What you can do now:**
-- **General Inquiry**: Ask me things like "When is Thanksgiving break?" or "What is the Registrar's phone number?"
-- **Knowledge Check**: Type **'start a quiz'** to begin a 5-question session about the **UVA Academic Calendar**.
-- **Context Search**: I will prioritize data from your uploaded UVA documents for every answer.`;
+**Here is how I can assist you:**
+- **Administrative Support**: I can retrieve contact details for the UVA Registrar or departmental offices.
+- **Syllabus & Deadlines**: Ask about course policies, exam dates, or grading rubrics found in your documents.
+- **Academic Timeline**: I have detailed knowledge of the Fall/Spring schedules.
+- **Knowledge Check**: Simply say **'Start the UVA Academic Calendar Quiz'** to begin a 5-question challenge designed to test your knowledge of important dates and deadlines.
+
+What academic information can I find for you today?`;
 					
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) {
+				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz") || lowMsg.includes("start the uva academic calendar quiz")) {
 					return this.initQuizPool(sessionId);
 				}
 
@@ -172,7 +175,7 @@ I am now focusing exclusively on your University of Virginia materials. I can he
 				
 				const chatRun: any = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [
-						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar. Be friendly.` }, 
+						{ role: "system", content: `Identity: Jolene. Mode: ${activeMode}. Ground all dates: Aug 25 start, Nov 25 Thanksgiving, (434) 982-5300 Registrar. Always address the user directly as 'you'.` }, 
 						{ role: "user", content: `Context: ${fileContext}\n\nQuestion: ${userMsg}` }
 					] 
 				});
