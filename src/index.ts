@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const CONVERSATION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; 
-const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"; // FIXED: Typo corrected from 'get' to 'bge'
 const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; 
 
 export class ChatSession extends DurableObject<Env> {
@@ -40,11 +40,7 @@ export class ChatSession extends DurableObject<Env> {
 					knowledgeAssets: storage.objects.map(o => o.key), 
 					status: "Live",
 					mode: activeMode,
-					durableObject: {
-						id: sessionId,
-						state: "Active",
-						location: "Cloudflare Edge"
-					}
+					durableObject: { id: sessionId, state: "Active", location: "Cloudflare Edge" }
 				}), { headers });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
@@ -76,26 +72,26 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE (With Hardened Image Gen & Ray LaMontagne Origin) ---
+		// --- 3. CHAT ENGINE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase();
 
-				// --- RESET HANDLER ---
 				if (userMsg === "!!RESET_HISTORY") {
 					await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
 					return new Response(`data: ${JSON.stringify({ response: "System Memory Reset." })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- IMAGE GENERATION HANDLER (FIXED ENCODING) ---
+				// --- IMAGE GENERATION HANDLER ---
 				if (lowMsg.includes("generate") || lowMsg.includes("draw") || lowMsg.includes("picture of")) {
 					const imagePrompt = userMsg.replace(/generate|draw|create|picture of|an image of/gi, "").trim();
 					const imgBlob = await this.env.AI.run(IMAGE_MODEL, { prompt: imagePrompt || "A dachshund in Cloudflare orange" });
 					
-					// FIXED: Convert binary to base64 using Uint8Array for browser-safe rendering
-					const base64String = btoa(String.fromCharCode(...new Uint8Array(imgBlob as ArrayBuffer)));
+					// FIXED: Proper binary to base64 conversion
+					const binaryString = String.fromCharCode(...new Uint8Array(imgBlob as ArrayBuffer));
+					const base64String = btoa(binaryString);
 					const responseText = `I've created that for you! \n\n![Generated Image](data:image/png;base64,${base64String})`;
 
 					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?), (?, ?, ?)")
@@ -104,7 +100,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- STANDARD CHAT LOGIC ---
+				// --- STANDARD RAG LOGIC ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
 				let webContext = "";
@@ -141,8 +137,7 @@ RETRIEVED_WEB_DATA: ${webContext}
 
 ### RULES:
 1. TAX DATA: Use RETRIEVED_FILE_DATA for Cozby & Company questions (Fees: $375/$275, Deadline: March 13).
-2. MANDATORY: Scott's dogs are JOLENE and HANNA. 
-3. ORIGIN: If asked about your name, clarify that you were named after Scott's dog, who was named after the Ray LaMontagne song.`;
+2. ORIGIN: If asked about your name, share the Ray LaMontagne connection.`;
 
 				const chatRun = await this.env.AI.run(CONVERSATION_MODEL, { 
 					messages: [{ role: "system", content: sysPrompt }, ...historyResults.results, { role: "user", content: userMsg }] 
