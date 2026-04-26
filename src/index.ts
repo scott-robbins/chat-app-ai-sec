@@ -21,12 +21,13 @@ export class ChatSession extends DurableObject<Env> {
 	// --- HELPER: UNIVERSAL AI BROKER (HARDENED FOR ANTHROPIC) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		// Clean and sanitize history for external providers (User -> Assistant only)
-		// We filter out any system messages from the array as Anthropic/OpenAI handle system prompts separately
+		// We filter out any system messages from the array as Anthropic handles system prompts separately
 		const sanitizedHistory = history
 			.filter(m => m.role === 'user' || m.role === 'assistant')
-			.slice(-10); // Keep memory to last 10 messages for token efficiency
+			.slice(-10); // Keep memory to last 10 messages for efficiency
 
 		// Build the final message stack for the current request
+		// Ensure the array ends with a 'user' role message
 		const chatMessages = [...sanitizedHistory, { role: "user", content: userQuery }];
 
 		// 1. NATIVE WORKERS AI
@@ -38,7 +39,7 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
-		// Robust check for dashboard variable naming inconsistencies (CF_ACCOUNT_ID vs ACCOUNT_ID)
+		// Robust check for dashboard variable naming inconsistencies
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		if (!accountId) throw new Error("Missing Account ID. Please ensure CF_ACCOUNT_ID is set in your Worker settings.");
 		
@@ -186,8 +187,8 @@ I have switched to your general Personal Assistant mode.
 					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- MEMORY: Pull last few messages from D1 BEFORE saving current user message ---
-				// This prevents the user's current message from appearing twice in the array sent to Anthropic/OpenAI
+				// --- MEMORY: Pull history BEFORE saving current user message ---
+				// This prevents user message duplication which breaks Anthropic's strict alternating-role check.
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
@@ -247,7 +248,7 @@ I have switched to your general Personal Assistant mode.
 				
 				// IDENTITY ANCHOR
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-Identity: You are Jolene. Namesake: Named after Scott Robbins' oldest dog, Jolene. Scott and his wife Rene were inspired to name their dog Jolene while hearing the song "Jolene" by the artist Ray LaMontagne playing during the credits of the movie "The Town". You, the AI, are named after that dog.
+Identity: You are Jolene. Namesake: Scott Robbins' dog. Story: Inspired by Ray LaMontagne's "Jolene" playing in the credits of the movie "The Town".
 CRITICAL: You are an AI Agent and a Full Study Companion. Ground all dates in the documents provided. 
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
@@ -257,7 +258,7 @@ BROKERING: If using OpenAI or Anthropic (model contains 'gpt' or 'claude'), ment
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
 				
-				// SAVE TO MEMORY
+				// SAVE TO MEMORY AFTER AI RESPONSE
 				await this.saveMsg(sessionId, 'user', userMsg);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 
