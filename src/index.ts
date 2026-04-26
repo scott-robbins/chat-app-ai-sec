@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Corrected model name to 'bge-base' (was 'get-base')
+// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -20,44 +20,50 @@ export class ChatSession extends DurableObject<Env> {
 
 	// --- HELPER: UNIVERSAL AI BROKER (AI GATEWAY INTEGRATION) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		const messages = [
-			{ role: "system", content: systemPrompt },
+		// Standardize message history for all providers
+		const chatMessages = [
 			...history,
 			{ role: "user", content: userQuery }
 		];
 
 		// 1. NATIVE WORKERS AI
 		if (model.startsWith("@cf/")) {
-			const run: any = await this.env.AI.run(model as any, { messages });
+			const run: any = await this.env.AI.run(model as any, { 
+				messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
+			});
 			return run.response || run;
 		}
 
 		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
-		// Ensure CF_ACCOUNT_ID is set in your dashboard Variables
-		if (!this.env.CF_ACCOUNT_ID) {
-			throw new Error("Missing CF_ACCOUNT_ID. Please rename ACCOUNT_ID to CF_ACCOUNT_ID in your Worker settings.");
-		}
+		// Robust check for dashboard variable naming inconsistencies
+		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+		if (!accountId) throw new Error("Missing Account ID. Please ensure CF_ACCOUNT_ID is set in your Worker settings.");
 		
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
-		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${this.env.CF_ACCOUNT_ID}/${gatewayName}`;
+		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
 
+		// OPENAI HANDLER
 		if (model.includes("gpt")) {
-			if (!this.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY secret.");
+			if (!this.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY secret is missing.");
 			const res = await fetch(`${gatewayBase}/openai/chat/completions`, {
 				method: "POST",
 				headers: {
 					"Authorization": `Bearer ${this.env.OPENAI_API_KEY}`,
 					"Content-Type": "application/json"
 				},
-				body: JSON.stringify({ model, messages })
+				body: JSON.stringify({ 
+					model, 
+					messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
+				})
 			});
 			const data: any = await res.json();
-			if (data.error) throw new Error(`OpenAI Gateway Error: ${data.error.message}`);
+			if (data.error) throw new Error(`Gateway/OpenAI Error: ${data.error.message}`);
 			return data.choices[0].message.content;
 		}
 
+		// ANTHROPIC HANDLER (CLAUDE)
 		if (model.includes("claude")) {
-			if (!this.env.ANTHROPIC_API_KEY) throw new Error("Missing ANTHROPIC_API_KEY secret.");
+			if (!this.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY secret is missing.");
 			const res = await fetch(`${gatewayBase}/anthropic/messages`, {
 				method: "POST",
 				headers: {
@@ -68,12 +74,12 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({
 					model,
 					max_tokens: 1024,
-					messages: messages.filter(m => m.role !== 'system'),
-					system: systemPrompt
+					system: systemPrompt, // Anthropic uses a top-level field for system instructions
+					messages: chatMessages.filter(m => m.role !== 'system')
 				})
 			});
 			const data: any = await res.json();
-			if (data.error) throw new Error(`Anthropic Gateway Error: ${data.error.message}`);
+			if (data.error) throw new Error(`Gateway/Anthropic Error: ${data.error.message || JSON.stringify(data.error)}`);
 			return data.content[0].text;
 		}
 
@@ -144,7 +150,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// --- FEATURE: MODE SWITCHING ---
+				// MODE SWITCHING
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
@@ -156,14 +162,14 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					await this.ctx.storage.delete("session_state");
-					const personalRes = `### 🏠 Personal Mode Activated\nI now have access to real-time web search via **Tavily** and all documents.`;
+					const personalRes = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode with real-time web access.`;
 					await this.saveMsg(sessionId, 'assistant', personalRes);
 					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- STATE: CAMPUS NEWS ---
+				// CAMPUS NEWS STATE
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure")) {
@@ -174,7 +180,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- STATE: QUIZ FLOW ---
+				// QUIZ STATE
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
 				let score = await this.ctx.storage.get("quiz_score") as number || 0;
@@ -184,28 +190,23 @@ export class ChatSession extends DurableObject<Env> {
 					const isCorrect = lowMsg[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 					const correctText = currentQ.options[currentQ.hidden_answer.charCodeAt(0) - 65];
-
-					const graderPrompt = `USER ANSWERED: ${lowMsg[0].toUpperCase()}, CORRECT: ${currentQ.hidden_answer}, FACT: "${correctText}". Ready for Q ${index + 2}?`;
-					let gradeTxt = await this.runAI(selectedModel, "You are a supportive UVA Tutor.", graderPrompt);
-
+					const prompt = `USER ANSWERED: ${lowMsg[0].toUpperCase()}, CORRECT: ${currentQ.hidden_answer}, FACT: "${correctText}". Ready for Q ${index + 2}?`;
+					let gradeTxt = await this.runAI(selectedModel, "You are a supportive UVA Tutor.", prompt);
 					if (index + 1 < pool.length) {
-						if (!gradeTxt.includes(`question ${index + 2}`)) gradeTxt += `\n\nReady for question ${index + 2}?`;
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
-						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Overall score is ${score}/5.**`;
+						gradeTxt += `\n\n### 🏁 Quiz Complete! Score: ${score}/5.`;
 						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
 					}
 					await this.saveMsg(sessionId, 'assistant', gradeTxt);
 					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. CORE ENGINE (RAG) ---
+				// CORE RAG ENGINE
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let webContext = "";
 				let docContext = "";
-
-				// Use FIXED model name for embeddings
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				
 				if (activeMode === 'personal') {
@@ -220,17 +221,22 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) return this.initQuizPool(sessionId, selectedModel);
 
 				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-				const systemPrompt = `### IDENTITY LOCK: You are Jolene. Namesake: Scott Robbins' dog, inspired by Ray LaMontagne's "Jolene" playing in the credits of the movie "The Town". 
-### MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
-PERSONAL: Access Web+Docs. UVA: Access ONLY UVA Docs.
-BROKERING: If model name contains 'gpt' or 'claude', mention once that request was brokered via Cloudflare AI Gateway.`;
+				
+				// IDENTITY ANCHOR
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
+Identity: You are Jolene. Namesake: Named after Scott Robbins' oldest dog, Jolene. Scott and his wife Rene were inspired to name their dog Jolene while hearing the song "Jolene" by the artist Ray LaMontagne playing during the credits of the movie "The Town". You, the AI, are named after that dog.
+CRITICAL: You are an AI Agent and a Full Study Companion. Ground all dates in the documents provided. 
+
+### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
+PERSONAL: Access to live web (Tavily) and all documents.
+UVA: Access ONLY to UVA documents. No general web access.
+BROKERING: If using OpenAI or Anthropic (model contains 'gpt' or 'claude'), mention once that the request was brokered via Cloudflare AI Gateway.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, `WEB CONTEXT:\n${webContext}\n\nDOC CONTEXT:\n${docContext}\n\nQUESTION: ${userMsg}`);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { 
-				// Enhanced error reporting to the UI
 				return new Response(`data: ${JSON.stringify({ response: "**AI Engine Error:** " + e.message })}\n\ndata: [DONE]\n\n`); 
 			}
 		}
@@ -242,14 +248,14 @@ BROKERING: If model name contains 'gpt' or 'claude', mention once that request w
 			const facts = "UVA FACTS: Fall 2026 starts Aug 25. Thanksgiving Nov 25-29. Registrar (434) 982-5300. Founded 1819. Classes began March 25, 1825.";
 			const prompt = `${facts}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
 			const raw = await this.runAI(model, "You are a JSON API.", prompt);
-			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("Pool failure");
+			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("AI failed to generate quiz JSON.");
 			const pool = JSON.parse(jsonMatch[0]);
 			await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0); await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 			const firstQ = pool[0];
 			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:string,i:number)=>`${['A','B','C'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, or C!*`;
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
-		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Initialization Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 	}
 }
 
