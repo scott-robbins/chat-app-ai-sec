@@ -110,6 +110,8 @@
 			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
+			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 4px 12px; border-radius: 10px; font-style: italic; }
+			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #cbd5e1; }
 
 			.message-content img {
 				max-width: 100%;
@@ -337,7 +339,6 @@
 		</footer>
 
 		<script>
-			// --- 1. PERSISTENT SESSION HANDSHAKE ---
 			function getSessionId() {
 				let id = localStorage.getItem('jolene_session_id');
 				if (!id) {
@@ -350,7 +351,6 @@
 			let sessionId = getSessionId();
 			let isTyping = false;
 
-			// --- UI TOGGLES ---
 			document.getElementById('toggle-sidebar-btn').onclick = () => {
 				document.getElementById('memory-sidebar').classList.add('open');
 				updateDashboard();
@@ -365,10 +365,8 @@
 			};
 
 			document.getElementById('new-chat-btn').onclick = () => {
-				// Generate a fresh session ID to start a new chat history chain
 				sessionId = crypto.randomUUID();
 				localStorage.setItem('jolene_session_id', sessionId);
-				
 				const chatMessages = document.getElementById('chat-messages');
 				chatMessages.innerHTML = ''; 
 				appendMessage('assistant-message', "New session started. I'm Jolene, ready to assist with your documents, sports updates, or image generation. What's on your agenda?");
@@ -380,39 +378,44 @@
 				document.body.classList.toggle('theme-fancy');
 			};
 
-			// --- DASHBOARD & HISTORY SYNC ---
+			// --- NEW: AUTO-INDICATOR ON MODEL CHANGE ---
+			document.getElementById('model-selector').onchange = async () => {
+				const selector = document.getElementById('model-selector');
+				const modelName = selector.options[selector.selectedIndex].text;
+				const modelValue = selector.value;
+				
+				// Visual system indicator in chat
+				appendMessage('system-indicator', `Switching brain to ${modelName}...`);
+				
+				// Send an auto-ping to get an acknowledgement from the new model
+				const switchPrompt = `I have just switched my brain to ${modelName}. Please provide a very brief one-sentence greeting in your unique style to confirm you are active.`;
+				await sendMessage(switchPrompt, true);
+			};
+
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
-					
 					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
-
 					if (data.durableObject) {
 						document.getElementById('do-id-display').innerText = data.durableObject.id;
 						document.getElementById('do-status-display').innerText = data.durableObject.state;
 					}
-
-					// Update Quiz Status UI
 					if (data.activeQuiz) {
 						document.getElementById('quiz-status').innerText = "Quiz Active";
 					} else {
 						document.getElementById('quiz-status').innerText = "Idle";
 					}
-					
-					// --- RESTORE HISTORY FROM D1 ---
 					if (data.messages && data.messages.length > 0) {
 						const chatMessages = document.getElementById('chat-messages');
-						chatMessages.innerHTML = ''; // Clear the initial welcome message
+						chatMessages.innerHTML = ''; 
 						data.messages.forEach(msg => {
 							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false);
 						});
 					}
-
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = '';
-					
 					if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
 						data.knowledgeAssets.forEach(f => {
 							const li = document.createElement('li');
@@ -425,11 +428,14 @@
 				} catch (e) { console.error("Dashboard error:", e); }
 			}
 
-			async function sendMessage() {
+			async function sendMessage(overrideText = null, isAutoSwitch = false) {
 				const input = document.getElementById('user-input');
-				const content = input.value.trim();
+				const content = overrideText || input.value.trim();
 				if (!content || isTyping) return;
-				appendMessage('user-message', content);
+				
+				// Only append the user bubble if it's not an automatic model-switch ping
+				if (!isAutoSwitch) appendMessage('user-message', content);
+				
 				input.value = '';
 				showTyping(true);
 				try {
@@ -463,15 +469,21 @@
 					updateDashboard();
 				} catch (e) {
 					showTyping(false);
-					appendMessage('assistant-message', "Error connecting to Worker AI.");
+					appendMessage('assistant-message', "Error connecting to AI Gateway.");
 				}
 			}
 
 			function appendMessage(cls, text, scroll = true) {
 				const container = document.getElementById('chat-messages');
 				const div = document.createElement('div');
-				div.className = `message ${cls}`;
-				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
+				div.className = cls === 'system-indicator' ? 'system-indicator' : `message ${cls}`;
+				
+				if (cls === 'system-indicator') {
+					div.innerText = text;
+				} else {
+					div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
+				}
+				
 				container.appendChild(div);
 				if (scroll) container.scrollTop = container.scrollHeight;
 			}
@@ -481,10 +493,9 @@
 				document.getElementById('typing-indicator').classList.toggle('visible', show);
 			}
 
-			document.getElementById('send-button').onclick = sendMessage;
+			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
 			
-			// Initial sync - pulls from D1 on load
 			updateDashboard();
 		</script>
 	</body>
