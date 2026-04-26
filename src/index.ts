@@ -35,7 +35,6 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
-		// Robust check for dashboard variable naming inconsistencies
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		if (!accountId) throw new Error("Missing Account ID. Please ensure CF_ACCOUNT_ID is set in your Worker settings.");
 		
@@ -74,7 +73,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({
 					model,
 					max_tokens: 1024,
-					system: systemPrompt, // Anthropic uses a top-level field for system instructions
+					system: systemPrompt, 
 					messages: chatMessages.filter(m => m.role !== 'system')
 				})
 			});
@@ -150,11 +149,20 @@ export class ChatSession extends DurableObject<Env> {
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// MODE SWITCHING
+				// MODE SWITCHING (DETAILED RESPONSES)
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const uvaRes = `### 🎓 UVA Mode: Full Study Companion Activated\nI focus **exclusively** on your UVA materials. Would you like me to fetch the latest UVA campus news and events before we start?`;
+					const uvaRes = `### 🎓 UVA Mode: Full Study Companion Activated
+I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
+
+**What I can do for you now:**
+- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+- **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
+
+*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+
+**Would you like me to fetch the latest UVA campus news and events for you before we start?**`;
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
 				}
@@ -162,7 +170,14 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					await this.ctx.storage.delete("session_state");
-					const personalRes = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode with real-time web access.`;
+					const personalRes = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched to your general Personal Assistant mode. 
+
+**What I can do for you now:**
+- **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
+- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
+
+*Note: This mode is best for real-time information and personal organization.*`;
 					await this.saveMsg(sessionId, 'assistant', personalRes);
 					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
 				}
