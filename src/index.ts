@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Changed 'get-base' to 'bge-base'
+// FIXED: Corrected model name to 'bge-base' (was 'get-base')
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -33,7 +33,10 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
-		if (!this.env.CF_ACCOUNT_ID) throw new Error("Missing CF_ACCOUNT_ID in Worker settings.");
+		// Ensure CF_ACCOUNT_ID is set in your dashboard Variables
+		if (!this.env.CF_ACCOUNT_ID) {
+			throw new Error("Missing CF_ACCOUNT_ID. Please rename ACCOUNT_ID to CF_ACCOUNT_ID in your Worker settings.");
+		}
 		
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${this.env.CF_ACCOUNT_ID}/${gatewayName}`;
@@ -49,7 +52,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ model, messages })
 			});
 			const data: any = await res.json();
-			if (data.error) throw new Error(`OpenAI Error: ${data.error.message}`);
+			if (data.error) throw new Error(`OpenAI Gateway Error: ${data.error.message}`);
 			return data.choices[0].message.content;
 		}
 
@@ -70,11 +73,11 @@ export class ChatSession extends DurableObject<Env> {
 				})
 			});
 			const data: any = await res.json();
-			if (data.error) throw new Error(`Anthropic Error: ${data.error.message}`);
+			if (data.error) throw new Error(`Anthropic Gateway Error: ${data.error.message}`);
 			return data.content[0].text;
 		}
 
-		throw new Error(`Model ${model} is not supported by the current broker logic.`);
+		throw new Error(`Model ${model} is not supported by Jolene's broker.`);
 	}
 
 	// --- HELPER: TAVILY WEB SEARCH ---
@@ -227,7 +230,8 @@ BROKERING: If model name contains 'gpt' or 'claude', mention once that request w
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { 
-				return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); 
+				// Enhanced error reporting to the UI
+				return new Response(`data: ${JSON.stringify({ response: "**AI Engine Error:** " + e.message })}\n\ndata: [DONE]\n\n`); 
 			}
 		}
 		return new Response("OK");
@@ -238,7 +242,7 @@ BROKERING: If model name contains 'gpt' or 'claude', mention once that request w
 			const facts = "UVA FACTS: Fall 2026 starts Aug 25. Thanksgiving Nov 25-29. Registrar (434) 982-5300. Founded 1819. Classes began March 25, 1825.";
 			const prompt = `${facts}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
 			const raw = await this.runAI(model, "You are a JSON API.", prompt);
-			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("Pool error");
+			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("Pool failure");
 			const pool = JSON.parse(jsonMatch[0]);
 			await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0); await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 			const firstQ = pool[0];
