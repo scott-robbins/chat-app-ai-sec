@@ -2,7 +2,8 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
+// FIX: Corrected model name from 'get-base' to 'bge-base'
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -157,19 +158,30 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					await this.ctx.storage.delete("session_state");
-					const personalRes = `### 🏠 Personal Mode: Real-Time Assistant Activated\nI have switched to your general Personal Assistant mode. I now have access to real-time web search via **Tavily** and can assist with both personal and academic documents.`;
+					const personalRes = `### 🏠 Personal Mode Activated\nI have switched to your general Personal Assistant mode. I now have access to real-time web search via **Tavily** and can assist with both personal and academic documents.`;
 					await this.saveMsg(sessionId, 'assistant', personalRes);
 					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- FEATURE: STOP QUIZ ---
+				if (lowMsg === "stop quiz" || lowMsg === "exit quiz") {
+					await this.ctx.storage.delete("quiz_pool");
+					await this.ctx.storage.delete("session_state");
+					await this.ctx.storage.delete("current_q_idx");
+					await this.ctx.storage.delete("quiz_score");
+					const stopRes = "### 🛑 Quiz Stopped\nI've cleared the session. I'm still in UVA mode and ready for your document questions!";
+					await this.saveMsg(sessionId, 'assistant', stopRes);
+					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
+				}
+
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- STATE: CAMPUS NEWS (VIA GATEWAY) ---
+				// --- STATE: CAMPUS NEWS ---
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure")) {
 						const newsContext = await this.tavilySearch("current campus news", true);
-						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Summarize the latest UVA news. Mention that the request was brokered by Cloudflare AI Gateway if using an external model.", `NEWS CONTEXT:\n${newsContext}`);
+						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Summarize the latest UVA news clearly.", `NEWS CONTEXT:\n${newsContext}`);
 						await this.saveMsg(sessionId, 'assistant', newsTxt);
 						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
 					}
@@ -196,25 +208,26 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("current_q_idx", index + 1);
 						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
 					} else {
-						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Overall score: ${score}/5.**`;
+						gradeTxt += `\n\n### 🏁 Quiz Complete!\n**Overall score is ${score}/5.**`;
 						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
 					}
 					await this.saveMsg(sessionId, 'assistant', gradeTxt);
 					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. CORE ENGINE (BROKERED) ---
+				// --- 4. CORE ENGINE (RAG) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let webContext = "";
 				let docContext = "";
 
+				// Trigger Vectorize Embedding (Using the FIXED model name)
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				
 				if (activeMode === 'personal') {
 					webContext = await this.tavilySearch(userMsg);
-					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					docContext = matches.matches.map(m => m.metadata.text).join("\n");
 				} else {
-					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar " + userMsg] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: "uva" }, returnMetadata: "all" });
 					docContext = matches.matches.map(m => m.metadata.text).join("\n");
 				}
@@ -222,12 +235,14 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) return this.initQuizPool(sessionId, selectedModel);
 
 				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+				
+				// --- IDENTITY ANCHOR & MODE PROMPT ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 Identity: You are Jolene. Namesake: Named after Scott Robbins' dog, inspired by Ray LaMontagne's "Jolene" playing in the credits of the movie "The Town". 
-CRITICAL: Do NOT mention Dolly Parton. 
+CRITICAL: Do NOT mention Dolly Parton or bank tellers. 
 
 ### MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
-PERSONAL: Access Web+Docs. UVA: Access ONLY UVA Docs. No web. 
+PERSONAL: Access Web+Docs. UVA: Access ONLY UVA Docs.
 BROKERING: If the model name contains 'gpt' or 'claude', mention once that the request was brokered via Cloudflare AI Gateway.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, `WEB CONTEXT:\n${webContext}\n\nDOC CONTEXT:\n${docContext}\n\nQUESTION: ${userMsg}`);
