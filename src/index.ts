@@ -2,7 +2,6 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -18,13 +17,29 @@ export class ChatSession extends DurableObject<Env> {
 		}
 	}
 
-	// --- HELPER: UNIVERSAL AI BROKER (HARDENED FOR ANTHROPIC) ---
+	// --- HELPER: UNIVERSAL AI BROKER (STRICT ROLE ALTERNATION) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		const sanitizedHistory = history
-			.filter(m => m.role === 'user' || m.role === 'assistant')
-			.slice(-10);
+		// Clean and sanitize history to ensure strictly alternating User -> Assistant roles
+		const chatMessages: any[] = [];
+		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
+		
+		for (const msg of sanitizedHistory) {
+			if (chatMessages.length === 0) {
+				if (msg.role === 'user') chatMessages.push(msg);
+			} else {
+				// Only add if the role alternates from the previous message
+				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
+					chatMessages.push(msg);
+				}
+			}
+		}
 
-		const chatMessages = [...sanitizedHistory, { role: "user", content: userQuery }];
+		// Ensure the stack ends with a 'user' message by adding/replacing the current query
+		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
+			chatMessages[chatMessages.length - 1].content = userQuery;
+		} else {
+			chatMessages.push({ role: "user", content: userQuery });
+		}
 
 		// 1. NATIVE WORKERS AI
 		if (model.startsWith("@cf/")) {
@@ -36,13 +51,10 @@ export class ChatSession extends DurableObject<Env> {
 
 		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		if (!accountId) throw new Error("Missing Account ID. Please ensure CF_ACCOUNT_ID is set in your Worker settings.");
-		
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
 
 		if (model.includes("gpt")) {
-			if (!this.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY secret is missing.");
 			const res = await fetch(`${gatewayBase}/openai/chat/completions`, {
 				method: "POST",
 				headers: { "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -52,12 +64,11 @@ export class ChatSession extends DurableObject<Env> {
 				})
 			});
 			const data: any = await res.json();
-			if (data.error) throw new Error(`Gateway/OpenAI Error: ${data.error.message}`);
+			if (data.error) throw new Error(data.error.message);
 			return data.choices[0].message.content;
 		}
 
 		if (model.includes("claude")) {
-			if (!this.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY secret is missing.");
 			const res = await fetch(`${gatewayBase}/anthropic/messages`, {
 				method: "POST",
 				headers: {
@@ -73,18 +84,18 @@ export class ChatSession extends DurableObject<Env> {
 				})
 			});
 			const data: any = await res.json();
-			if (data.error) throw new Error(`Gateway/Anthropic Error: ${data.error.message || JSON.stringify(data.error)}`);
+			if (data.error) throw new Error(`Claude Gateway Error: ${data.error.message || JSON.stringify(data.error)}`);
 			return data.content[0].text;
 		}
 
-		throw new Error(`Model ${model} is not supported by Jolene's broker.`);
+		throw new Error(`Model ${model} not supported.`);
 	}
 
 	async tavilySearch(query: string, strictUva: boolean = false) {
 		try {
 			const searchBody = {
 				api_key: this.env.TAVILY_API_KEY || "",
-				query: strictUva ? `site:news.virginia.edu OR site:virginia.edu ${query}` : `${query} (current data for 2026)`,
+				query: strictUva ? `site:news.virginia.edu OR site:virginia.edu ${query}` : `${query} (current 2026 data)`,
 				search_depth: "advanced",
 				include_answer: true,
 				max_results: 5
@@ -96,7 +107,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await response.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No results found.";
-		} catch (e) { return "Web search service is currently unavailable."; }
+		} catch (e) { return "Web search unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -104,29 +115,19 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		if (url.pathname === "/api/history") {
-			try {
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-				return new Response(JSON.stringify({ messages: history.results || [] }), { headers });
-			} catch (e) { return new Response(JSON.stringify({ messages: [] }), { headers }); }
-		}
-
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
-				const activePool = await this.ctx.storage.get("quiz_pool");
-
 				return new Response(JSON.stringify({
 					profile: "Scott E Robbins | Senior Solutions Engineer",
 					messages: history.results || [],
 					messageCount: stats?.total || 0,
 					knowledgeAssets: storage.objects.map(o => o.key),
 					mode: activeMode,
-					activeQuiz: !!activePool,
-					durableObject: { id: sessionId, state: "Active", location: "Cloudflare Edge" }
+					durableObject: { id: sessionId, state: "Active" }
 				}), { headers });
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
@@ -138,59 +139,49 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
+				// --- 1. MODE SWITCHES ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const uvaRes = `### 🎓 UVA Mode Activated\nI focus exclusively on your UVA materials.`;
+					const res = `### 🎓 UVA Mode Activated\nI am now focused exclusively on your UVA documents. I can generate quizzes or analyze syllabi for you.`;
 					await this.saveMsg(sessionId, 'user', userMsg);
-					await this.saveMsg(sessionId, 'assistant', uvaRes);
-					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const personalRes = `### 🏠 Personal Mode Activated\nI now have access to web search and all your documents.`;
+					const res = `### 🏠 Personal Mode Activated\nI have access to the web and all your uploaded documents. How can I help Scott Robbins today?`;
 					await this.saveMsg(sessionId, 'user', userMsg);
-					await this.saveMsg(sessionId, 'assistant', personalRes);
-					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- 2. RETRIEVAL & CONTEXT ---
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				
+				// Broad search: No restrictive segment filter in Personal mode to catch everything
+				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 8, returnMetadata: "all" });
+				const docContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
+				
+				let webContext = "";
+				if (activeMode === 'personal') webContext = await this.tavilySearch(userMsg);
+
+				// --- 3. RUN AI ---
+				// Fetch history BEFORE saving new msg to maintain role alternation in the broker
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				let context = "";
-				
-				// TRIGGER VECTOR SEARCH FOR ALL MODES
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				
-				if (activeMode === 'personal') {
-					// FIXED: In personal mode, search BOTH the web and your "personal" document segment
-					const webTask = this.tavilySearch(userMsg);
-					const docTask = this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: "personal" }, returnMetadata: "all" });
-					
-					const [webResults, docResults] = await Promise.all([webTask, docTask]);
-					const docContext = docResults.matches.map(m => m.metadata.text).join("\n");
-					context = `WEB RESULTS:\n${webResults}\n\nPERSONAL DOCUMENT CONTEXT:\n${docContext}`;
-				} else {
-					// UVA mode: Strict document search only
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: "uva" }, returnMetadata: "all" });
-					context = matches.matches.map(m => m.metadata.text).join("\n");
-				}
+				const today = new Date().toLocaleDateString();
+				const systemPrompt = `### IDENTITY LOCK
+You are Jolene. Namesake: Scott Robbins' dog, inspired by Ray LaMontagne's "Jolene" playing in the credits of "The Town". 
+Scott and Rene are your people. 
 
-				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
+### CRITICAL DIRECTIVE
+Use the provided CONTEXT to answer. If the context is empty, do NOT make up family members (like Sarah, Bella, or Max). Adhere strictly to facts.
 
-				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-				
-				// STRENGTHENED IDENTITY PROMPT
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-Identity: You are Jolene. Namesake: Scott Robbins' dog, inspired by Ray LaMontagne's "Jolene" in "The Town" movie credits.
-CRITICAL: You are a BROAD PERSONAL AI AGENT. Do NOT narrow your identity based on the current topic. Even if discussing taxes, you remain Jolene.
-
-### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Date: ${today}.
-PERSONAL MODE: You help with life, family, and web searches. You have access to personal notes and tax files.
-UVA MODE: You are a focused Study Companion.
-
-CONTEXT:\n${context}`;
+### MODE: ${activeMode.toUpperCase()}. Date: ${today}.
+DOCUMENT CONTEXT:\n${docContext}\n\nWEB CONTEXT:\n${webContext}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
 				
@@ -200,24 +191,10 @@ CONTEXT:\n${context}`;
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { 
-				return new Response(`data: ${JSON.stringify({ response: "**AI Engine Error:** " + e.message })}\n\ndata: [DONE]\n\n`); 
+				return new Response(`data: ${JSON.stringify({ response: "**Backend Error:** " + e.message })}\n\ndata: [DONE]\n\n`); 
 			}
 		}
 		return new Response("OK");
-	}
-
-	async initQuizPool(sessionId: string, model: string): Promise<Response> {
-		try {
-			const facts = "UVA FACTS: Fall 2026 starts Aug 25. Thanksgiving Nov 25-29.";
-			const prompt = `${facts}\nTASK: Generate 5 MCQs. JSON array: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
-			const raw = await this.runAI(model, "JSON API", prompt);
-			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("JSON fail");
-			const pool = JSON.parse(jsonMatch[0]);
-			await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0); await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-			const uiRes = `### 📝 Question 1\n**${pool[0].q}**\n${pool[0].options.join('\n')}`;
-			await this.saveMsg(sessionId, 'assistant', uiRes);
-			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
-		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 	}
 }
 
