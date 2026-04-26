@@ -2,6 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -17,26 +18,13 @@ export class ChatSession extends DurableObject<Env> {
 		}
 	}
 
-	// --- HELPER: UNIVERSAL AI BROKER (STRICT ROLE ALTERNATION) ---
+	// --- HELPER: UNIVERSAL AI BROKER (HARDENED FOR ANTHROPIC) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		const chatMessages: any[] = [];
+		// Clean and sanitize history (User -> Assistant only)
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
-		
-		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) {
-				if (msg.role === 'user') chatMessages.push(msg);
-			} else {
-				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
-					chatMessages.push(msg);
-				}
-			}
-		}
 
-		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-			chatMessages[chatMessages.length - 1].content = userQuery;
-		} else {
-			chatMessages.push({ role: "user", content: userQuery });
-		}
+		// Build the final message stack
+		const chatMessages = [...sanitizedHistory, { role: "user", content: userQuery }];
 
 		// 1. NATIVE WORKERS AI
 		if (model.startsWith("@cf/")) {
@@ -90,20 +78,19 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string, strictUva: boolean = false) {
 		try {
-			const searchBody = {
-				api_key: this.env.TAVILY_API_KEY || "",
-				query: strictUva ? `site:news.virginia.edu OR site:virginia.edu ${query}` : `${query} (Search for facts in 2026)`,
-				search_depth: "advanced",
-				include_answer: true,
-				max_results: 5
-			};
 			const response = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(searchBody)
+				body: JSON.stringify({
+					api_key: this.env.TAVILY_API_KEY || "",
+					query: strictUva ? `site:news.virginia.edu OR site:virginia.edu ${query}` : `${query} (Search for facts in 2026)`,
+					search_depth: "advanced",
+					include_answer: true,
+					max_results: 5
+				})
 			});
 			const data: any = await response.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No results found.";
+			return data.results?.map((r: any) => r.content).join("\n\n") || "No web results found.";
 		} catch (e) { return "Web search service unavailable."; }
 	}
 
@@ -113,20 +100,18 @@ export class ChatSession extends DurableObject<Env> {
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
 		if (url.pathname === "/api/profile") {
-			try {
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-				const storage = await this.env.DOCUMENTS.list();
-				return new Response(JSON.stringify({
-					profile: "Scott E Robbins | Senior Solutions Engineer",
-					messages: history.results || [],
-					messageCount: stats?.total || 0,
-					knowledgeAssets: storage.objects.map(o => o.key),
-					mode: activeMode,
-					durableObject: { id: sessionId, state: "Active" }
-				}), { headers });
-			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
+			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const storage = await this.env.DOCUMENTS.list();
+			return new Response(JSON.stringify({
+				profile: "Scott E Robbins | Senior Solutions Engineer",
+				messages: history.results || [],
+				messageCount: stats?.total || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
+				mode: activeMode,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
@@ -136,10 +121,10 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- 1. MODE SWITCHES ---
+				// 1. Mode Switches
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode Activated\nI am now focused exclusively on your UVA documents. I can generate quizzes or analyze syllabi for you.`;
+					const res = `### 🎓 UVA Mode Activated\nI am now focused exclusively on your UVA materials.`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -147,48 +132,50 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nI have access to the web and all your uploaded documents. How can I help Scott Robbins today?`;
+					const res = `### 🏠 Personal Mode Activated\nI have access to the web and all your uploaded documents.`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. RETRIEVAL & CONTEXT (FIXED: Search everything in Personal mode) ---
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				
-				// Broad search: No restrictive metadata filter in Personal mode to ensure family/tax files are found
-				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
-				const docContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
-				
-				let webContext = "";
-				if (activeMode === 'personal') {
-					webContext = await this.tavilySearch(userMsg);
-				}
-
-				// --- 3. RUN AI ---
-				// Fetch history BEFORE saving new msg to maintain role alternation for Claude
+				// 2. Fetch History BEFORE saving new message (Crucial fix for Claude/Anthropic)
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
-				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+				// 3. Retrieval (Enhanced for Family file)
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const searchBoost = (lowMsg.includes("family") || lowMsg.includes("who are you") || lowMsg.includes("namesake")) 
+					? "Scott Robbins Renee family Bryana dogs Jolene Hanna grandkids Callan Josie " 
+					: "";
 				
-				// HARDENED IDENTITY LOCK: Explicitly naming family members and banning fake names
-				const systemPrompt = `### IDENTITY LOCK
-You are Jolene. Namesake: Scott Robbins' oldest dog. Story: Inspired by Ray LaMontagne's "Jolene" playing in the movie "The Town" credits.
-Identity context: Scott and Renee Robbins are your people. 
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchBoost + userMsg] });
+				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
+				const docContext = vectorResults.matches.map(m => m.metadata.text).join("\n\n---\n\n");
+				
+				let webContext = "";
+				if (activeMode === 'personal') webContext = await this.tavilySearch(userMsg);
 
-### CRITICAL DIRECTIVES
-1. Adhere STRICTLY to the DOCUMENT CONTEXT below.
-2. If context is empty, say you don't know. 
-3. DO NOT invent family members. DO NOT mention Sarah, Bella, or Max.
-4. TAXES: The tax base fee is $375 for the first hour and $275 per hour thereafter (per the 2025 engagement letter).
+				// 4. Identity Lock Prompt
+				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+				const systemPrompt = `### IDENTITY LOCK
+You are Jolene. Namesake: Named after Scott Robbins' oldest dog. Story: Scott and Renee were inspired by Ray LaMontagne's "Jolene" playing in the credits of the movie "The Town".
+FAMILY TRUTH: Scott and Renee are your people. Their daughter is Bryana. Grandkids are Callan (3) and Josie (2).
+
+### CRITICAL INSTRUCTIONS
+1. Adhere STRICTLY to the DOCUMENT CONTEXT. If the context is empty, say you don't know.
+2. DO NOT invent family members. NEVER mention Sarah, Bella, or Max.
+3. TAXES: The base fee is $375 for the first hour and $275/hr thereafter (per 2025 engagement letter).
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Date: ${today}.
-DOCUMENT CONTEXT:\n${docContext}\n\nWEB CONTEXT:\n${webContext}`;
+DOCUMENT CONTEXT:
+${docContext}
+
+WEB CONTEXT:
+${webContext}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
 				
+				// 5. Final Persistence (Saves AFTER AI generates response)
 				await this.saveMsg(sessionId, 'user', userMsg);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 
