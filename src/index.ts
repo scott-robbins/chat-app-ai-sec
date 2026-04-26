@@ -20,14 +20,10 @@ export class ChatSession extends DurableObject<Env> {
 
 	// --- HELPER: UNIVERSAL AI BROKER (HARDENED FOR ANTHROPIC) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		// Clean and sanitize history for external providers (User -> Assistant only)
-		// We filter out any system messages from the array as Anthropic handles system prompts separately
 		const sanitizedHistory = history
 			.filter(m => m.role === 'user' || m.role === 'assistant')
-			.slice(-10); // Keep memory to last 10 messages for efficiency
+			.slice(-10);
 
-		// Build the final message stack for the current request
-		// Ensure the array ends with a 'user' role message
 		const chatMessages = [...sanitizedHistory, { role: "user", content: userQuery }];
 
 		// 1. NATIVE WORKERS AI
@@ -39,22 +35,17 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
-		// Robust check for dashboard variable naming inconsistencies
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		if (!accountId) throw new Error("Missing Account ID. Please ensure CF_ACCOUNT_ID is set in your Worker settings.");
 		
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
 
-		// OPENAI HANDLER
 		if (model.includes("gpt")) {
 			if (!this.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY secret is missing.");
 			const res = await fetch(`${gatewayBase}/openai/chat/completions`, {
 				method: "POST",
-				headers: {
-					"Authorization": `Bearer ${this.env.OPENAI_API_KEY}`,
-					"Content-Type": "application/json"
-				},
+				headers: { "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
 				body: JSON.stringify({ 
 					model, 
 					messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
@@ -65,7 +56,6 @@ export class ChatSession extends DurableObject<Env> {
 			return data.choices[0].message.content;
 		}
 
-		// ANTHROPIC HANDLER (CLAUDE)
 		if (model.includes("claude")) {
 			if (!this.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY secret is missing.");
 			const res = await fetch(`${gatewayBase}/anthropic/messages`, {
@@ -78,8 +68,8 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({
 					model,
 					max_tokens: 1024,
-					system: systemPrompt, // Anthropic uses a separate top-level field for system instructions
-					messages: chatMessages // Strictly user/assistant alternating
+					system: systemPrompt,
+					messages: chatMessages
 				})
 			});
 			const data: any = await res.json();
@@ -90,7 +80,6 @@ export class ChatSession extends DurableObject<Env> {
 		throw new Error(`Model ${model} is not supported by Jolene's broker.`);
 	}
 
-	// --- HELPER: TAVILY WEB SEARCH ---
 	async tavilySearch(query: string, strictUva: boolean = false) {
 		try {
 			const searchBody = {
@@ -115,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. PERSISTENCE LOADER (FOR DASHBOARD) ---
 		if (url.pathname === "/api/history") {
 			try {
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
@@ -123,7 +111,6 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ messages: [] }), { headers }); }
 		}
 
-		// --- 2. COMMAND CENTER SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -144,7 +131,6 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- 3. CHAT ENGINE ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -152,20 +138,9 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// MODE SWITCHING (DETAILED RESPONSES)
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const uvaRes = `### 🎓 UVA Mode: Full Study Companion Activated
-I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
-
-**What I can do for you now:**
-- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
-- **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
-
-*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
-
-**Would you like me to fetch the latest UVA campus news and events for you before we start?**`;
+					const uvaRes = `### 🎓 UVA Mode Activated\nI focus exclusively on your UVA materials.`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', uvaRes);
 					return new Response(`data: ${JSON.stringify({ response: uvaRes })}\n\ndata: [DONE]\n\n`);
@@ -173,92 +148,52 @@ I am now in specialized Study Companion mode. I focus **exclusively** on your Un
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					await this.ctx.storage.delete("session_state");
-					const personalRes = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode. 
-
-**What I can do for you now:**
-- **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
-- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
-
-*Note: This mode is best for real-time information and personal organization.*`;
+					const personalRes = `### 🏠 Personal Mode Activated\nI now have access to web search and all your documents.`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', personalRes);
 					return new Response(`data: ${JSON.stringify({ response: personalRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- MEMORY: Pull history BEFORE saving current user message ---
-				// This prevents user message duplication which breaks Anthropic's strict alternating-role check.
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
-				const sessionState = await this.ctx.storage.get("session_state");
-
-				// CAMPUS NEWS STATE
-				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
-					await this.ctx.storage.delete("session_state");
-					if (lowMsg.includes("yes") || lowMsg.includes("sure")) {
-						const newsContext = await this.tavilySearch("current campus news", true);
-						const newsTxt = await this.runAI(selectedModel, "Summarize UVA news.", `NEWS CONTEXT:\n${newsContext}`);
-						await this.saveMsg(sessionId, 'user', userMsg);
-						await this.saveMsg(sessionId, 'assistant', newsTxt);
-						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
-					}
-				}
-
-				// QUIZ STATE
-				const pool = await this.ctx.storage.get("quiz_pool") as any[];
-				const index = await this.ctx.storage.get("current_q_idx") as number || 0;
-				let score = await this.ctx.storage.get("quiz_score") as number || 0;
-
-				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-c][\.\s]?$/i.test(lowMsg)) {
-					const currentQ = pool[index];
-					const isCorrect = lowMsg[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
-					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
-					const correctText = currentQ.options[currentQ.hidden_answer.charCodeAt(0) - 65];
-					const prompt = `USER ANSWERED: ${lowMsg[0].toUpperCase()}, CORRECT: ${currentQ.hidden_answer}, FACT: "${correctText}". Ready for Q ${index + 2}?`;
-					let gradeTxt = await this.runAI(selectedModel, "You are a supportive UVA Tutor.", prompt);
-					if (index + 1 < pool.length) {
-						await this.ctx.storage.put("current_q_idx", index + 1);
-						await this.ctx.storage.put("session_state", "WAITING_FOR_CONTINUE");
-					} else {
-						gradeTxt += `\n\n### 🏁 Quiz Complete! Score: ${score}/5.`;
-						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
-					}
-					await this.saveMsg(sessionId, 'user', userMsg);
-					await this.saveMsg(sessionId, 'assistant', gradeTxt);
-					return new Response(`data: ${JSON.stringify({ response: gradeTxt })}\n\ndata: [DONE]\n\n`);
-				}
-
-				// CORE RAG ENGINE
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let context = "";
+				
+				// TRIGGER VECTOR SEARCH FOR ALL MODES
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				
 				if (activeMode === 'personal') {
-					context = await this.tavilySearch(userMsg);
+					// FIXED: In personal mode, search BOTH the web and your "personal" document segment
+					const webTask = this.tavilySearch(userMsg);
+					const docTask = this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: "personal" }, returnMetadata: "all" });
+					
+					const [webResults, docResults] = await Promise.all([webTask, docTask]);
+					const docContext = docResults.matches.map(m => m.metadata.text).join("\n");
+					context = `WEB RESULTS:\n${webResults}\n\nPERSONAL DOCUMENT CONTEXT:\n${docContext}`;
 				} else {
+					// UVA mode: Strict document search only
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: "uva" }, returnMetadata: "all" });
 					context = matches.matches.map(m => m.metadata.text).join("\n");
 				}
 
-				if (lowMsg.includes("quiz") || lowMsg.includes("start a quiz")) return this.initQuizPool(sessionId, selectedModel);
+				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
 
 				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 				
-				// IDENTITY ANCHOR
+				// STRENGTHENED IDENTITY PROMPT
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-Identity: You are Jolene. Namesake: Scott Robbins' dog. Story: Inspired by Ray LaMontagne's "Jolene" playing in the credits of the movie "The Town".
-CRITICAL: You are an AI Agent and a Full Study Companion. Ground all dates in the documents provided. 
+Identity: You are Jolene. Namesake: Scott Robbins' dog, inspired by Ray LaMontagne's "Jolene" in "The Town" movie credits.
+CRITICAL: You are a BROAD PERSONAL AI AGENT. Do NOT narrow your identity based on the current topic. Even if discussing taxes, you remain Jolene.
 
-### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
-PERSONAL: Access to live web (Tavily) and all documents.
-UVA: Access ONLY to UVA documents. No general web access.
-BROKERING: If using OpenAI or Anthropic (model contains 'gpt' or 'claude'), mention once that the request was brokered via Cloudflare AI Gateway.`;
+### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Date: ${today}.
+PERSONAL MODE: You help with life, family, and web searches. You have access to personal notes and tax files.
+UVA MODE: You are a focused Study Companion.
+
+CONTEXT:\n${context}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
 				
-				// SAVE TO MEMORY AFTER AI RESPONSE
 				await this.saveMsg(sessionId, 'user', userMsg);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 
@@ -273,17 +208,16 @@ BROKERING: If using OpenAI or Anthropic (model contains 'gpt' or 'claude'), ment
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const facts = "UVA FACTS: Fall 2026 starts Aug 25. Thanksgiving Nov 25-29. Registrar (434) 982-5300. Founded 1819. Classes began March 25, 1825.";
-			const prompt = `${facts}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Raw JSON array: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
-			const raw = await this.runAI(model, "You are a JSON API.", prompt);
-			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("AI failed to generate quiz JSON.");
+			const facts = "UVA FACTS: Fall 2026 starts Aug 25. Thanksgiving Nov 25-29.";
+			const prompt = `${facts}\nTASK: Generate 5 MCQs. JSON array: [{"q":"...","options":["..."],"hidden_answer":"A"}].`;
+			const raw = await this.runAI(model, "JSON API", prompt);
+			const jsonMatch = raw.match(/\[[\s\S]*\]/); if (!jsonMatch) throw new Error("JSON fail");
 			const pool = JSON.parse(jsonMatch[0]);
 			await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0); await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-			const firstQ = pool[0];
-			const uiRes = `### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:string,i:number)=>`${['A','B','C'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, or C!*`;
+			const uiRes = `### 📝 Question 1\n**${pool[0].q}**\n${pool[0].options.join('\n')}`;
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
-		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Initialization Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 	}
 }
 
