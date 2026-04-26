@@ -233,10 +233,16 @@
 			
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary">
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
-					<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
+					<optgroup label="Cloudflare Workers AI">
+						<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
+						<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+						<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
+					</optgroup>
+
+					<optgroup label="AI Gateway (ai-sec-gateway)">
+						<option value="gpt-4o">GPT-4o (OpenAI)</option>
+						<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (Anthropic)</option>
+					</optgroup>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
 				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
