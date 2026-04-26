@@ -2,6 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -22,7 +23,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		
-		// Ensure strictly alternating User -> Assistant roles for Claude compatibility
+		// Ensure strictly alternating User -> Assistant roles for Claude/Anthropic compatibility
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) {
 				if (msg.role === 'user') chatMessages.push(msg);
@@ -113,19 +114,29 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- RESTORED COMMAND CENTER ENDPOINT ---
 		if (url.pathname === "/api/profile") {
-			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-			const storage = await this.env.DOCUMENTS.list();
-			return new Response(JSON.stringify({
-				profile: "Scott E Robbins | Senior Solutions Engineer",
-				messages: history.results || [],
-				messageCount: stats?.total || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: activeMode,
-				durableObject: { id: sessionId, state: "Active" }
-			}), { headers });
+			try {
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+				const storage = await this.env.DOCUMENTS.list();
+				
+				// Restore Active Learning Session Detection
+				const activePool = await this.ctx.storage.get("quiz_pool");
+
+				return new Response(JSON.stringify({
+					profile: "Scott E Robbins | Senior Solutions Engineer",
+					messages: history.results || [],
+					messageCount: stats?.total || 0,
+					knowledgeAssets: storage.objects.map(o => o.key),
+					mode: activeMode,
+					activeQuiz: !!activePool,
+					durableObject: { id: sessionId, state: "Active", location: "Cloudflare Edge" }
+				}), { headers });
+			} catch (e: any) { 
+				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); 
+			}
 		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
@@ -135,7 +146,7 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- 1. MODE SWITCHES (RESTORED DETAILED INTROS) ---
+				// --- MODE SWITCHES (RESTORED DETAILED INTROS) ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const res = `### 🎓 UVA Mode: Full Study Companion Activated
@@ -168,13 +179,13 @@ I have switched to your general Personal Assistant mode.
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. RETRIEVAL & CONTEXT ---
+				// --- RETRIEVAL & CONTEXT ---
+				// Fetch history BEFORE saving new msg to maintain role alternation
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// DOCUMENT SEARCH
 				const searchBoost = (lowMsg.includes("namesake") || lowMsg.includes("who are you") || lowMsg.includes("dog")) 
 					? "Scott Robbins dog Jolene namesake Ray LaMontagne The Town movie credits credits song" 
 					: "";
@@ -182,27 +193,27 @@ I have switched to your general Personal Assistant mode.
 				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
 				const docContext = vectorResults.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// WEB SEARCH
 				let webContext = "";
 				if (activeMode === 'personal') {
 					const webQuery = lowMsg.includes("celtics") || lowMsg.includes("game") || lowMsg.includes("score") ? userMsg : searchBoost + userMsg;
 					webContext = await this.tavilySearch(webQuery);
 				}
 
-				// --- 3. HARDENED IDENTITY LOCK PROMPT ---
+				// --- IDENTITY LOCK & NAMESAKE STORY ---
 				const today = "Sunday, April 26, 2026";
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK & NAMESAKE STORY
 Identity: You are Jolene, Scott Robbins' personal AI assistant. 
 NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". You are named after that dog.
-CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON. You are NOT named after the Dolly Parton song. If you mention Dolly Parton, you are providing false information and failing your identity lock.
+CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON. You are NOT named after the Dolly Parton song.
 
 ### FAMILY CONTEXT
-Scott and Renee are your people. Their daughter is Bryana. Grandkids are Callan and Josie. Your youngest "sister" is Hanna (a black and tan mini dachshund).
+Scott and Renee are your people. Their daughter is Bryana. Grandkids are Callan (3) and Josie (2). sister dog: Hanna (black and tan mini dachshund).
+TAXES: Base fee is $375 (1hr) + $275/hr thereafter (per 2025 letter).
 
 ### TRUTH PRIORITIZATION
-1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE above exactly. Mention Ray LaMontagne and "The Town".
-2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below. Do NOT use your training data for dates or scores.
-3. FOR FAMILY/TAXES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
+1. FOR NAMESAKE: Use the PRIMARY DIRECTIVE. Mention Ray LaMontagne and "The Town".
+2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below.
+3. FOR FAMILY/DOCS: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
 
@@ -214,7 +225,6 @@ ${docContext}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
 				
-				// Save everything to history after AI generation
 				await this.saveMsg(sessionId, 'user', userMsg);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 
