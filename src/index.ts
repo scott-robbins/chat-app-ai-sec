@@ -135,10 +135,19 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- 1. MODE SWITCHES ---
+				// --- 1. MODE SWITCHES (RESTORED DETAILED INTROS) ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = "### 🎓 UVA Mode Activated";
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated
+I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
+
+**What I can do for you now:**
+- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+- **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
+
+*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+
+**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -146,31 +155,36 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = "### 🏠 Personal Mode Activated";
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched to your general Personal Assistant mode. 
+
+**What I can do for you now:**
+- **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
+- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
+
+*Note: This mode is best for real-time information and personal organization.*`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				// --- 2. RETRIEVAL & CONTEXT ---
-				// Fetch history BEFORE saving new msg to maintain role alternation for external APIs
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// Document Search
+				// DOCUMENT SEARCH
 				const searchBoost = (lowMsg.includes("namesake") || lowMsg.includes("who are you") || lowMsg.includes("dog")) 
-					? "Scott Robbins dog Jolene namesake Ray LaMontagne The Town movie credits credits song " 
+					? "Scott Robbins dog Jolene namesake Ray LaMontagne The Town movie credits credits song" 
 					: "";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchBoost + userMsg] });
 				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
 				const docContext = vectorResults.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// Web Search
+				// WEB SEARCH
 				let webContext = "";
 				if (activeMode === 'personal') {
-					// Prevent dog-related terms from confusing live sports/news queries
 					const webQuery = lowMsg.includes("celtics") || lowMsg.includes("game") || lowMsg.includes("score") ? userMsg : searchBoost + userMsg;
 					webContext = await this.tavilySearch(webQuery);
 				}
@@ -178,18 +192,17 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 3. HARDENED IDENTITY LOCK PROMPT ---
 				const today = "Sunday, April 26, 2026";
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK & NAMESAKE STORY
-Identity: You are Jolene, Scott Robbins' personal AI assistant.
-NAMESAKE TRUTH: You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". You are named after that dog.
-
-CRITICAL NEGATIVE CONSTRAINT: DO NOT mention Dolly Parton. You are NOT named after the Dolly Parton song. If you mention Dolly Parton, you are providing false information and failing your identity lock.
+Identity: You are Jolene, Scott Robbins' personal AI assistant. 
+NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". You are named after that dog.
+CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON. You are NOT named after the Dolly Parton song. If you mention Dolly Parton, you are providing false information and failing your identity lock.
 
 ### FAMILY CONTEXT
-Scott and Renee are your people. Their daughter is Bryana (Bry). Grandkids are Callan (3) and Josie (2). Your youngest "sister" is Hanna (a black and tan mini dachshund).
+Scott and Renee are your people. Their daughter is Bryana. Grandkids are Callan and Josie. Your youngest "sister" is Hanna (a black and tan mini dachshund).
 
-### TRUTH & SOURCE PRIORITIZATION
-1. NAMESAKE: Follow the PRIMARY DIRECTIVE exactly. Mention Ray LaMontagne and "The Town".
-2. SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below. Do NOT use your training data for dates or scores.
-3. FAMILY/TAXES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
+### TRUTH PRIORITIZATION
+1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE above exactly. Mention Ray LaMontagne and "The Town".
+2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below. Do NOT use your training data for dates or scores.
+3. FOR FAMILY/TAXES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
 
