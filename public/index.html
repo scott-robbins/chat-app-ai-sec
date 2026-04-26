@@ -110,6 +110,8 @@
 			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
+			
+			/* System indicator styling */
 			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
 			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
 
@@ -238,7 +240,6 @@
 					<optgroup label="Cloudflare Workers AI">
 						<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
 						<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-						<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
 					</optgroup>
 
 					<optgroup label="AI Gateway (ai-sec-gateway)">
@@ -375,13 +376,14 @@
 				document.body.classList.toggle('theme-fancy');
 			};
 
-			// Robust brain-switch handshake logic
+			// Handshake logic for model change
 			document.getElementById('model-selector').onchange = async () => {
 				const selector = document.getElementById('model-selector');
 				const modelName = selector.options[selector.selectedIndex].text;
 				
 				appendMessage('system-indicator', `System: Optimizing brain pathways for ${modelName}...`);
 				
+				// Automatically trigger a greeting from the new model brain
 				const switchPrompt = `I have just switched my brain to ${modelName}. Please provide a very brief one-sentence greeting in your unique style to confirm you are active.`;
 				await sendMessage(switchPrompt, true);
 			};
@@ -402,7 +404,7 @@
 						document.getElementById('quiz-status').innerText = "Idle";
 					}
 					
-					// Auto-hydrate history on initial load or empty screen
+					// Re-hydrate UI from D1 history if it's currently empty
 					if (document.getElementById('chat-messages').children.length <= 2 && data.messages && data.messages.length > 0) {
 						const chatMessages = document.getElementById('chat-messages');
 						chatMessages.innerHTML = ''; 
@@ -430,7 +432,7 @@
 				const content = overrideText || input.value.trim();
 				if (!content || isTyping) return;
 				
-				// Keep the chat clean by hiding the internal model-swap prompt
+				// Hide the swap-initiation prompt from the UI for a cleaner demo
 				if (!isAutoSwitch) appendMessage('user-message', content);
 				
 				if (!overrideText) input.value = '';
@@ -481,7 +483,7 @@
 					updateDashboard();
 				} catch (e) {
 					showTyping(false);
-					appendMessage('assistant-message', `**Error:** Failed to execute brain swap. Check console or dashboard secrets. Details: ${e.message}`);
+					appendMessage('assistant-message', `**Error:** Failed to connect to Gateway. Check console or secrets. Details: ${e.message}`);
 				}
 			}
 
