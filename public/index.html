@@ -110,8 +110,10 @@
 			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
-			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 4px 12px; border-radius: 10px; font-style: italic; }
-			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #cbd5e1; }
+			
+			/* NEW: System indicator styling */
+			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
+			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
 
 			.message-content img {
 				max-width: 100%;
@@ -378,16 +380,15 @@
 				document.body.classList.toggle('theme-fancy');
 			};
 
-			// --- NEW: AUTO-INDICATOR ON MODEL CHANGE ---
+			// --- FIX: Robust brain-switch logic ---
 			document.getElementById('model-selector').onchange = async () => {
 				const selector = document.getElementById('model-selector');
 				const modelName = selector.options[selector.selectedIndex].text;
-				const modelValue = selector.value;
 				
-				// Visual system indicator in chat
-				appendMessage('system-indicator', `Switching brain to ${modelName}...`);
+				// 1. Show the system indicator immediately
+				appendMessage('system-indicator', `System: Optimizing brain pathways for ${modelName}...`);
 				
-				// Send an auto-ping to get an acknowledgement from the new model
+				// 2. Clear input and trigger a hidden auto-ping
 				const switchPrompt = `I have just switched my brain to ${modelName}. Please provide a very brief one-sentence greeting in your unique style to confirm you are active.`;
 				await sendMessage(switchPrompt, true);
 			};
@@ -407,7 +408,8 @@
 					} else {
 						document.getElementById('quiz-status').innerText = "Idle";
 					}
-					if (data.messages && data.messages.length > 0) {
+					// Only re-hydrate if we cleared the screen or just loaded
+					if (document.getElementById('chat-messages').children.length <= 2 && data.messages && data.messages.length > 0) {
 						const chatMessages = document.getElementById('chat-messages');
 						chatMessages.innerHTML = ''; 
 						data.messages.forEach(msg => {
@@ -433,11 +435,12 @@
 				const content = overrideText || input.value.trim();
 				if (!content || isTyping) return;
 				
-				// Only append the user bubble if it's not an automatic model-switch ping
+				// Append user bubble ONLY if it's NOT an automatic switch ping
 				if (!isAutoSwitch) appendMessage('user-message', content);
 				
-				input.value = '';
+				if (!overrideText) input.value = '';
 				showTyping(true);
+
 				try {
 					const res = await fetch('/api/chat', {
 						method: 'POST',
@@ -447,9 +450,21 @@
 							model: document.getElementById('model-selector').value 
 						})
 					});
+
+					if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
 					const reader = res.body.getReader();
 					const decoder = new TextDecoder();
 					let assistantText = "";
+					
+					// Pre-append assistant bubble to fill it with stream
+					const chatContainer = document.getElementById('chat-messages');
+					const msgDiv = document.createElement('div');
+					msgDiv.className = 'message assistant-message';
+					msgDiv.innerHTML = '<div class="message-content"></div>';
+					chatContainer.appendChild(msgDiv);
+					const contentDiv = msgDiv.querySelector('.message-content');
+
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
@@ -457,19 +472,24 @@
 						const lines = chunk.split('\n');
 						for (const line of lines) {
 							if (line.startsWith('data: ')) {
+								const dataStr = line.substring(6).trim();
+								if (dataStr === '[DONE]') continue;
 								try {
-									const data = JSON.parse(line.substring(6));
-									if (data.response) assistantText = data.response;
+									const data = JSON.parse(dataStr);
+									if (data.response) {
+										assistantText += data.response;
+										contentDiv.innerHTML = marked.parse(assistantText);
+										chatContainer.scrollTop = chatContainer.scrollHeight;
+									}
 								} catch (e) {}
 							}
 						}
 					}
 					showTyping(false);
-					appendMessage('assistant-message', assistantText);
 					updateDashboard();
 				} catch (e) {
 					showTyping(false);
-					appendMessage('assistant-message', "Error connecting to AI Gateway.");
+					appendMessage('assistant-message', `**Error:** Failed to connect to ${isAutoSwitch ? 'AI Gateway' : 'Worker AI'}. Verify your API keys in the dashboard.`);
 				}
 			}
 
