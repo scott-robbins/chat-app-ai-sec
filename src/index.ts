@@ -19,7 +19,6 @@ export class ChatSession extends DurableObject<Env> {
 
 	// --- HELPER: UNIVERSAL AI BROKER (STRICT ROLE ALTERNATION) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		// Clean and sanitize history to ensure strictly alternating User -> Assistant roles
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		
@@ -27,14 +26,12 @@ export class ChatSession extends DurableObject<Env> {
 			if (chatMessages.length === 0) {
 				if (msg.role === 'user') chatMessages.push(msg);
 			} else {
-				// Only add if the role alternates from the previous message
 				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
 					chatMessages.push(msg);
 				}
 			}
 		}
 
-		// Ensure the stack ends with a 'user' message by adding/replacing the current query
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
 			chatMessages[chatMessages.length - 1].content = userQuery;
 		} else {
@@ -95,7 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const searchBody = {
 				api_key: this.env.TAVILY_API_KEY || "",
-				query: strictUva ? `site:news.virginia.edu OR site:virginia.edu ${query}` : `${query} (current 2026 data)`,
+				query: strictUva ? `site:news.virginia.edu OR site:virginia.edu ${query}` : `${query} (Search for facts in 2026)`,
 				search_depth: "advanced",
 				include_answer: true,
 				max_results: 5
@@ -107,7 +104,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await response.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No results found.";
-		} catch (e) { return "Web search unavailable."; }
+		} catch (e) { return "Web search service unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -156,31 +153,38 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. RETRIEVAL & CONTEXT ---
+				// --- 2. RETRIEVAL & CONTEXT (FIXED: Search everything in Personal mode) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				
-				// Broad search: No restrictive segment filter in Personal mode to catch everything
-				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 8, returnMetadata: "all" });
+				// Broad search: No restrictive metadata filter in Personal mode to ensure family/tax files are found
+				const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
 				const docContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
 				
 				let webContext = "";
-				if (activeMode === 'personal') webContext = await this.tavilySearch(userMsg);
+				if (activeMode === 'personal') {
+					webContext = await this.tavilySearch(userMsg);
+				}
 
 				// --- 3. RUN AI ---
-				// Fetch history BEFORE saving new msg to maintain role alternation in the broker
+				// Fetch history BEFORE saving new msg to maintain role alternation for Claude
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
-				const today = new Date().toLocaleDateString();
+				const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+				
+				// HARDENED IDENTITY LOCK: Explicitly naming family members and banning fake names
 				const systemPrompt = `### IDENTITY LOCK
-You are Jolene. Namesake: Scott Robbins' dog, inspired by Ray LaMontagne's "Jolene" playing in the credits of "The Town". 
-Scott and Rene are your people. 
+You are Jolene. Namesake: Scott Robbins' oldest dog. Story: Inspired by Ray LaMontagne's "Jolene" playing in the movie "The Town" credits.
+Identity context: Scott and Renee Robbins are your people. 
 
-### CRITICAL DIRECTIVE
-Use the provided CONTEXT to answer. If the context is empty, do NOT make up family members (like Sarah, Bella, or Max). Adhere strictly to facts.
+### CRITICAL DIRECTIVES
+1. Adhere STRICTLY to the DOCUMENT CONTEXT below.
+2. If context is empty, say you don't know. 
+3. DO NOT invent family members. DO NOT mention Sarah, Bella, or Max.
+4. TAXES: The tax base fee is $375 for the first hour and $275 per hour thereafter (per the 2025 engagement letter).
 
-### MODE: ${activeMode.toUpperCase()}. Date: ${today}.
+### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Date: ${today}.
 DOCUMENT CONTEXT:\n${docContext}\n\nWEB CONTEXT:\n${webContext}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
@@ -191,7 +195,7 @@ DOCUMENT CONTEXT:\n${docContext}\n\nWEB CONTEXT:\n${webContext}`;
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { 
-				return new Response(`data: ${JSON.stringify({ response: "**Backend Error:** " + e.message })}\n\ndata: [DONE]\n\n`); 
+				return new Response(`data: ${JSON.stringify({ response: "**AI Engine Error:** " + e.message })}\n\ndata: [DONE]\n\n`); 
 			}
 		}
 		return new Response("OK");
