@@ -2,6 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -22,6 +23,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		
+		// Ensure strictly alternating User -> Assistant roles for compatibility
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) {
 				if (msg.role === 'user') chatMessages.push(msg);
@@ -127,18 +129,18 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
-					const stopRes = "### 🛑 Session Reset\nI have reset your state. How can I help you next?";
+					const stopRes = "### 🛑 Session Reset\nI have reset your current activity state. How can I help you next?";
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', stopRes);
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Handle News Confirmation Flow (THE FIX)
+				// Handle News Confirmation Flow
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ok")) {
 						const newsContext = await this.tavilySearch("University of Virginia UVA campus news and events");
-						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Provide a professional, concise summary of current UVA campus news and upcoming events based on the web results.", `WEB NEWS CONTEXT:\n${newsContext}`);
+						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Provide a professional summary of current UVA campus news and events based on the provided search results.", `WEB NEWS CONTEXT:\n${newsContext}`);
 						await this.saveMsg(sessionId, 'user', userMsg);
 						await this.saveMsg(sessionId, 'assistant', newsTxt);
 						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
@@ -166,12 +168,12 @@ export class ChatSession extends DurableObject<Env> {
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const nextQ = pool[qIdx + 1];
-						const nextUi = `\n\n---\n\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+						const nextUi = `\n\n---\n\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D (or 'stop quiz')!*`;
 						const combined = feedback + nextUi;
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n---\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**\n\nStudy state reset.`;
+						const final = `\n\n---\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**\n\nYour study session state has been reset.`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -187,7 +189,7 @@ export class ChatSession extends DurableObject<Env> {
 I am now focused exclusively on your University of Virginia documents, specifically the **Academic Schedule**.
 
 **What I can do for you now:**
-- **Academic Schedule Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Schedule Quiz'** to begin.
+- **Academic Schedule Quizzes**: Grounded in your UVA documents. Say **'Start a Quiz'** to begin.
 - **Syllabus & Schedule Analysis**: Extracting exam dates, registration deadlines, and holidays.
 
 *Note: In this mode, I focus on your uploaded documents for precision.*
@@ -200,7 +202,15 @@ I am now focused exclusively on your University of Virginia documents, specifica
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated`;
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched back to your general Personal Assistant mode. 
+
+**What I can do for you now:**
+- **Real-Time Web Search**: I use **Tavily Search** for current sports scores, news, and real-time events.
+- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
+
+*Note: This mode is best for real-time information and personal organization.*`;
+					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -219,16 +229,17 @@ I am now focused exclusively on your University of Virginia documents, specifica
 				
 				let webContext = "";
 				if (activeMode === 'personal') {
-					const webQuery = lowMsg.includes("celtics") || lowMsg.includes("game") ? userMsg : searchBoost + userMsg;
+					const webQuery = lowMsg.includes("celtics") || lowMsg.includes("game") || lowMsg.includes("score") ? userMsg : searchBoost + userMsg;
 					webContext = await this.tavilySearch(webQuery);
 				}
 
+				const today = "Sunday, April 26, 2026";
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 Identity: You are Jolene, Scott Robbins' personal AI assistant. 
 NAMESAKE: You are named after Scott and Renee's dog. Inspired by RAY LAMONTAGNE's "Jolene" in the credits of "THE TOWN".
 NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON.
 
-### OPERATIONAL MODE: ${activeMode.toUpperCase()}.
+### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
 LIVE WEB SEARCH: ${webContext}
 DOC CONTEXT: ${docContext}`;
 
@@ -256,6 +267,8 @@ Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice
 			const raw = String(rawRaw); 
 			const startIdx = raw.indexOf('[');
 			const endIdx = raw.lastIndexOf(']') + 1;
+			if (startIdx === -1 || endIdx === 0) throw new Error("AI failed to output a valid JSON array format.");
+
 			let jsonStr = raw.substring(startIdx, endIdx).replace(/,\s*([\]}])/g, '$1'); 
 			const pool = JSON.parse(jsonStr);
 			
@@ -265,7 +278,12 @@ Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 			const firstQ = pool[0];
-			const uiRes = `### 🎓 UVA Academic Schedule Quiz Started!\n\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+			const uiRes = `### 🎓 UVA Academic Schedule Quiz Started!
+I've generated 5 questions based on your academic schedule documents. 
+
+*Note: You can type **'stop quiz'** at any point to end this session.*
+
+---\n\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
