@@ -236,7 +236,7 @@
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary">
 					<optgroup label="Cloudflare Workers AI">
-						<option value="@cf/meta/llama-3.2-11b-vision-instruct" selected>Llama 3.2 Vision (11B)</option>
+						<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (11B)</option>
 						<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
 						<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
 						<option value="@cf/google/gemma-7b-it">Gemma (7B)</option>
@@ -259,7 +259,7 @@
 			<div id="chat-messages">
 				<div class="message assistant-message">
 					<div class="message-content">
-						<p>Hi there! I'm Jolene. Ready to assist with your documents or academic materials. What's on your agenda?</p>
+						<p>Hi there! I'm Jolene. I'm here to help you brainstorm, analyze files, or just chat. What's on your mind today?</p>
 					</div>
 				</div>
 			</div>
@@ -300,7 +300,7 @@
 
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
 					<span class="dash-label">Cloudflare Durable Objects: State</span>
-					<div class="dash-desc">Coordinates real-time consistency across the edge.</div>
+					<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
 					<div class="dash-value">
 						ID: <span id="do-id-display" style="font-size: 0.65rem; opacity: 0.7;">Initializing...</span><br>
 						Status: <span id="do-status-display" style="color: #22c55e;">Syncing...</span>
@@ -309,11 +309,13 @@
 
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
+					<div class="dash-desc">Relational database tracking history and interaction frequency.</div>
 					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
 				</div>
 
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
+					<div class="dash-desc">Stores text embeddings from files for semantic search.</div>
 					<div class="dash-value" id="vector-status" style="color: #38bdf8;">Active Index</div>
 				</div>
 
@@ -341,8 +343,17 @@
 				return id;
 			}
 
+			// --- NEW: PERSISTED MODEL SELECTION ---
+			function getSavedModel() {
+				return localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
+			}
+
 			let sessionId = getSessionId();
 			let isTyping = false;
+
+			// Initialize dropdown from saved value
+			const modelSelector = document.getElementById('model-selector');
+			modelSelector.value = getSavedModel();
 
 			document.getElementById('toggle-sidebar-btn').onclick = () => {
 				document.getElementById('memory-sidebar').classList.add('open');
@@ -371,10 +382,14 @@
 				document.body.classList.toggle('theme-fancy');
 			};
 
-			document.getElementById('model-selector').onchange = async () => {
-				const selector = document.getElementById('model-selector');
-				const modelName = selector.options[selector.selectedIndex].text;
+			// Updated Handshake logic to save selection
+			modelSelector.onchange = async () => {
+				const selectedValue = modelSelector.value;
+				localStorage.setItem('jolene_selected_model', selectedValue);
+				
+				const modelName = modelSelector.options[modelSelector.selectedIndex].text;
 				appendMessage('system-indicator', `System: Optimizing brain pathways for ${modelName}...`);
+				
 				const switchPrompt = `I have just switched my brain to ${modelName}. Please provide a very brief one-sentence greeting in your unique style to confirm you are active.`;
 				await sendMessage(switchPrompt, true);
 			};
@@ -435,7 +450,7 @@
 						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
 						body: JSON.stringify({ 
 							messages: [{ role: 'user', content }],
-							model: document.getElementById('model-selector').value 
+							model: modelSelector.value 
 						})
 					});
 
