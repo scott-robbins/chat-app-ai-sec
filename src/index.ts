@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; // Best for technical diagrams
+const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; // High-fidelity technical diagrams
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -72,7 +72,7 @@ export class ChatSession extends DurableObject<Env> {
 		throw new Error(`Model ${model} response format not handled.`);
 	}
 
-	// --- FIX: ROBUST IMAGE GENERATION (HANDLES LARGE BINARY BUFFERS) ---
+	// --- FIX: ULTRA-ROBUST IMAGE GENERATION (CHUNKED PROCESSING) ---
 	async generateVisual(prompt: string, filename: string) {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
@@ -94,17 +94,17 @@ export class ChatSession extends DurableObject<Env> {
 
 		const buffer = await res.arrayBuffer();
 		
-		// 1. Archive in R2
+		// 1. Archive raw binary in R2
 		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, {
 			httpMetadata: { contentType: "image/png" }
 		});
 
-		// 2. Robust Base64 Conversion (Avoids "Maximum call stack size exceeded")
-		let binary = "";
+		// 2. Optimized Binary-to-Base64 Conversion (Chunked for memory safety)
 		const bytes = new Uint8Array(buffer);
-		const len = bytes.byteLength;
-		for (let i = 0; i < len; i++) {
-			binary += String.fromCharCode(bytes[i]);
+		let binary = "";
+		const chunkSize = 8192; // 8KB chunks to prevent stack overflow
+		for (let i = 0; i < bytes.length; i += chunkSize) {
+			binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
 		}
 		const base64 = btoa(binary);
 		
@@ -164,14 +164,13 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 				const storage = await this.env.DOCUMENTS.list();
 				const activePool = await this.ctx.storage.get("quiz_pool");
 				return new Response(JSON.stringify({
 					profile: "Scott E Robbins | Senior Solutions Engineer",
 					messages: history.results || [],
-					messageCount: stats?.total || 0,
+					messageCount: history.results?.length || 0,
 					knowledgeAssets: storage.objects.map(o => o.key),
 					mode: activeMode,
 					activeQuiz: !!activePool,
@@ -205,7 +204,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ok")) {
 						const newsContext = await this.tavilySearch("University of Virginia UVA campus news and events");
-						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Provide a professional summary of current UVA campus news and events based on search results.", `WEB NEWS CONTEXT:\n${newsContext}`);
+						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Summarize UVA news.", `WEB NEWS CONTEXT:\n${newsContext}`);
 						await this.saveMsg(sessionId, 'assistant', newsTxt);
 						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
 					}
@@ -225,18 +224,18 @@ export class ChatSession extends DurableObject<Env> {
 					const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					const qContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
 
-					let gradeTxt = await this.runAI(selectedModel, "Explain the answer based on the UVA Academic Calendar context provided.", `CONTEXT:\n${qContext}\n\nUSER: ${userChoice}\nCORRECT: ${currentQ.hidden_answer}`);
+					let gradeTxt = await this.runAI(selectedModel, "Explain the answer based on the context.", `CONTEXT:\n${qContext}\n\nUSER: ${userChoice}\nCORRECT: ${currentQ.hidden_answer}`);
 					const feedback = isCorrect ? `✅ **Correct!**\n\n${gradeTxt}` : `❌ **Incorrect.**\n\n${gradeTxt}`;
 
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const nextQ = pool[qIdx + 1];
-						const nextUi = `\n\n---\n\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D (or 'stop quiz')!*`;
+						const nextUi = `\n\n---\n\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
 						const combined = feedback + nextUi;
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n---\n\n### 🏁 UVA Academic Calendar Quiz Complete!\n**Score: ${score}/5**\n\nYour study session state has been reset. How else can I help?`;
+						const final = `\n\n---\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**\n\nYour study session state has been reset.`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -244,7 +243,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- VISUAL STUDY AID HANDLER (ROBUST BUFFER FLOW) ---
+				// --- VISUAL STUDY AID HANDLER ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
 					const concept = lowMsg.replace(/visualize|illustrate|draw|show me a diagram|of|the/g, "").trim();
@@ -253,7 +252,7 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const visualPrompt = `A clean, professional technical educational diagram for a University course. Subject: ${concept}. Context: ${context}. Use high-contrast colors, minimalist engineering style, legible labels. Background should be a subtle dark academic aesthetic.`;
+					const visualPrompt = `A high-quality professional technical educational diagram illustrating "${concept}". Context: ${context}. Technical engineering aesthetic, clean lines, white background, legible text labels.`;
 					const imageDataUrl = await this.generateVisual(visualPrompt, concept.replace(/\s+/g, '_'));
 					
 					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this visual aid based on your syllabus to help you grasp **${concept}**.\n\n![${concept}](${imageDataUrl})\n\n*Archived in your **Cloudflare R2 Assets**.*`;
@@ -265,15 +264,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
-I am now in specialized UVA mode, focused on your materials.
-
-**What I can do now:**
-1. **Academic Calendar Quiz**: Say **'Start the UVA Academic Calendar Quiz'**.
-2. **Visual Study Aids**: Say **'Visualize [Concept]'** (e.g., Durable Objects).
-3. **Syllabus Analysis**: Extracting exam dates and registration deadlines.
-4. **Campus News**: Say **'Fetch UVA News'**.
-
-**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
+I am now in specialized UVA mode, focused on your materials. How can I help with your syllabus or Academic Calendar?`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -281,7 +272,7 @@ I am now in specialized UVA mode, focused on your materials.
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched back to your general Personal Assistant mode.`;
+I am back in your general Personal Assistant mode.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
