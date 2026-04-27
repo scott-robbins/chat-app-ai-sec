@@ -156,9 +156,12 @@
 			}
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
+			.dash-desc { font-size: 0.7rem; color: var(--text-light); margin-top: 4px; font-style: italic; }
 
 			#file-list-display { margin-top: 10px; padding: 0; list-style: none; }
 			#file-list-display li { font-size: 0.75rem; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+
+			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
 			#typing-indicator { display: none; align-self: flex-start; }
 			#typing-indicator.visible { display: block !important; }
@@ -189,7 +192,9 @@
 					</optgroup>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-high" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
 				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
 			</div>
 		</header>
@@ -208,7 +213,7 @@
 			</div>
 
 			<div class="message-input">
-				<!-- RESTORED: BOTTOM ACTION ROW -->
+				<!-- ACTION BAR RESTORED: BOTTOM -->
 				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
 					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
 					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
@@ -228,28 +233,44 @@
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
+				<!-- CARDS RESTORED -->
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
 					<span class="dash-label">Active Learning Session</span>
+					<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
 					<div class="dash-value">Status: <span id="quiz-status">Idle</span></div>
 				</div>
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
+					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
 					<div id="kv-profile-display" class="dash-value">Syncing...</div>
 				</div>
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
 					<span class="dash-label">Durable Objects: State</span>
+					<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
 					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div>
 				</div>
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
+					<div class="dash-desc">Relational database tracking history and interaction frequency.</div>
 					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
 				</div>
 				<div class="dash-card">
+					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
+					<div class="dash-desc">Stores text embeddings from files for semantic search and "learning."</div>
+					<div class="dash-value" id="vector-status" style="color: #38bdf8;">Active Index</div>
+				</div>
+				<div class="dash-card">
 					<span class="dash-label">Cloudflare R2: Assets</span>
+					<div class="dash-desc">Object storage for raw uploaded documents and schedules.</div>
 					<ul id="file-list-display"><li>Scanning...</li></ul>
 				</div>
+				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
 			</div>
 		</div>
+
+		<footer>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
+		</footer>
 
 		<script>
 			function getSessionId() {
@@ -266,6 +287,7 @@
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
+			document.getElementById('clear-screen-btn').onclick = () => { document.getElementById('chat-messages').innerHTML = ''; appendMessage('assistant-message', "Screen cleared. How else can I assist?"); };
 
 			// RESTORED: UPLOAD & MEMORIZE
 			const fileInput = document.getElementById('file-input');
@@ -300,13 +322,13 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
-					document.getElementById('kv-profile-display').innerText = data.profile || "Scott Robbins";
+					document.getElementById('kv-profile-display').innerText = data.profile || "Scott Robbins | Senior Solutions Engineer";
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Active" : "Idle";
 					if (data.durableObject) {
 						document.getElementById('do-id-display').innerText = data.durableObject.id;
 					}
 					const list = document.getElementById('file-list-display');
-					list.innerHTML = data.knowledgeAssets?.length ? data.knowledgeAssets.map(f => `<li>📄 ${f}</li>`).join('') : '<li>Empty</li>';
+					list.innerHTML = data.knowledgeAssets?.length ? data.knowledgeAssets.map(f => `<li>📄 ${f}</li>`).join('') : '<li>No assets in R2 storage.</li>';
 					if (data.activeQuiz) document.getElementById('user-input').placeholder = "Reply A, B, C, D or 'Stop Quiz'...";
 					else document.getElementById('user-input').placeholder = "Ask Jolene a question...";
 				} catch (e) {}
