@@ -287,37 +287,47 @@
 			</div>
 			<div class="sidebar-content">
 				
+				<!-- RESTORED: Active Learning Session Card -->
 				<div class="dash-card" id="learning-card" style="border-left: 3px solid #22c55e;">
 					<span class="dash-label">Active Learning Session</span>
 					<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
 					<div class="dash-value">Session Status: <span id="quiz-status" style="color: #22c55e;">Idle</span></div>
 				</div>
 
+				<!-- RESTORED: User Profile Card -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
 					<div id="kv-profile-display" class="dash-value">Syncing profile...</div>
 				</div>
 
+				<!-- RESTORED: Durable Objects Card -->
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
-					<span class="dash-label">Durable Objects: State</span>
+					<span class="dash-label">Cloudflare Durable Objects: State</span>
+					<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
 					<div class="dash-value">
 						ID: <span id="do-id-display" style="font-size: 0.65rem; opacity: 0.7;">Initializing...</span><br>
 						Status: <span id="do-status-display" style="color: #22c55e;">Syncing...</span>
 					</div>
 				</div>
 
+				<!-- RESTORED: D1 Metrics Card -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
+					<div class="dash-desc">Relational database tracking history and interaction frequency.</div>
 					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
 				</div>
 
+				<!-- RESTORED: Vectorize Card -->
 				<div class="dash-card">
-					<span class="dash-label">Vectorize: Semantic Memory</span>
+					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
+					<div class="dash-desc">Stores text embeddings from files for semantic search.</div>
 					<div class="dash-value" id="vector-status" style="color: #38bdf8;">Active Index</div>
 				</div>
 
+				<!-- RESTORED: R2 Knowledge Assets Card -->
 				<div class="dash-card">
-					<span class="dash-label">R2: Knowledge Assets</span>
+					<span class="dash-label">Cloudflare R2: Knowledge Assets</span>
+					<div class="dash-desc">Object storage for uploaded documents and tax files.</div>
 					<ul id="file-list-display">
 						<li>Scanning storage...</li>
 					</ul>
@@ -401,7 +411,7 @@
 						document.getElementById('user-input').placeholder = "Ask Jolene a question...";
 					}
 
-					// Hydrate UI if empty
+					// Hydrate chat if screen is empty
 					if (document.getElementById('chat-messages').children.length <= 2 && data.messages && data.messages.length > 0) {
 						const chatMessages = document.getElementById('chat-messages');
 						chatMessages.innerHTML = ''; 
