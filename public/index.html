@@ -45,16 +45,8 @@
 				background-color: var(--app-bg);
 			}
 
-			body.theme-fancy #user-input {
-				background-color: rgba(0, 0, 0, 0.2);
-				color: white;
-				border: 1px solid rgba(255, 255, 255, 0.1);
-			}
-
-			body.theme-fancy header h1 {
-				color: #ffffff;
-				text-shadow: 0 0 20px rgba(246, 130, 31, 0.4);
-			}
+			body.theme-fancy #user-input { background-color: rgba(0, 0, 0, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.1); }
+			body.theme-fancy header h1 { color: #ffffff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.4); }
 
 			* { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -71,25 +63,15 @@
 				overflow-x: hidden;
 			}
 
-			.lava-lamp-container {
-				position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-				z-index: -1; overflow: hidden; display: none;
-				pointer-events: none;
-			}
+			.lava-lamp-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; display: none; pointer-events: none; }
 			body.theme-fancy .lava-lamp-container { display: block; }
 			
-			.blob {
-				position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5;
-				animation: float 15s infinite alternate ease-in-out;
-			}
+			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; animation: float 15s infinite alternate ease-in-out; }
 			.blob1 { width: 500px; height: 500px; background: #f6821f; top: -100px; left: -100px; }
 			.blob2 { width: 600px; height: 600px; background: #d95d14; bottom: -150px; right: -100px; }
 			.blob3 { width: 400px; height: 400px; background: #faad3f; top: 30%; left: 60%; animation-delay: -5s; }
 
-			@keyframes float {
-				0% { transform: translate(0, 0) scale(1); }
-				100% { transform: translate(120px, -60px) scale(1.1); }
-			}
+			@keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(120px, -60px) scale(1.1); } }
 
 			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 1000px; }
 			h1 { font-size: 2rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
@@ -102,76 +84,39 @@
 				transition: all 0.3s ease;
 			}
 
-			#chat-messages {
-				flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg);
-				display: flex; flex-direction: column; gap: 1.5rem;
-			}
-
+			#chat-messages { flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg); display: flex; flex-direction: column; gap: 1.5rem; }
 			.message { padding: 1rem 1.25rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 			
 			/* Visual Concept Illustrator Image Styles */
-			.message-content img {
-				max-width: 100%;
-				height: auto;
-				border-radius: 12px;
-				margin: 12px 0;
-				display: block;
-				box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-				border: 1px solid var(--border-color);
-			}
+			.message-content img { max-width: 100%; height: auto; border-radius: 12px; margin: 12px 0; display: block; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid var(--border-color); }
 
 			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
 			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
 
-			.message-input {
-				display: flex; flex-direction: column; padding: 1.5rem; background-color: transparent;
-				border-top: 1px solid var(--border-color); gap: 0.75rem;
-			}
-
+			.message-input { display: flex; flex-direction: column; padding: 1.5rem; background-color: transparent; border-top: 1px solid var(--border-color); gap: 0.75rem; }
 			.input-row { display: flex; gap: 0.75rem; width: 100%; }
-
-			#user-input {
-				flex: 1; padding: 1rem; border: 1px solid var(--border-color);
-				border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none;
-			}
-
-			#send-button {
-				padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white;
-				border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s;
-			}
+			#user-input { flex: 1; padding: 1rem; border: 1px solid var(--border-color); border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none; }
+			#send-button { padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white; border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s; }
 			#send-button:hover { transform: scale(1.05); }
 
 			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
-			
 			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
-
 			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
 
-			.sidebar {
-				position: fixed; top: 0; right: -400px; width: 350px; height: 100%;
-				background: var(--app-bg); border-left: 1px solid var(--border-color);
-				transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-				z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 15px;
-				overflow-y: auto;
-			}
+			.sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: var(--app-bg); border-left: 1px solid var(--border-color); transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
 			.sidebar.open { right: 0; }
 
-			.dash-card {
-				background: rgba(255, 255, 255, 0.08);
-				border: 1px solid var(--border-color);
-				border-radius: 12px;
-				padding: 12px;
-				margin-bottom: 8px;
-			}
+			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
-			.dash-desc { font-size: 0.7rem; color: var(--text-light); margin-top: 4px; font-style: italic; }
 
 			#file-list-display { margin-top: 10px; padding: 0; list-style: none; }
-			#file-list-display li { font-size: 0.75rem; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+			#file-list-display li { font-size: 0.75rem; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+			.delete-file-btn { color: #ef4444; background: none; border: none; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+			.delete-file-btn:hover { background: rgba(239, 68, 68, 0.1); }
 
 			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
@@ -204,7 +149,6 @@
 					</optgroup>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<!-- VOICE: DEFAULTING TO OFF WITH SLASH ICON -->
 				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
@@ -226,7 +170,6 @@
 			</div>
 
 			<div class="message-input">
-				<!-- ACTION BAR: BOTTOM INTEGRATED -->
 				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
 					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
 					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
@@ -246,36 +189,20 @@
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
-				<!-- HIERARCHY: USER PROFILE AT TOP -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
-					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
+					<div id="kv-profile-display" class="dash-value">Syncing...</div>
 				</div>
-				<!-- ACTIVE LEARNING BELOW PROFILE -->
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
 					<span class="dash-label">Active Learning Session</span>
-					<div class="dash-desc">Tracking multi-step academic progress via Durable Objects.</div>
 					<div class="dash-value">Status: <span id="quiz-status">Idle</span></div>
 				</div>
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
 					<span class="dash-label">Durable Objects: State</span>
-					<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
 					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div>
 				</div>
 				<div class="dash-card">
-					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-					<div class="dash-desc">Relational database tracking history and interaction frequency.</div>
-					<div class="dash-value">Volume: <span id="msg-count-display">0</span> messages</div>
-				</div>
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-					<div class="dash-desc">Stores text embeddings from files for semantic RAG search.</div>
-					<div class="dash-value" id="vector-status" style="color: #38bdf8;">Active Index</div>
-				</div>
-				<div class="dash-card">
 					<span class="dash-label">Cloudflare R2: Assets</span>
-					<div class="dash-desc">Object storage for raw uploaded documents and generated diagrams.</div>
 					<ul id="file-list-display"><li>Scanning...</li></ul>
 				</div>
 				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
@@ -294,8 +221,8 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false; // Default to Off
-			let activeMode = "personal"; 
+			let voiceEnabled = false;
+			let activeMode = "personal";
 
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -303,13 +230,11 @@
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
-			
 			document.getElementById('clear-screen-btn').onclick = () => { 
 				document.getElementById('chat-messages').innerHTML = ''; 
-				appendMessage('assistant-message', "Screen cleared. How else can I assist?"); 
+				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
 			};
 
-			// VOICE TOGGLE
 			document.getElementById('voice-toggle-btn').onclick = () => {
 				voiceEnabled = !voiceEnabled;
 				const icon = document.getElementById('voice-icon');
@@ -317,86 +242,76 @@
 				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
 			};
 
-			// NEW CHAT WITH MODE-SPECIFIC GREETING
 			document.getElementById('new-chat-btn').onclick = () => { 
 				sessionId = crypto.randomUUID(); 
 				localStorage.setItem('jolene_session_id', sessionId); 
 				document.getElementById('chat-messages').innerHTML = ''; 
-				
-				let greeting = "";
-				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Comprehensive University Assistant mode. I focus **exclusively** on your UVA documents and academic life. I can help with practice quizzes, syllabus analysis, or **visualize complex topics** for you. What's on your mind?";
-				} else {
-					greeting = "### 🏠 Personal Mode Active\nI'm back in your general Personal Assistant mode. I've got access to your personal files and real-time web search for sports, news, and events. What's on your agenda today?";
-				}
-				
+				let greeting = activeMode === "uva" ? "### 🎓 UVA Mode Active\nReady for academic tasks or syllabus analysis. What's on your mind?" : "### 🏠 Personal Mode Active\nHow can I help you today?";
 				appendMessage('assistant-message', greeting);
 				updateDashboard(); 
 			};
 
 			const fileInput = document.getElementById('file-input');
-			const fileNameIndicator = document.getElementById('file-name-indicator');
 			document.getElementById('upload-btn').onclick = () => fileInput.click();
-			fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0] ? fileInput.files[0].name : ""; };
+			fileInput.onchange = () => { document.getElementById('file-name-indicator').innerText = fileInput.files[0]?.name || ""; };
 
 			document.getElementById('memorize-btn').onclick = async () => {
 				const file = fileInput.files[0];
-				if (!file) { appendMessage('system-indicator', "System: Please upload a file first."); return; }
-				appendMessage('system-indicator', `System: Memorizing ${file.name}...`);
+				if (!file) return;
+				appendMessage('system-indicator', `Memorizing ${file.name}...`);
 				const formData = new FormData();
 				formData.append('file', file);
-				try {
-					const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-					const data = await res.json();
-					appendMessage('assistant-message', `Done! I have analyzed and memorized **${file.name}**. I can now reference its contents, and even **illustrate concepts** from it.`);
-					fileNameIndicator.innerText = "";
-					fileInput.value = "";
-					updateDashboard();
-				} catch (e) { appendMessage('assistant-message', `Error: ${e.message}`); }
+				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
+				document.getElementById('file-name-indicator').innerText = "";
+				fileInput.value = "";
+				updateDashboard();
 			};
 
-			modelSelector.onchange = async () => {
-				localStorage.setItem('jolene_selected_model', modelSelector.value);
-				appendMessage('system-indicator', `System: Switched to ${modelSelector.options[modelSelector.selectedIndex].text}...`);
-				await sendMessage(`Confirm brain switch to ${modelSelector.value}`, true);
-			};
+			// --- ASSET MANAGEMENT: DELETE FUNCTION ---
+			async function deleteFile(filename) {
+				if (!confirm(`Permanently remove ${filename} from Jolene's memory?`)) return;
+				try {
+					const res = await fetch('/api/delete', {
+						method: 'DELETE',
+						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+						body: JSON.stringify({ filename })
+					});
+					if (res.ok) {
+						updateDashboard();
+					}
+				} catch (e) { console.error("Deletion failed", e); }
+			}
 
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
-					
-					// --- PERSISTENT CHAT HYDRATION ---
-					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
-						const chatMessages = document.getElementById('chat-messages');
-						chatMessages.innerHTML = ''; 
-						data.messages.forEach(msg => {
-							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false);
-						});
+					if (document.getElementById('chat-messages').children.length <= 1 && data.messages) {
+						document.getElementById('chat-messages').innerHTML = ''; 
+						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
 					}
-
-					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
-					document.getElementById('kv-profile-display').innerText = data.profile || "Scott Robbins | Senior Solutions Engineer";
+					document.getElementById('kv-profile-display').innerText = data.profile;
+					document.getElementById('do-id-display').innerText = data.durableObject.id;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
-					activeMode = data.mode || "personal";
+					activeMode = data.mode;
 					
-					if (data.durableObject) {
-						document.getElementById('do-id-display').innerText = data.durableObject.id;
-					}
 					const list = document.getElementById('file-list-display');
-					list.innerHTML = data.knowledgeAssets?.length ? data.knowledgeAssets.map(f => `<li>📄 ${f}</li>`).join('') : '<li>No assets in storage.</li>';
-					
-					if (data.activeQuiz) document.getElementById('user-input').placeholder = "Reply A, B, C, D or 'Stop Quiz'...";
-					else document.getElementById('user-input').placeholder = "Ask Jolene a question...";
+					list.innerHTML = data.knowledgeAssets?.map(f => `
+						<li>
+							<span>📄 ${f}</span>
+							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
+								<i class="ph ph-trash"></i>
+							</button>
+						</li>`).join('') || '<li>Empty</li>';
 				} catch (e) {}
 			}
 
-			async function sendMessage(overrideText = null, isAutoSwitch = false) {
+			async function sendMessage() {
 				const input = document.getElementById('user-input');
-				const content = overrideText || input.value.trim();
+				const content = input.value.trim();
 				if (!content || isTyping) return;
-				if (!isAutoSwitch) appendMessage('user-message', content);
-				if (!overrideText) input.value = '';
+				appendMessage('user-message', content);
+				input.value = '';
 				showTyping(true);
 
 				try {
@@ -409,25 +324,33 @@
 					const reader = res.body.getReader();
 					const decoder = new TextDecoder();
 					let assistantText = "";
-					const msgDiv = appendMessage('assistant-message', "", true);
-
+					const msgDiv = appendMessage('assistant-message', "");
+					const contentDiv = msgDiv.querySelector('.message-content');
+					
+					// IMPROVED STREAM BUFFER: Prevents "Empty Bubble" for large technical diagrams
+					let lineBuffer = "";
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
-						decoder.decode(value).split('\n').forEach(line => {
+						
+						lineBuffer += decoder.decode(value, { stream: true });
+						const lines = lineBuffer.split('\n');
+						lineBuffer = lines.pop(); // Hold onto partial lines
+
+						for (const line of lines) {
 							if (line.startsWith('data: ')) {
-								const dataStr = line.substring(6).trim();
-								if (dataStr === '[DONE]') return;
+								const raw = line.substring(6).trim();
+								if (raw === '[DONE]') continue;
 								try {
-									const data = JSON.parse(dataStr);
+									const data = JSON.parse(raw);
 									if (data.response) {
 										assistantText += data.response;
-										msgDiv.querySelector('.message-content').innerHTML = marked.parse(assistantText);
+										contentDiv.innerHTML = marked.parse(assistantText);
 										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
 									}
-								} catch (e) {}
+								} catch (e) { /* Buffer mismatch, wait for next chunk */ }
 							}
-						});
+						}
 					}
 					showTyping(false);
 					updateDashboard();
@@ -447,7 +370,6 @@
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
-
 			updateDashboard();
 		</script>
 	</body>
