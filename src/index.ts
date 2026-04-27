@@ -60,7 +60,10 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch(`${gatewayBase}/openai/chat/completions`, {
 				method: "POST",
 				headers: { "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-				body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] })
+				body: JSON.stringify({ 
+					model, 
+					messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
+				})
 			});
 			const data: any = await res.json();
 			if (data.error) throw new Error(data.error.message);
@@ -70,13 +73,23 @@ export class ChatSession extends DurableObject<Env> {
 		if (model.includes("claude")) {
 			const res = await fetch(`${gatewayBase}/anthropic/messages`, {
 				method: "POST",
-				headers: { "x-api-key": this.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-				body: JSON.stringify({ model, max_tokens: 1024, system: systemPrompt, messages: chatMessages })
+				headers: {
+					"x-api-key": this.env.ANTHROPIC_API_KEY,
+					"anthropic-version": "2023-06-01",
+					"Content-Type": "application/json"
+				},
+				body: JSON.stringify({
+					model,
+					max_tokens: 1024,
+					system: systemPrompt,
+					messages: chatMessages
+				})
 			});
 			const data: any = await res.json();
 			if (data.error) throw new Error(`Claude Error: ${data.error.message || JSON.stringify(data.error)}`);
 			return data.content[0].text;
 		}
+
 		throw new Error(`Model ${model} not supported.`);
 	}
 
@@ -162,9 +175,9 @@ export class ChatSession extends DurableObject<Env> {
 					const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					const qContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
 
-					const gradingPrompt = `CONTEXT FROM DOCUMENTS:\n${qContext}\n\nUSER ANSWERED: ${userChoice}.\nCORRECT ANSWER: ${currentQ.hidden_answer}.\n\nTASK: Explain WHY the answer is ${currentQ.hidden_answer} based strictly on the context. Be supportive but professional. Mention specific UVA dates if found.`;
+					const gradingPrompt = `CONTEXT FROM DOCUMENTS:\n${qContext}\n\nUSER ANSWERED: ${userChoice}.\nCORRECT ANSWER: ${currentQ.hidden_answer}.\n\nTASK: Explain WHY the answer is ${currentQ.hidden_answer} based strictly on the context. Mention the specific UVA Academic Schedule date or deadline.`;
 					
-					let gradeTxt = await this.runAI(selectedModel, "You are an expert UVA academic tutor.", gradingPrompt);
+					let gradeTxt = await this.runAI(selectedModel, "You are a professional UVA Academic Schedule advisor.", gradingPrompt);
 					const feedback = isCorrect ? `✅ **Correct!**\n\n${gradeTxt}` : `❌ **Incorrect.**\n\n${gradeTxt}`;
 
 					if (qIdx + 1 < pool.length) {
@@ -175,7 +188,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const finalScore = `\n\n---\n\n### 🏁 Quiz Complete!\n**Final Performance Report**\n- **Score:** ${score}/5\n\nGood work! Review your UVA documents for any details you missed. Your study state has been reset.`;
+						const finalScore = `\n\n---\n\n### 🏁 Quiz Complete!\n**Final Performance Report**\n- **Score:** ${score}/5\n\nGood work! Review your UVA Academic Schedule documents for any details you missed. Your study state has been reset.`;
 						const combined = feedback + finalScore;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
@@ -187,14 +200,14 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 4. MODE SWITCHES ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode: Full Study Companion Activated
-I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
+					const res = `### 🎓 UVA Mode: Academic Schedule Specialist Activated
+I am now focused exclusively on your University of Virginia documents, specifically the **Academic Schedule**.
 
 **What I can do for you now:**
-- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start a Quiz'** to begin.
-- **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
+- **Academic Schedule Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Schedule Quiz'** to begin.
+- **Syllabus & Schedule Analysis**: Extracting exam dates, registration deadlines, and holidays.
 
-*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+*Note: In this mode, I focus on your uploaded documents for precision.*
 
 **Would you like me to fetch the latest UVA campus news and events for you before we start?**`;
 					await this.saveMsg(sessionId, 'user', userMsg);
@@ -205,13 +218,7 @@ I am now in specialized Study Companion mode. I focus **exclusively** on your Un
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode. 
-
-**What I can do for you now:**
-- **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
-- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
-
-*Note: This mode is best for real-time information and personal organization.*`;
+I have switched back to your general Personal Assistant mode.`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -240,17 +247,13 @@ I have switched to your general Personal Assistant mode.
 				const today = "Sunday, April 26, 2026";
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK & NAMESAKE STORY
 Identity: You are Jolene, Scott Robbins' personal AI assistant. 
-NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". You are named after that dog.
-CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON. You are NOT named after the Dolly Parton song.
-
-### FAMILY CONTEXT
-Scott and Renee are your people. Their daughter is Bryana. Grandkids are Callan and Josie. Your youngest "sister" is Hanna (a black and tan mini dachshund).
-TAXES: The tax base fee is $375 for the first hour and $275 per hour thereafter (per the 2025 engagement letter).
+NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
+CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON.
 
 ### TRUTH PRIORITIZATION
-1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE above exactly. Mention Ray LaMontagne and "The Town".
-2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below. Do NOT use your training data for dates or scores.
-3. FOR FAMILY/TAXES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
+1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE exactly.
+2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below.
+3. FOR FAMILY/TAXES/SCHEDULES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
 
@@ -274,34 +277,37 @@ ${docContext}`;
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Syllabus 2026 Registration Exam Dates Fall Spring Enrollment Registrar"] });
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Schedule 2026 Registration Exam Dates Fall Spring Enrollment Registrar"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
 
 			if (!context || context.trim().length < 50) {
-				throw new Error("No UVA documents found in memory. Please upload your Syllabus or Calendar first.");
+				throw new Error("No information found about the UVA Academic Schedule. Please ensure your Syllabus or Calendar files are uploaded.");
 			}
 
-			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate exactly 5 MCQs about the UVA Academic Calendar and Syllabus. 
-FORMAT: Return ONLY a raw JSON array.
+			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate exactly 5 Multiple Choice Questions specifically about the UVA Academic Schedule.
+STRICT FORMAT: Return ONLY a raw JSON array. Do not include markdown code blocks (like \`\`\`json).
 Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice D"],"hidden_answer":"A"}].
-STRICT RULES: 
-1. Use exactly 4 options per question.
-2. Label options A, B, C, D in the array.
-3. Ground questions ONLY in the provided CONTEXT. 
-4. Output valid JSON. No conversational text.`;
+RULES: 
+1. Use exactly 4 options labeled A, B, C, D.
+2. Every question MUST be about dates, deadlines, or events found in the context.
+3. Ensure the JSON is perfectly valid.`;
 			
-			const rawRaw = await this.runAI(model, "You are a specialized JSON quiz generator. You speak only JSON.", prompt);
+			const rawRaw = await this.runAI(model, "You are a specialized JSON quiz generator for the UVA Academic Schedule.", prompt);
 			
-			// --- HARDENED STRING CONVERSION (THE FIX) ---
+			// --- HARDENED STRING CONVERSION ---
 			const raw = String(rawRaw); 
 
-			// HARDENED JSON EXTRACTION
-			const jsonMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/);
-			if (!jsonMatch) throw new Error("AI failed to output a valid JSON array format.");
+			// --- NEW ROBUST JSON EXTRACTION ---
+			const startIdx = raw.indexOf('[');
+			const endIdx = raw.lastIndexOf(']') + 1;
 			
-			let jsonStr = jsonMatch[0];
-			// Repair common AI syntax errors (trailing commas, unescaped characters)
+			if (startIdx === -1 || endIdx === 0) {
+				throw new Error("AI failed to output a valid JSON array format.");
+			}
+
+			let jsonStr = raw.substring(startIdx, endIdx);
+			// Repair common AI syntax errors
 			jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1'); 
 			
 			const pool = JSON.parse(jsonStr);
@@ -314,8 +320,8 @@ STRICT RULES:
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 			const firstQ = pool[0];
-			const uiRes = `### 🎓 UVA Academic Quiz Started!
-I've generated 5 questions based on your academic documents. 
+			const uiRes = `### 🎓 UVA Academic Schedule Quiz Started!
+I've generated 5 questions based on your academic schedule documents. 
 
 *Note: You can type **'stop quiz'** at any point to end this session.*
 
