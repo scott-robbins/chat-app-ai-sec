@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Verified correct model name for RAG operations
+const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; // High-quality technical illustrations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -23,7 +23,6 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		
-		// Ensure strictly alternating User -> Assistant roles for compatibility
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) {
 				if (msg.role === 'user') chatMessages.push(msg);
@@ -49,17 +48,14 @@ export class ChatSession extends DurableObject<Env> {
 		let body: any = {};
 
 		if (model.startsWith("@cf/")) {
-			// Workers AI via Gateway
 			url = `${gatewayBase}/workers-ai/${model}`;
 			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
 			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		} else if (model.includes("gpt")) {
-			// OpenAI via Gateway
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
 			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		} else if (model.includes("claude")) {
-			// Anthropic via Gateway
 			url = `${gatewayBase}/anthropic/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
 			headers["anthropic-version"] = "2023-06-01";
@@ -74,6 +70,36 @@ export class ChatSession extends DurableObject<Env> {
 		if (model.includes("gpt")) return data.choices[0].message.content;
 		if (model.includes("claude")) return data.content[0].text;
 		throw new Error(`Model ${model} response format not handled.`);
+	}
+
+	// --- NEW: HELPER FOR IMAGE GENERATION (VIA GATEWAY) ---
+	async generateVisual(prompt: string, filename: string) {
+		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
+		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
+
+		const res = await fetch(`${gatewayBase}/workers-ai/${IMAGE_MODEL}`, {
+			method: "POST",
+			headers: { 
+				"Authorization": `Bearer ${this.env.CF_API_TOKEN}`,
+				"Content-Type": "application/json"
+			},
+			body: JSON.stringify({ prompt })
+		});
+
+		const data: any = await res.json();
+		if (data.error) throw new Error(`Image Gateway Error: ${JSON.stringify(data.error)}`);
+
+		// Cloudflare Workers AI image models return base64 in result.image
+		const base64 = data.result.image;
+		
+		// Archive in R2 as a Knowledge Asset
+		const binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, binary, {
+			httpMetadata: { contentType: "image/png" }
+		});
+
+		return `data:image/png;base64,${base64}`;
 	}
 
 	async tavilySearch(query: string) {
@@ -161,7 +187,6 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 1. STATE-BASED HANDLERS (QUIZ & NEWS) ---
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// Handle "Stop Quiz"
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -172,7 +197,6 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Handle News Confirmation Flow
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ok")) {
@@ -183,7 +207,6 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// Handle Quiz Answers
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-d][\.\s]?$/i.test(lowMsg)) {
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
@@ -217,7 +240,27 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. MODE SWITCHES ---
+				// --- 2. NEW: VISUAL STUDY AID HANDLER (UVA MODE ONLY) ---
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("show me a diagram"))) {
+					const concept = lowMsg.replace(/visualize|illustrate|show me a diagram|of|the/g, "").trim();
+					
+					// 1. Get concept context from Vectorize
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [concept] });
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
+					const context = matches.matches.map(m => m.metadata.text).join(" ");
+					
+					// 2. Generate Image via Flux + Gateway
+					const visualPrompt = `A professional, clean, technical educational diagram illustrating the concept of "${concept}". Context: ${context}. Minimalist style, high-tech aesthetic, easy to understand.`;
+					const imageDataUrl = await this.generateVisual(visualPrompt, concept.replace(/\s+/g, '_'));
+					
+					// 3. Construct response
+					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this visual metaphor to help you understand the architecture behind **${concept}** based on your UVA syllabus materials.\n\n![${concept}](${imageDataUrl})\n\n*This diagram has been archived in your **Cloudflare R2 Assets** for future review.*`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- 3. MODE SWITCHES ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
@@ -225,12 +268,10 @@ export class ChatSession extends DurableObject<Env> {
 I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
 **Here is what I can do for you in this mode:**
-1. **UVA Academic Calendar Quiz**: Test your knowledge on important dates. Say **'Start the UVA Academic Calendar Quiz'**.
-2. **Syllabus & Document Analysis**: Extract exam dates, registration deadlines, and policies from your uploads.
-3. **Campus News & Events**: Stay updated with what's happening on the Lawn. Say **'Fetch UVA News'**.
-4. **General Academic Q&A**: Ask me anything about your documents or the University.
-
-*Note: In this mode, I focus on your uploaded documents for high-precision answers.*
+1. **Academic Calendar Quiz**: Say **'Start the UVA Academic Calendar Quiz'**.
+2. **Visual Study Aids**: Ask me to **'Visualize Durable Objects'** (or any concept from your syllabus).
+3. **Syllabus Analysis**: Extracting exam dates and registration deadlines.
+4. **Campus News**: Say **'Fetch UVA News'**.
 
 **Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
@@ -244,19 +285,16 @@ I have switched back to your general Personal Assistant mode. 
 
 **What I can do for you now:**
 - **Real-Time Web Search**: I use **Tavily Search** for current sports scores, news, and real-time events.
-- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
-
-*Note: This mode is best for real-time information and personal organization.*`;
+- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				// --- 3. STANDARD RAG & IDENTITY LOCK ---
+				// --- 4. STANDARD RAG & IDENTITY LOCK ---
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
 				const searchBoost = (lowMsg.includes("namesake") || lowMsg.includes("dog")) ? "Scott Robbins dog Jolene namesake Ray LaMontagne The Town movie credits credits song" : "";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [searchBoost + userMsg] });
