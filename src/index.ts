@@ -72,7 +72,7 @@ export class ChatSession extends DurableObject<Env> {
 		throw new Error(`Model ${model} response format not handled.`);
 	}
 
-	// --- FIX: ULTRA-ROBUST IMAGE GENERATION (CHUNKED PROCESSING) ---
+	// --- FIX: ULTRA-ROBUST IMAGE GENERATION (HANDLES BINARY AND JSON WRAPPERS) ---
 	async generateVisual(prompt: string, filename: string) {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
@@ -92,23 +92,39 @@ export class ChatSession extends DurableObject<Env> {
 			throw new Error(`Visual Engine Error: ${err}`);
 		}
 
-		const buffer = await res.arrayBuffer();
-		
-		// 1. Archive raw binary in R2
-		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, {
-			httpMetadata: { contentType: "image/png" }
-		});
+		const contentType = res.headers.get("content-type") || "";
+		let base64Data = "";
 
-		// 2. Optimized Binary-to-Base64 Conversion (Chunked for memory safety)
-		const bytes = new Uint8Array(buffer);
-		let binary = "";
-		const chunkSize = 8192; // 8KB chunks to prevent stack overflow
-		for (let i = 0; i < bytes.length; i += chunkSize) {
-			binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
+		if (contentType.includes("application/json")) {
+			// Scenario A: AI Gateway wrapped the binary image in JSON
+			const json: any = await res.json();
+			base64Data = json.result?.image || json.image || "";
+			if (!base64Data) throw new Error("Image data missing from JSON response.");
+			
+			// Sync to R2
+			const binary = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+			await this.env.DOCUMENTS.put(`visuals/${filename}.png`, binary, {
+				httpMetadata: { contentType: "image/png" }
+			});
+		} else {
+			// Scenario B: Raw binary image stream (standard Workers AI behavior)
+			const buffer = await res.arrayBuffer();
+			
+			// 1. Archive raw binary in R2
+			await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, {
+				httpMetadata: { contentType: "image/png" }
+			});
+
+			// 2. STACK-SAFE Conversion to Base64 (No .apply)
+			const bytes = new Uint8Array(buffer);
+			let binary = "";
+			for (let i = 0; i < bytes.byteLength; i++) {
+				binary += String.fromCharCode(bytes[i]);
+			}
+			base64Data = btoa(binary);
 		}
-		const base64 = btoa(binary);
 		
-		return `data:image/png;base64,${base64}`;
+		return `data:image/png;base64,${base64Data}`;
 	}
 
 	async tavilySearch(query: string) {
@@ -243,7 +259,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- VISUAL STUDY AID HANDLER ---
+				// --- VISUAL STUDY AID HANDLER (UPDATED) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
 					const concept = lowMsg.replace(/visualize|illustrate|draw|show me a diagram|of|the/g, "").trim();
