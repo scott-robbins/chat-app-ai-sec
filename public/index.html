@@ -282,8 +282,8 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false; // Default to Off
-			let activeMode = "personal"; // Local tracking for greeting
+			let voiceEnabled = false; // Explicitly OFF at start
+			let activeMode = "personal"; 
 
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -312,10 +312,11 @@
 				document.getElementById('chat-messages').innerHTML = ''; 
 				
 				let greeting = "";
+				// Note: activeMode is tracked globally and updated by updateDashboard (syncing with server state)
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials. I can help with practice quizzes or syllabus analysis. What's on your mind?";
+					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Comprehensive University Assistant mode. I focus **exclusively** on your UVA documents and academic life. How can I help with your syllabus or schedule?";
 				} else {
-					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search for sports, news, and events. How can I help you today?";
+					greeting = "### 🏠 Personal Mode Active\nI'm back in your general Personal Assistant mode. I've got access to your personal files and real-time web search for sports, news, and events. What's on your agenda?";
 				}
 				
 				appendMessage('assistant-message', greeting);
@@ -353,7 +354,19 @@
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
+					
+					// --- PERSISTENT CHAT HYDRATION (THE FIX) ---
+					// If the chat window only has the default greeting (<= 1 message), pull history from server
+					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
+						const chatMessages = document.getElementById('chat-messages');
+						chatMessages.innerHTML = ''; 
+						data.messages.forEach(msg => {
+							appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false);
+						});
+					}
+
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
+					document.getElementById('kv-profile-display').innerText = data.profile || "Scott Robbins | Senior Solutions Engineer";
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Active" : "Idle";
 					activeMode = data.mode || "personal";
 					
@@ -386,7 +399,7 @@
 					const reader = res.body.getReader();
 					const decoder = new TextDecoder();
 					let assistantText = "";
-					const msgDiv = appendMessage('assistant-message', "");
+					const msgDiv = appendMessage('assistant-message', "", true);
 
 					while (true) {
 						const { done, value } = await reader.read();
@@ -411,13 +424,13 @@
 				} catch (e) { showTyping(false); appendMessage('assistant-message', `**Error:** ${e.message}`); }
 			}
 
-			function appendMessage(cls, text) {
+			function appendMessage(cls, text, scroll = true) {
 				const container = document.getElementById('chat-messages');
 				const div = document.createElement('div');
 				div.className = cls === 'system-indicator' ? 'system-indicator' : `message ${cls}`;
 				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
 				container.appendChild(div);
-				container.scrollTop = container.scrollHeight;
+				if (scroll) container.scrollTop = container.scrollHeight;
 				return div;
 			}
 
