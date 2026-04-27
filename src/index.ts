@@ -72,7 +72,7 @@ export class ChatSession extends DurableObject<Env> {
 		throw new Error(`Model ${model} response format not handled.`);
 	}
 
-	// --- NEW: HELPER FOR IMAGE GENERATION (VIA GATEWAY) ---
+	// --- FIX: ROBUST IMAGE GENERATION (BINARY BUFFER HANDLING) ---
 	async generateVisual(prompt: string, filename: string) {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
@@ -87,18 +87,21 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt })
 		});
 
-		const data: any = await res.json();
-		if (data.error) throw new Error(`Image Gateway Error: ${JSON.stringify(data.error)}`);
+		if (!res.ok) {
+			const err = await res.text();
+			throw new Error(`Visual Engine Error: ${err}`);
+		}
 
-		// Cloudflare Workers AI image models return base64 in result.image
-		const base64 = data.result.image;
+		// Fetch raw binary buffer instead of trying to parse JSON
+		const buffer = await res.arrayBuffer();
 		
 		// Archive in R2 as a Knowledge Asset
-		const binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, binary, {
+		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, {
 			httpMetadata: { contentType: "image/png" }
 		});
 
+		// Convert buffer to base64 for the UI to display
+		const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
 		return `data:image/png;base64,${base64}`;
 	}
 
@@ -125,7 +128,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- ENDPOINT: UPLOAD & MEMORIZE ---
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -153,7 +155,6 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// --- ENDPOINT: PROFILE SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -173,7 +174,6 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- ENDPOINT: CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -181,10 +181,8 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- BULLETPROOF PERSISTENCE: Save User Message Immediately ---
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// --- 1. STATE-BASED HANDLERS (QUIZ & NEWS) ---
 				const sessionState = await this.ctx.storage.get("session_state");
 
 				if (lowMsg.includes("stop quiz")) {
@@ -240,36 +238,32 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. NEW: VISUAL STUDY AID HANDLER (UVA MODE ONLY) ---
+				// --- VISUAL STUDY AID HANDLER (FIXED FOR BINARY FLOW) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("show me a diagram"))) {
-					const concept = lowMsg.replace(/visualize|illustrate|show me a diagram|of|the/g, "").trim();
+				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
+					const concept = lowMsg.replace(/visualize|illustrate|draw|show me a diagram|of|the/g, "").trim();
 					
-					// 1. Get concept context from Vectorize
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [concept] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					// 2. Generate Image via Flux + Gateway
-					const visualPrompt = `A professional, clean, technical educational diagram illustrating the concept of "${concept}". Context: ${context}. Minimalist style, high-tech aesthetic, easy to understand.`;
+					const visualPrompt = `A high-quality, professional technical educational diagram for a UVA university course illustrating "${concept}". Context: ${context}. Clean minimalist style, engineering aesthetic.`;
 					const imageDataUrl = await this.generateVisual(visualPrompt, concept.replace(/\s+/g, '_'));
 					
-					// 3. Construct response
-					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this visual metaphor to help you understand the architecture behind **${concept}** based on your UVA syllabus materials.\n\n![${concept}](${imageDataUrl})\n\n*This diagram has been archived in your **Cloudflare R2 Assets** for future review.*`;
+					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this visual aid based on your syllabus to help you grasp **${concept}**.\n\n![${concept}](${imageDataUrl})\n\n*Archived in your **Cloudflare R2 Assets**.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. MODE SWITCHES ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
-I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
+I am now in specialized UVA mode, focused on your materials.
 
-**Here is what I can do for you in this mode:**
+**What I can do now:**
 1. **Academic Calendar Quiz**: Say **'Start the UVA Academic Calendar Quiz'**.
-2. **Visual Study Aids**: Ask me to **'Visualize Durable Objects'** (or any concept from your syllabus).
+2. **Visual Study Aids**: Say **'Visualize [Concept]'** (e.g., Durable Objects).
 3. **Syllabus Analysis**: Extracting exam dates and registration deadlines.
 4. **Campus News**: Say **'Fetch UVA News'**.
 
@@ -281,18 +275,13 @@ I am now in specialized UVA mode, focused on your University of Virginia materia
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched back to your general Personal Assistant mode. 
-
-**What I can do for you now:**
-- **Real-Time Web Search**: I use **Tavily Search** for current sports scores, news, and real-time events.
-- **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.`;
+I have switched back to your general Personal Assistant mode.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				// --- 4. STANDARD RAG & IDENTITY LOCK ---
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 				
@@ -354,9 +343,8 @@ Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice
 			const uiRes = `### 🎓 UVA Academic Calendar Quiz Started!
 I've generated 5 questions based on your academic calendar documents. 
 
-*Note: You can type **'stop quiz'** at any point to end this session.*
-
----\n\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+---\n\n### 📝 Question 1 of 5
+**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
