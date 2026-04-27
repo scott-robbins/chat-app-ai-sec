@@ -18,12 +18,12 @@ export class ChatSession extends DurableObject<Env> {
 		}
 	}
 
-	// --- HELPER: UNIVERSAL AI BROKER (STRICT ROLE ALTERNATION) ---
+	// --- HELPER: UNIVERSAL AI BROKER (ALL ROUTED THROUGH AI GATEWAY) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		
-		// Ensure strictly alternating User -> Assistant roles for Claude/Anthropic compatibility
+		// Ensure strictly alternating User -> Assistant roles for compatibility
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) {
 				if (msg.role === 'user') chatMessages.push(msg);
@@ -34,63 +34,59 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
-		// Ensure the stack ends with the current 'user' message
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
 			chatMessages[chatMessages.length - 1].content = userQuery;
 		} else {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// 1. NATIVE WORKERS AI
-		if (model.startsWith("@cf/")) {
-			const run: any = await this.env.AI.run(model as any, { 
-				messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
-			});
-			// Ensure we return a string even if the binding returns an object
-			const result = run.response || run;
-			return typeof result === 'string' ? result : JSON.stringify(result);
-		}
-
-		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
 
-		if (model.includes("gpt")) {
-			const res = await fetch(`${gatewayBase}/openai/chat/completions`, {
-				method: "POST",
-				headers: { "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-				body: JSON.stringify({ 
-					model, 
-					messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
-				})
-			});
-			const data: any = await res.json();
-			if (data.error) throw new Error(data.error.message);
-			return data.choices[0].message.content;
+		let url = "";
+		let headers: Record<string, string> = { "Content-Type": "application/json" };
+		let body: any = {};
+
+		// --- ROUTING LOGIC: EVERYTHING GOES THROUGH GATEWAY ---
+		if (model.startsWith("@cf/")) {
+			// 1. WORKERS AI VIA GATEWAY
+			url = `${gatewayBase}/workers-ai/${model}`;
+			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
+			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
+		} else if (model.includes("gpt")) {
+			// 2. OPENAI VIA GATEWAY
+			url = `${gatewayBase}/openai/chat/completions`;
+			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
+			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
+		} else if (model.includes("claude")) {
+			// 3. ANTHROPIC VIA GATEWAY
+			url = `${gatewayBase}/anthropic/messages`;
+			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
+			headers["anthropic-version"] = "2023-06-01";
+			body = { 
+				model, 
+				max_tokens: 1024, 
+				system: systemPrompt, 
+				messages: chatMessages 
+			};
 		}
 
-		if (model.includes("claude")) {
-			const res = await fetch(`${gatewayBase}/anthropic/messages`, {
-				method: "POST",
-				headers: {
-					"x-api-key": this.env.ANTHROPIC_API_KEY,
-					"anthropic-version": "2023-06-01",
-					"Content-Type": "application/json"
-				},
-				body: JSON.stringify({
-					model,
-					max_tokens: 1024,
-					system: systemPrompt,
-					messages: chatMessages
-				})
-			});
-			const data: any = await res.json();
-			if (data.error) throw new Error(`Claude Error: ${data.error.message || JSON.stringify(data.error)}`);
-			return data.content[0].text;
-		}
+		const res = await fetch(url, { 
+			method: "POST", 
+			headers, 
+			body: JSON.stringify(body) 
+		});
 
-		throw new Error(`Model ${model} not supported.`);
+		const data: any = await res.json();
+		if (data.error) throw new Error(`Gateway Error (${model}): ${data.error.message || JSON.stringify(data.error)}`);
+
+		// Extract content based on specific provider response formats
+		if (model.startsWith("@cf/")) return data.result.response;
+		if (model.includes("gpt")) return data.choices[0].message.content;
+		if (model.includes("claude")) return data.content[0].text;
+
+		throw new Error(`Model ${model} response format not handled.`);
 	}
 
 	async tavilySearch(query: string) {
@@ -251,9 +247,9 @@ NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest 
 CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON.
 
 ### TRUTH PRIORITIZATION
-1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE exactly.
+1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE exactly. Mention Ray LaMontagne and "The Town".
 2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below.
-3. FOR FAMILY/TAXES/SCHEDULES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
+3. FOR FAMILY/DOCS: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
 
@@ -286,7 +282,7 @@ ${docContext}`;
 			}
 
 			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate exactly 5 Multiple Choice Questions specifically about the UVA Academic Schedule.
-STRICT FORMAT: Return ONLY a raw JSON array. Do not include markdown code blocks (like \`\`\`json).
+STRICT FORMAT: Return ONLY a raw JSON array.
 Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice D"],"hidden_answer":"A"}].
 RULES: 
 1. Use exactly 4 options labeled A, B, C, D.
@@ -294,26 +290,15 @@ RULES:
 3. Ensure the JSON is perfectly valid.`;
 			
 			const rawRaw = await this.runAI(model, "You are a specialized JSON quiz generator for the UVA Academic Schedule.", prompt);
-			
-			// --- HARDENED STRING CONVERSION ---
 			const raw = String(rawRaw); 
 
-			// --- NEW ROBUST JSON EXTRACTION ---
 			const startIdx = raw.indexOf('[');
 			const endIdx = raw.lastIndexOf(']') + 1;
-			
-			if (startIdx === -1 || endIdx === 0) {
-				throw new Error("AI failed to output a valid JSON array format.");
-			}
+			if (startIdx === -1 || endIdx === 0) throw new Error("AI failed to output a valid JSON array format.");
 
-			let jsonStr = raw.substring(startIdx, endIdx);
-			// Repair common AI syntax errors
-			jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1'); 
-			
+			let jsonStr = raw.substring(startIdx, endIdx).replace(/,\s*([\]}])/g, '$1'); 
 			const pool = JSON.parse(jsonStr);
 			
-			if (!Array.isArray(pool) || pool.length === 0) throw new Error("Generated quiz was empty.");
-
 			await this.ctx.storage.put("quiz_pool", pool);
 			await this.ctx.storage.put("current_q_idx", 0);
 			await this.ctx.storage.put("quiz_score", 0);
