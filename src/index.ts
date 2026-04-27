@@ -16,7 +16,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	// --- HELPER: AI BROKER ---
+	// --- HELPER: AI BROKER (TPM HARDENED) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -31,9 +31,9 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
-		let url = "";
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		let body: any = {};
+		let url = "";
 
 		if (model.startsWith("@cf/")) {
 			url = `${gatewayBase}/workers-ai/${model}`;
@@ -57,7 +57,7 @@ export class ChatSession extends DurableObject<Env> {
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.includes("gpt")) return data.choices[0].message.content;
 		if (model.includes("claude")) return data.content[0].text;
-		return "Model not supported.";
+		return "Model logic not implemented.";
 	}
 
 	async generateVisual(prompt: string, filename: string) {
@@ -70,7 +70,11 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt })
 		});
 
-		if (!res.ok) throw new Error("Visual Engine capacity reached. Try again in a moment.");
+		if (!res.ok) {
+			const status = res.status;
+			if (status === 504 || status === 429) throw new Error("Visual engine is busy. Please try again in 10 seconds.");
+			throw new Error(`Visual Engine Error (${status})`);
+		}
 
 		const buffer = await res.arrayBuffer();
 		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, { httpMetadata: { contentType: "image/png" } });
@@ -89,8 +93,8 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query, search_depth: "advanced", max_results: 3 })
 			});
 			const data: any = await res.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No news found.";
-		} catch (e) { return "Search failed."; }
+			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live news found.";
+		} catch (e) { return "Live search currently unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -107,12 +111,13 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
 			return new Response(JSON.stringify({
 				profile: "Scott E Robbins | Senior Solutions Engineer",
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
+				messageCount: stats?.total || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
 				activeQuiz: !!activePool,
@@ -141,8 +146,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
 					await this.ctx.storage.delete("session_state");
-					const news = await this.tavilySearch("University of Virginia UVA campus news");
-					const res = await this.runAI(selectedModel, "You are Jolene. Summarize UVA news.", news);
+					const context = await this.tavilySearch("University of Virginia UVA campus news");
+					const res = await this.runAI(selectedModel, "You are Jolene. Provide a professional summary of current UVA news.", context);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -155,15 +160,15 @@ export class ChatSession extends DurableObject<Env> {
 					const isCorrect = lowMsg[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 					
-					let feedback = isCorrect ? `✅ **Correct!**` : `❌ **Incorrect.** The answer was ${currentQ.hidden_answer}.`;
+					let feedback = isCorrect ? `✅ **Correct!**` : `❌ **Incorrect.** The correct answer was ${currentQ.hidden_answer}.`;
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const nextQ = pool[qIdx + 1];
-						const nextUi = `\n\n---\n### 📝 Q${qIdx + 2}\n**${nextQ.q}**\n${nextQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
+						const nextUi = `\n\n---\n### 📝 Q${qIdx + 2} of 5\n**${nextQ.q}**\n${nextQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
 						await this.saveMsg(sessionId, 'assistant', feedback + nextUi);
 						return new Response(`data: ${JSON.stringify({ response: feedback + nextUi })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**`;
+						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nHow else can I help?`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -179,9 +184,9 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Create a visual prompt for: "${concept}". Syllabus Context: ${context}. Requirements: White background, academic 2D vector style, clear labels, high contrast.`);
+					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Draw a technical schematic for: "${concept}". Syllabus Context: ${context}. Minimalist white background, professional engineering diagram, no humans, clear text labels.`);
 					const imgUrl = await this.generateVisual(promptSpec, concept.replace(/\s+/g, '_'));
-					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](${imgUrl})\n\n*Diagram saved to R2 Assets.*`;
+					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](${imgUrl})\n\n*Saved to R2 Assets.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -190,27 +195,27 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated\nReady for academic tasks. Would you like the latest campus news summary first?`;
+					const res = `### 🎓 UVA Mode Activated\nReady for academic analysis. Would you like a campus news summary first?`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for general assistant tasks and web search.`;
+					const res = `### 🏠 Personal Mode Activated\nReady for general tasks and web search.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				// --- 4. STANDARD RAG & RESPONSE ---
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar";
+				// --- 4. STANDARD RAG RESPONSE ---
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins family" : "UVA Syllabus Academic Calendar exam dates";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Namesake: tan dachshund dog. No Dolly Parton. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
+				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Named after dog Jolene (tan dachshund). Song by Ray LaMontagne from "The Town". Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
@@ -222,18 +227,18 @@ export class ChatSession extends DurableObject<Env> {
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates"] });
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Schedule Registration Exam Dates"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
-			const prompt = `Return JSON array of 5 MCQs from context: ${context}. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
-			const raw = await this.runAI(model, "JSON quiz generator.", prompt);
+			const prompt = `Generate 5 MCQs as JSON array from: ${context}. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
+			const raw = await this.runAI(model, "JSON generator.", prompt);
 			const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 			await this.ctx.storage.put("quiz_pool", pool);
 			await this.ctx.storage.put("current_q_idx", 0);
 			await this.ctx.storage.put("quiz_score", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 			const firstQ = pool[0];
-			const res = `### 🎓 UVA Quiz Started!\n\n---\n### 📝 Q1\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
+			const res = `### 🎓 UVA Quiz Started!\n---\n### 📝 Q1\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
 			await this.saveMsg(sessionId, 'assistant', res);
 			return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
