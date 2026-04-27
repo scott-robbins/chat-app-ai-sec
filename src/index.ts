@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; // High-quality technical illustrations
+const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"; // Best for technical diagrams
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -72,7 +72,7 @@ export class ChatSession extends DurableObject<Env> {
 		throw new Error(`Model ${model} response format not handled.`);
 	}
 
-	// --- FIX: ROBUST IMAGE GENERATION (BINARY BUFFER HANDLING) ---
+	// --- FIX: ROBUST IMAGE GENERATION (HANDLES LARGE BINARY BUFFERS) ---
 	async generateVisual(prompt: string, filename: string) {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
@@ -92,16 +92,22 @@ export class ChatSession extends DurableObject<Env> {
 			throw new Error(`Visual Engine Error: ${err}`);
 		}
 
-		// Fetch raw binary buffer instead of trying to parse JSON
 		const buffer = await res.arrayBuffer();
 		
-		// Archive in R2 as a Knowledge Asset
+		// 1. Archive in R2
 		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, {
 			httpMetadata: { contentType: "image/png" }
 		});
 
-		// Convert buffer to base64 for the UI to display
-		const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+		// 2. Robust Base64 Conversion (Avoids "Maximum call stack size exceeded")
+		let binary = "";
+		const bytes = new Uint8Array(buffer);
+		const len = bytes.byteLength;
+		for (let i = 0; i < len; i++) {
+			binary += String.fromCharCode(bytes[i]);
+		}
+		const base64 = btoa(binary);
+		
 		return `data:image/png;base64,${base64}`;
 	}
 
@@ -238,7 +244,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- VISUAL STUDY AID HANDLER (FIXED FOR BINARY FLOW) ---
+				// --- VISUAL STUDY AID HANDLER (ROBUST BUFFER FLOW) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
 					const concept = lowMsg.replace(/visualize|illustrate|draw|show me a diagram|of|the/g, "").trim();
@@ -247,7 +253,7 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const visualPrompt = `A high-quality, professional technical educational diagram for a UVA university course illustrating "${concept}". Context: ${context}. Clean minimalist style, engineering aesthetic.`;
+					const visualPrompt = `A clean, professional technical educational diagram for a University course. Subject: ${concept}. Context: ${context}. Use high-contrast colors, minimalist engineering style, legible labels. Background should be a subtle dark academic aesthetic.`;
 					const imageDataUrl = await this.generateVisual(visualPrompt, concept.replace(/\s+/g, '_'));
 					
 					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this visual aid based on your syllabus to help you grasp **${concept}**.\n\n![${concept}](${imageDataUrl})\n\n*Archived in your **Cloudflare R2 Assets**.*`;
