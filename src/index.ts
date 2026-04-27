@@ -74,7 +74,10 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt })
 		});
 
-		if (!res.ok) throw new Error("Visual Engine Timeout. Please try a simpler concept.");
+		if (!res.ok) {
+			const errorBody = await res.text();
+			throw new Error(`Visual Engine Error (${res.status}): ${errorBody.substring(0, 100)}`);
+		}
 
 		const contentType = res.headers.get("content-type") || "";
 		let base64Data = "";
@@ -128,21 +131,22 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- 1. VISUAL STUDY AID HANDLER (NEW PROMPT BRAIN) ---
+				// --- 1. VISUAL STUDY AID HANDLER (ENHANCED DIAGRAM LOGIC) ---
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
 					const concept = lowMsg.replace(/visualize|illustrate|draw|show me a diagram|of|the/g, "").trim();
 					
-					// STEP 1: Search Syllabus Context
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [concept] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 
-					// STEP 2: Use LLM to generate a better prompt for the image model
-					const promptGen = await this.runAI(selectedModel, "You are a prompt engineer for Flux AI. Create a high-detail technical diagram prompt.", `Create a visual diagram prompt for the concept: "${concept}". Syllabus Context: ${context}. Make it a clean, white-background, professional engineering diagram with clear labels.`);
+					// IMPROVED PROMPT BRAIN: Focuses on legible technical diagrams
+					const systemSpec = "You are a prompt engineer for technical illustrations. Create a prompt for an image model to draw a clean, academic, 2D vector-style diagram.";
+					const userSpec = `Create a visualization prompt for: "${concept}". Syllabus Context: ${context}. Requirements: Clean white background, minimalist flat design, professional blue and orange accents (UVA colors), clear distinct nodes and arrows, legible technical labels, no human figures, engineering schematic style.`;
 					
-					// STEP 3: Generate Image
+					const promptGen = await this.runAI(selectedModel, systemSpec, userSpec);
+					
 					const imageDataUrl = await this.generateVisual(promptGen, concept.replace(/\s+/g, '_'));
-					const resText = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this visual for **${concept}** using context from your syllabus.\n\n![${concept}](${imageDataUrl})\n\n*This asset is saved in your R2 Knowledge base.*`;
+					const resText = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\nI've generated this technical diagram for **${concept}** based on your syllabus context.\n\n![${concept}](${imageDataUrl})\n\n*This diagram is now archived in your R2 Assets bucket.*`;
 					
 					await this.saveMsg(sessionId, 'assistant', resText);
 					return new Response(`data: ${JSON.stringify({ response: resText })}\n\ndata: [DONE]\n\n`);
