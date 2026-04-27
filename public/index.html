@@ -89,7 +89,6 @@
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
 			
-			/* Visual Concept Illustrator Image Styles */
 			.message-content img { max-width: 100%; height: auto; border-radius: 12px; margin: 12px 0; display: block; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid var(--border-color); }
 
 			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
@@ -112,6 +111,7 @@
 			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
+			.dash-desc { font-size: 0.65rem; color: var(--text-light); margin-bottom: 6px; font-style: italic; }
 
 			#file-list-display { margin-top: 10px; padding: 0; list-style: none; }
 			#file-list-display li { font-size: 0.75rem; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
@@ -189,22 +189,48 @@
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
+				<!-- CARD 1: KV USER PROFILE -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div id="kv-profile-display" class="dash-value">Syncing...</div>
+					<div class="dash-desc">Stores persistent user identity and preferences.</div>
+					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
 				</div>
+
+				<!-- CARD 2: ACTIVE LEARNING -->
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
 					<span class="dash-label">Active Learning Session</span>
-					<div class="dash-value">Status: <span id="quiz-status">Idle</span></div>
+					<div class="dash-desc">Tracking multi-step academic progress via Durable Objects.</div>
+					<div id="quiz-status" class="dash-value">Idle</div>
 				</div>
+
+				<!-- CARD 3: DURABLE OBJECTS -->
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
 					<span class="dash-label">Durable Objects: State</span>
+					<div class="dash-desc">Coordinates real-time consistency across the edge.</div>
 					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div>
 				</div>
+
+				<!-- CARD 4: D1 SQL METRICS -->
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
+					<div class="dash-desc">Relational database tracking interaction history.</div>
+					<div id="msg-count-display" class="dash-value">0 messages</div>
+				</div>
+
+				<!-- CARD 5: VECTORIZE MEMORY -->
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
+					<div class="dash-desc">Stores text embeddings for semantic RAG search.</div>
+					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Active Index</div>
+				</div>
+
+				<!-- CARD 6: R2 ASSETS -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare R2: Assets</span>
+					<div class="dash-desc">Object storage for raw documents and diagrams.</div>
 					<ul id="file-list-display"><li>Scanning...</li></ul>
 				</div>
+				
 				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
 			</div>
 		</div>
@@ -221,7 +247,7 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false;
+			let voiceEnabled = false; 
 			let activeMode = "personal";
 
 			const modelSelector = document.getElementById('model-selector');
@@ -230,6 +256,7 @@
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
+			
 			document.getElementById('clear-screen-btn').onclick = () => { 
 				document.getElementById('chat-messages').innerHTML = ''; 
 				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
@@ -246,14 +273,22 @@
 				sessionId = crypto.randomUUID(); 
 				localStorage.setItem('jolene_session_id', sessionId); 
 				document.getElementById('chat-messages').innerHTML = ''; 
-				let greeting = activeMode === "uva" ? "### 🎓 UVA Mode Active\nReady for academic tasks or syllabus analysis. What's on your mind?" : "### 🏠 Personal Mode Active\nHow can I help you today?";
+				
+				let greeting = "";
+				if (activeMode === "uva") {
+					greeting = "### 🎓 UVA Mode Active\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?";
+				} else {
+					greeting = "### 🏠 Personal Mode Active\nHow can I help you today?";
+				}
+				
 				appendMessage('assistant-message', greeting);
 				updateDashboard(); 
 			};
 
 			const fileInput = document.getElementById('file-input');
+			const fileNameIndicator = document.getElementById('file-name-indicator');
 			document.getElementById('upload-btn').onclick = () => fileInput.click();
-			fileInput.onchange = () => { document.getElementById('file-name-indicator').innerText = fileInput.files[0]?.name || ""; };
+			fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
 
 			document.getElementById('memorize-btn').onclick = async () => {
 				const file = fileInput.files[0];
@@ -262,23 +297,20 @@
 				const formData = new FormData();
 				formData.append('file', file);
 				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-				document.getElementById('file-name-indicator').innerText = "";
+				fileNameIndicator.innerText = "";
 				fileInput.value = "";
 				updateDashboard();
 			};
 
-			// --- ASSET MANAGEMENT: DELETE FUNCTION ---
 			async function deleteFile(filename) {
-				if (!confirm(`Permanently remove ${filename} from Jolene's memory?`)) return;
+				if (!confirm(`Permanently remove ${filename}?`)) return;
 				try {
 					const res = await fetch('/api/delete', {
 						method: 'DELETE',
 						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
 						body: JSON.stringify({ filename })
 					});
-					if (res.ok) {
-						updateDashboard();
-					}
+					if (res.ok) updateDashboard();
 				} catch (e) { console.error("Deletion failed", e); }
 			}
 
@@ -286,14 +318,18 @@
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
-					if (document.getElementById('chat-messages').children.length <= 1 && data.messages) {
+					
+					// Rehydrate chat if it's empty/default
+					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
 					}
-					document.getElementById('kv-profile-display').innerText = data.profile;
+
+					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins";
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
+					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages`;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
-					activeMode = data.mode;
+					activeMode = data.mode || "personal";
 					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `
@@ -302,7 +338,7 @@
 							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
 								<i class="ph ph-trash"></i>
 							</button>
-						</li>`).join('') || '<li>Empty</li>';
+						</li>`).join('') || '<li>No assets in storage</li>';
 				} catch (e) {}
 			}
 
@@ -327,7 +363,6 @@
 					const msgDiv = appendMessage('assistant-message', "");
 					const contentDiv = msgDiv.querySelector('.message-content');
 					
-					// IMPROVED STREAM BUFFER: Prevents "Empty Bubble" for large technical diagrams
 					let lineBuffer = "";
 					while (true) {
 						const { done, value } = await reader.read();
@@ -335,7 +370,7 @@
 						
 						lineBuffer += decoder.decode(value, { stream: true });
 						const lines = lineBuffer.split('\n');
-						lineBuffer = lines.pop(); // Hold onto partial lines
+						lineBuffer = lines.pop(); 
 
 						for (const line of lines) {
 							if (line.startsWith('data: ')) {
@@ -348,7 +383,7 @@
 										contentDiv.innerHTML = marked.parse(assistantText);
 										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
 									}
-								} catch (e) { /* Buffer mismatch, wait for next chunk */ }
+								} catch (e) { }
 							}
 						}
 					}
@@ -370,6 +405,7 @@
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
+
 			updateDashboard();
 		</script>
 	</body>
