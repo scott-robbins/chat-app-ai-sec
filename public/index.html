@@ -107,9 +107,21 @@
 				display: flex; flex-direction: column; gap: 1.5rem;
 			}
 
-			.message { padding: 1rem 1.25rem; max-width: 80%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
+			.message { padding: 1rem 1.25rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
 			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
+			
+			/* Visual Concept Illustrator Image Styles */
+			.message-content img {
+				max-width: 100%;
+				height: auto;
+				border-radius: 12px;
+				margin: 12px 0;
+				display: block;
+				box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+				border: 1px solid var(--border-color);
+			}
+
 			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
 			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
 
@@ -202,7 +214,6 @@
 
 		<div class="chat-container">
 			<div id="chat-messages">
-				<!-- INITIAL GREETING ON LOAD -->
 				<div class="message assistant-message">
 					<div class="message-content">
 						<p>Hi Scott! I'm Jolene. Ready to assist with your UVA academic materials or personal assistant tasks. How can I help you today?</p>
@@ -215,6 +226,7 @@
 			</div>
 
 			<div class="message-input">
+				<!-- ACTION BAR: BOTTOM INTEGRATED -->
 				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
 					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
 					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
@@ -234,7 +246,7 @@
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
-				<!-- REORDERED: USER PROFILE AT TOP -->
+				<!-- HIERARCHY: USER PROFILE AT TOP -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
@@ -243,7 +255,7 @@
 				<!-- ACTIVE LEARNING BELOW PROFILE -->
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
 					<span class="dash-label">Active Learning Session</span>
-					<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
+					<div class="dash-desc">Tracking multi-step academic progress via Durable Objects.</div>
 					<div class="dash-value">Status: <span id="quiz-status">Idle</span></div>
 				</div>
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
@@ -258,12 +270,12 @@
 				</div>
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-					<div class="dash-desc">Stores text embeddings from files for semantic search and "learning."</div>
+					<div class="dash-desc">Stores text embeddings from files for semantic RAG search.</div>
 					<div class="dash-value" id="vector-status" style="color: #38bdf8;">Active Index</div>
 				</div>
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare R2: Assets</span>
-					<div class="dash-desc">Object storage for raw uploaded documents and schedules.</div>
+					<div class="dash-desc">Object storage for raw uploaded documents and generated diagrams.</div>
 					<ul id="file-list-display"><li>Scanning...</li></ul>
 				</div>
 				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
@@ -282,7 +294,7 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false; // Explicitly OFF at start
+			let voiceEnabled = false; // Default to Off
 			let activeMode = "personal"; 
 
 			const modelSelector = document.getElementById('model-selector');
@@ -312,11 +324,10 @@
 				document.getElementById('chat-messages').innerHTML = ''; 
 				
 				let greeting = "";
-				// Note: activeMode is tracked globally and updated by updateDashboard (syncing with server state)
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Comprehensive University Assistant mode. I focus **exclusively** on your UVA documents and academic life. How can I help with your syllabus or schedule?";
+					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Comprehensive University Assistant mode. I focus **exclusively** on your UVA documents and academic life. I can help with practice quizzes, syllabus analysis, or **visualize complex topics** for you. What's on your mind?";
 				} else {
-					greeting = "### 🏠 Personal Mode Active\nI'm back in your general Personal Assistant mode. I've got access to your personal files and real-time web search for sports, news, and events. What's on your agenda?";
+					greeting = "### 🏠 Personal Mode Active\nI'm back in your general Personal Assistant mode. I've got access to your personal files and real-time web search for sports, news, and events. What's on your agenda today?";
 				}
 				
 				appendMessage('assistant-message', greeting);
@@ -337,7 +348,7 @@
 				try {
 					const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
 					const data = await res.json();
-					appendMessage('assistant-message', `Done! I have analyzed and memorized **${file.name}**. I can now reference its contents.`);
+					appendMessage('assistant-message', `Done! I have analyzed and memorized **${file.name}**. I can now reference its contents, and even **illustrate concepts** from it.`);
 					fileNameIndicator.innerText = "";
 					fileInput.value = "";
 					updateDashboard();
@@ -347,7 +358,7 @@
 			modelSelector.onchange = async () => {
 				localStorage.setItem('jolene_selected_model', modelSelector.value);
 				appendMessage('system-indicator', `System: Switched to ${modelSelector.options[modelSelector.selectedIndex].text}...`);
-				await sendMessage(`Hello, Jolene. Confirming your active status on ${modelSelector.value}`, true);
+				await sendMessage(`Confirm brain switch to ${modelSelector.value}`, true);
 			};
 
 			async function updateDashboard() {
@@ -355,8 +366,7 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
-					// --- PERSISTENT CHAT HYDRATION (THE FIX) ---
-					// If the chat window only has the default greeting (<= 1 message), pull history from server
+					// --- PERSISTENT CHAT HYDRATION ---
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						const chatMessages = document.getElementById('chat-messages');
 						chatMessages.innerHTML = ''; 
@@ -367,7 +377,7 @@
 
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott Robbins | Senior Solutions Engineer";
-					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Active" : "Idle";
+					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
 					activeMode = data.mode || "personal";
 					
 					if (data.durableObject) {
