@@ -2,6 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -163,7 +164,7 @@ export class ChatSession extends DurableObject<Env> {
 					await this.ctx.storage.delete("session_state");
 					await this.ctx.storage.delete("current_q_idx");
 					await this.ctx.storage.delete("quiz_score");
-					const stopRes = "### 🛑 Session Reset\nI have reset your current activity state. How can I help you next?";
+					const stopRes = "### 🛑 Session Reset\nI have stopped the current quiz and reset your activity state. How can I help you next?";
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', stopRes);
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
@@ -196,7 +197,7 @@ export class ChatSession extends DurableObject<Env> {
 					const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					const qContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
 
-					let gradeTxt = await this.runAI(selectedModel, "Explain the answer based on the UVA schedule context provided.", `CONTEXT:\n${qContext}\n\nUSER: ${userChoice}\nCORRECT: ${currentQ.hidden_answer}`);
+					let gradeTxt = await this.runAI(selectedModel, "Explain the answer based on the UVA Academic Calendar context provided.", `CONTEXT:\n${qContext}\n\nUSER: ${userChoice}\nCORRECT: ${currentQ.hidden_answer}`);
 					const feedback = isCorrect ? `✅ **Correct!**\n\n${gradeTxt}` : `❌ **Incorrect.**\n\n${gradeTxt}`;
 
 					if (qIdx + 1 < pool.length) {
@@ -207,7 +208,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n---\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**\n\nYour study session state has been reset. How else can I help?`;
+						const final = `\n\n---\n\n### 🏁 UVA Academic Calendar Quiz Complete!\n**Score: ${score}/5**\n\nYour study session state has been reset. How else can I help?`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -219,16 +220,18 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode: Academic Schedule Specialist Activated
-I am now focused exclusively on your University of Virginia documents, specifically the **Academic Schedule**.
+					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
+I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
-**What I can do for you now:**
-- **Academic Schedule Quizzes**: Grounded in your UVA documents. Say **'Start a Quiz'** to begin.
-- **Syllabus & Schedule Analysis**: Extracting exam dates, registration deadlines, and holidays.
+**Here is what I can do for you in this mode:**
+1. **UVA Academic Calendar Quiz**: Test your knowledge on important dates. Say **'Start the UVA Academic Calendar Quiz'**.
+2. **Syllabus & Document Analysis**: Extract exam dates, registration deadlines, and policies from your uploads.
+3. **Campus News & Events**: Stay updated with what's happening on the Lawn. Say **'Fetch UVA News'**.
+4. **General Academic Q&A**: Ask me anything about your documents or the University.
 
-*Note: In this mode, I focus on your uploaded documents for precision.*
+*Note: In this mode, I focus on your uploaded documents for high-precision answers.*
 
-**Would you like me to fetch the latest UVA campus news and events for you before we start?**`;
+**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -237,7 +240,7 @@ I am now focused exclusively on your University of Virginia documents, specifica
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched back to your general Personal Assistant mode. 
+I have switched back to your general Personal Assistant mode. 
 
 **What I can do for you now:**
 - **Real-Time Web Search**: I use **Tavily Search** for current sports scores, news, and real-time events.
@@ -269,7 +272,7 @@ I have switched back to your general Personal Assistant mode.
 
 				const today = "Sunday, April 26, 2026";
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-Identity: You are Jolene, Scott Robbins' personal AI assistant. 
+Identity: You are Jolene, Scott Robbins' personal AI assistant. 
 NAMESAKE TRUTH: You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Inspired by the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
 NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON.
 
@@ -289,21 +292,21 @@ DOC CONTEXT: ${docContext}`;
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Schedule 2026 Registration Exam Dates Fall Spring Enrollment Registrar"] });
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar 2026 Registration Exam Dates Fall Spring Enrollment Registrar"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Schedule.
+			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Calendar.
 STRICT FORMAT: Return ONLY a raw JSON array.
 Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice D"],"hidden_answer":"A"}].`;
 			
-			const rawRaw = await this.runAI(model, "You are a JSON quiz generator.", prompt);
-			const raw = String(rawRaw); 
+			const rawRaw = await this.runAI(model, "You are a JSON quiz generator for the UVA Academic Calendar.", prompt);
+			const raw = String(rawRaw); 
 			const startIdx = raw.indexOf('[');
 			const endIdx = raw.lastIndexOf(']') + 1;
 			if (startIdx === -1 || endIdx === 0) throw new Error("AI failed to output a valid JSON array format.");
 
-			let jsonStr = raw.substring(startIdx, endIdx).replace(/,\s*([\]}])/g, '$1'); 
+			let jsonStr = raw.substring(startIdx, endIdx).replace(/,\s*([\]}])/g, '$1'); 
 			const pool = JSON.parse(jsonStr);
 			
 			await this.ctx.storage.put("quiz_pool", pool);
@@ -312,13 +315,12 @@ Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 			const firstQ = pool[0];
-			const uiRes = `### 🎓 UVA Academic Schedule Quiz Started!
-I've generated 5 questions based on your academic schedule documents. 
+			const uiRes = `### 🎓 UVA Academic Calendar Quiz Started!
+I've generated 5 questions based on your academic calendar documents. 
 
 *Note: You can type **'stop quiz'** at any point to end this session.*
 
----\n\n### 📝 Question 1 of 5
-**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+---\n\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
