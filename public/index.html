@@ -192,7 +192,8 @@
 					</optgroup>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-high" id="voice-icon"></i> Voice</button>
+				<!-- VOICE: DEFAULTING TO OFF WITH SLASH ICON -->
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
 				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
@@ -201,9 +202,10 @@
 
 		<div class="chat-container">
 			<div id="chat-messages">
+				<!-- INITIAL GREETING ON LOAD -->
 				<div class="message assistant-message">
 					<div class="message-content">
-						<p>Hi there! I'm Jolene. Ready to assist with your documents, UVA academic schedule, or real-time web searches. What's on your mind today?</p>
+						<p>Hi Scott! I'm Jolene. Ready to assist with your UVA academic materials or personal assistant tasks. How can I help you today?</p>
 					</div>
 				</div>
 			</div>
@@ -213,7 +215,6 @@
 			</div>
 
 			<div class="message-input">
-				<!-- ACTION BAR RESTORED: BOTTOM -->
 				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
 					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
 					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
@@ -233,16 +234,17 @@
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
-				<!-- CARDS RESTORED -->
+				<!-- REORDERED: USER PROFILE AT TOP -->
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare KV: User Profile</span>
+					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
+					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
+				</div>
+				<!-- ACTIVE LEARNING BELOW PROFILE -->
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
 					<span class="dash-label">Active Learning Session</span>
 					<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
 					<div class="dash-value">Status: <span id="quiz-status">Idle</span></div>
-				</div>
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
-					<div id="kv-profile-display" class="dash-value">Syncing...</div>
 				</div>
 				<div class="dash-card" style="border-left: 3px solid #f6821f;">
 					<span class="dash-label">Durable Objects: State</span>
@@ -280,6 +282,8 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
+			let voiceEnabled = false; // Default to Off
+			let activeMode = "personal"; // Local tracking for greeting
 
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -287,9 +291,37 @@
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
-			document.getElementById('clear-screen-btn').onclick = () => { document.getElementById('chat-messages').innerHTML = ''; appendMessage('assistant-message', "Screen cleared. How else can I assist?"); };
+			
+			document.getElementById('clear-screen-btn').onclick = () => { 
+				document.getElementById('chat-messages').innerHTML = ''; 
+				appendMessage('assistant-message', "Screen cleared. How else can I assist?"); 
+			};
 
-			// RESTORED: UPLOAD & MEMORIZE
+			// VOICE TOGGLE
+			document.getElementById('voice-toggle-btn').onclick = () => {
+				voiceEnabled = !voiceEnabled;
+				const icon = document.getElementById('voice-icon');
+				icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
+				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
+			};
+
+			// NEW CHAT WITH MODE-SPECIFIC GREETING
+			document.getElementById('new-chat-btn').onclick = () => { 
+				sessionId = crypto.randomUUID(); 
+				localStorage.setItem('jolene_session_id', sessionId); 
+				document.getElementById('chat-messages').innerHTML = ''; 
+				
+				let greeting = "";
+				if (activeMode === "uva") {
+					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials. I can help with practice quizzes or syllabus analysis. What's on your mind?";
+				} else {
+					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search for sports, news, and events. How can I help you today?";
+				}
+				
+				appendMessage('assistant-message', greeting);
+				updateDashboard(); 
+			};
+
 			const fileInput = document.getElementById('file-input');
 			const fileNameIndicator = document.getElementById('file-name-indicator');
 			document.getElementById('upload-btn').onclick = () => fileInput.click();
@@ -322,13 +354,15 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					document.getElementById('msg-count-display').innerText = data.messageCount || 0;
-					document.getElementById('kv-profile-display').innerText = data.profile || "Scott Robbins | Senior Solutions Engineer";
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Active" : "Idle";
+					activeMode = data.mode || "personal";
+					
 					if (data.durableObject) {
 						document.getElementById('do-id-display').innerText = data.durableObject.id;
 					}
 					const list = document.getElementById('file-list-display');
-					list.innerHTML = data.knowledgeAssets?.length ? data.knowledgeAssets.map(f => `<li>📄 ${f}</li>`).join('') : '<li>No assets in R2 storage.</li>';
+					list.innerHTML = data.knowledgeAssets?.length ? data.knowledgeAssets.map(f => `<li>📄 ${f}</li>`).join('') : '<li>No assets in storage.</li>';
+					
 					if (data.activeQuiz) document.getElementById('user-input').placeholder = "Reply A, B, C, D or 'Stop Quiz'...";
 					else document.getElementById('user-input').placeholder = "Ask Jolene a question...";
 				} catch (e) {}
@@ -390,7 +424,6 @@
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
-			document.getElementById('new-chat-btn').onclick = () => { sessionId = crypto.randomUUID(); localStorage.setItem('jolene_session_id', sessionId); document.getElementById('chat-messages').innerHTML = ''; updateDashboard(); };
 
 			updateDashboard();
 		</script>
