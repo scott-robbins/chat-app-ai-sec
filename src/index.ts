@@ -155,6 +155,9 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
+				// --- BULLETPROOF PERSISTENCE: Save User Message Immediately ---
+				await this.saveMsg(sessionId, 'user', userMsg);
+
 				// --- 1. STATE-BASED HANDLERS (QUIZ & NEWS) ---
 				const sessionState = await this.ctx.storage.get("session_state");
 
@@ -165,7 +168,6 @@ export class ChatSession extends DurableObject<Env> {
 					await this.ctx.storage.delete("current_q_idx");
 					await this.ctx.storage.delete("quiz_score");
 					const stopRes = "### 🛑 Session Reset\nI have stopped the current quiz and reset your activity state. How can I help you next?";
-					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', stopRes);
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
 				}
@@ -176,7 +178,6 @@ export class ChatSession extends DurableObject<Env> {
 					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ok")) {
 						const newsContext = await this.tavilySearch("University of Virginia UVA campus news and events");
 						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Provide a professional summary of current UVA campus news and events based on search results.", `WEB NEWS CONTEXT:\n${newsContext}`);
-						await this.saveMsg(sessionId, 'user', userMsg);
 						await this.saveMsg(sessionId, 'assistant', newsTxt);
 						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
 					}
@@ -232,7 +233,6 @@ I am now in specialized UVA mode, focused on your University of Virginia materia
 *Note: In this mode, I focus on your uploaded documents for high-precision answers.*
 
 **Would you like me to start by fetching the latest UVA campus news and events for you?**`;
-					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -247,7 +247,6 @@ I have switched back to your general Personal Assistant mode. 
 - **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
 
 *Note: This mode is best for real-time information and personal organization.*`;
-					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -281,7 +280,6 @@ LIVE WEB SEARCH: ${webContext}
 DOC CONTEXT: ${docContext}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, chatHistory);
-				await this.saveMsg(sessionId, 'user', userMsg);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
