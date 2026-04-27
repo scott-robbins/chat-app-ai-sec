@@ -2,6 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -22,6 +23,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		
+		// Ensure strictly alternating User -> Assistant roles for Claude/Anthropic compatibility
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) {
 				if (msg.role === 'user') chatMessages.push(msg);
@@ -32,19 +34,24 @@ export class ChatSession extends DurableObject<Env> {
 			}
 		}
 
+		// Ensure the stack ends with the current 'user' message
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
 			chatMessages[chatMessages.length - 1].content = userQuery;
 		} else {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
+		// 1. NATIVE WORKERS AI
 		if (model.startsWith("@cf/")) {
 			const run: any = await this.env.AI.run(model as any, { 
 				messages: [{ role: "system", content: systemPrompt }, ...chatMessages] 
 			});
-			return run.response || run;
+			// Ensure we return a string even if the binding returns an object
+			const result = run.response || run;
+			return typeof result === 'string' ? result : JSON.stringify(result);
 		}
 
+		// 2. EXTERNAL PROVIDERS VIA AI GATEWAY
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
@@ -75,7 +82,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const response = await fetch('[https://api.tavily.com/search](https://api.tavily.com/search)', {
+			const response = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -96,6 +103,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- 1. COMMAND CENTER SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -125,7 +133,7 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- 1. GLOBAL STOP QUIZ HANDLER ---
+				// --- 2. GLOBAL STOP QUIZ HANDLER ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -137,7 +145,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. QUIZ STATE MACHINE ---
+				// --- 3. QUIZ STATE MACHINE ---
 				const sessionState = await this.ctx.storage.get("session_state");
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
@@ -176,15 +184,14 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 3. MODE SWITCHES & INTROS ---
+				// --- 4. MODE SWITCHES ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Full Study Companion Activated
 I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
 
 **What I can do for you now:**
-- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+- **Practice Quizzes**: Grounded in your UVA documents. Say **'Start a Quiz'** to begin.
 - **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
 
 *Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
@@ -193,17 +200,6 @@ I am now in specialized Study Companion mode. I focus **exclusively** on your Un
 					await this.saveMsg(sessionId, 'user', userMsg);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				// Handle News Confirmation flow
-				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
-					await this.ctx.storage.delete("session_state");
-					if (lowMsg.includes("yes") || lowMsg.includes("sure")) {
-						const newsContext = await this.tavilySearch("current UVA campus news");
-						const newsTxt = await this.runAI(selectedModel, "Summarize UVA news.", `NEWS CONTEXT:\n${newsContext}`);
-						await this.saveMsg(sessionId, 'assistant', newsTxt);
-						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
-					}
 				}
 
 				if (lowMsg.includes("switch to personal mode")) {
@@ -223,7 +219,7 @@ I have switched to your general Personal Assistant mode.
 
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				// --- 4. STANDARD RAG ENGINE & IDENTITY LOCK ---
+				// --- 5. STANDARD RAG ENGINE & IDENTITY LOCK ---
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
@@ -244,13 +240,17 @@ I have switched to your general Personal Assistant mode.
 				const today = "Sunday, April 26, 2026";
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK & NAMESAKE STORY
 Identity: You are Jolene, Scott Robbins' personal AI assistant. 
-NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest dog, Jolene. Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
-CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON.
+NAMESAKE TRUTH (MANDATORY): You are named after Scott and Renee Robbins' oldest dog, Jolene (a tan mini dachshund). Scott and Renee were inspired to name their dog "Jolene" after hearing the song "Jolene" by the artist RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". You are named after that dog.
+CRITICAL NEGATIVE CONSTRAINT: DO NOT MENTION DOLLY PARTON. You are NOT named after the Dolly Parton song.
+
+### FAMILY CONTEXT
+Scott and Renee are your people. Their daughter is Bryana. Grandkids are Callan and Josie. Your youngest "sister" is Hanna (a black and tan mini dachshund).
+TAXES: The tax base fee is $375 for the first hour and $275 per hour thereafter (per the 2025 engagement letter).
 
 ### TRUTH PRIORITIZATION
-1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE exactly. Mention Ray LaMontagne and "The Town".
-2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below.
-3. FOR FAMILY/DOCS: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
+1. FOR NAMESAKE/IDENTITY: Follow the PRIMARY DIRECTIVE above exactly. Mention Ray LaMontagne and "The Town".
+2. FOR SPORTS/NEWS: Use ONLY the "LIVE WEB SEARCH RESULTS" below. Do NOT use your training data for dates or scores.
+3. FOR FAMILY/TAXES: Use ONLY the "UPLOADED DOCUMENT CONTEXT" below.
 
 ### OPERATIONAL MODE: ${activeMode.toUpperCase()}. Current Date: ${today}.
 
@@ -274,7 +274,6 @@ ${docContext}`;
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			// Find high-quality grounding material for the quiz
 			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Syllabus 2026 Registration Exam Dates Fall Spring Enrollment Registrar"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
@@ -292,9 +291,12 @@ STRICT RULES:
 3. Ground questions ONLY in the provided CONTEXT. 
 4. Output valid JSON. No conversational text.`;
 			
-			const raw = await this.runAI(model, "You are a specialized JSON quiz generator. You speak only JSON.", prompt);
+			const rawRaw = await this.runAI(model, "You are a specialized JSON quiz generator. You speak only JSON.", prompt);
 			
-			// HARDENED JSON EXTRACTION (THE FIX)
+			// --- HARDENED STRING CONVERSION (THE FIX) ---
+			const raw = String(rawRaw); 
+
+			// HARDENED JSON EXTRACTION
 			const jsonMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/);
 			if (!jsonMatch) throw new Error("AI failed to output a valid JSON array format.");
 			
