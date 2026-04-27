@@ -2,7 +2,6 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Verified correct model name for RAG operations
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -76,7 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const response = await fetch('https://api.tavily.com/search', {
+			const response = await fetch('[https://api.tavily.com/search](https://api.tavily.com/search)', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -97,7 +96,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- 1. COMMAND CENTER SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -127,7 +125,7 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- 2. GLOBAL STOP QUIZ HANDLER ---
+				// --- 1. GLOBAL STOP QUIZ HANDLER ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -139,7 +137,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. QUIZ STATE MACHINE ---
+				// --- 2. QUIZ STATE MACHINE ---
 				const sessionState = await this.ctx.storage.get("session_state");
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
@@ -156,7 +154,7 @@ export class ChatSession extends DurableObject<Env> {
 					const vectorResults = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					const qContext = vectorResults.matches.map(m => m.metadata.text).join("\n");
 
-					const gradingPrompt = `CONTEXT FROM DOCUMENTS:\n${qContext}\n\nUSER ANSWERED: ${userChoice}.\nCORRECT ANSWER: ${currentQ.hidden_answer}.\n\nTASK: Explain WHY the answer is ${currentQ.hidden_answer} based strictly on the context. Be supportive but professional. Mention the specific UVA document or date if found.`;
+					const gradingPrompt = `CONTEXT FROM DOCUMENTS:\n${qContext}\n\nUSER ANSWERED: ${userChoice}.\nCORRECT ANSWER: ${currentQ.hidden_answer}.\n\nTASK: Explain WHY the answer is ${currentQ.hidden_answer} based strictly on the context. Be supportive but professional. Mention specific UVA dates if found.`;
 					
 					let gradeTxt = await this.runAI(selectedModel, "You are an expert UVA academic tutor.", gradingPrompt);
 					const feedback = isCorrect ? `✅ **Correct!**\n\n${gradeTxt}` : `❌ **Incorrect.**\n\n${gradeTxt}`;
@@ -178,7 +176,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 4. MODE SWITCHES & INTROS ---
+				// --- 3. MODE SWITCHES & INTROS ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
@@ -225,7 +223,7 @@ I have switched to your general Personal Assistant mode.
 
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				// --- 5. STANDARD RAG ENGINE & IDENTITY LOCK ---
+				// --- 4. STANDARD RAG ENGINE & IDENTITY LOCK ---
 				const historyRows = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatHistory = (historyRows.results || []).reverse();
 
@@ -276,24 +274,38 @@ ${docContext}`;
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Syllabus 2026 Registration Exam Dates Fall Spring Enrollment"] });
+			// Find high-quality grounding material for the quiz
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Syllabus 2026 Registration Exam Dates Fall Spring Enrollment Registrar"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
 
+			if (!context || context.trim().length < 50) {
+				throw new Error("No UVA documents found in memory. Please upload your Syllabus or Calendar first.");
+			}
+
 			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate exactly 5 MCQs about the UVA Academic Calendar and Syllabus. 
-STRICT FORMAT: Return ONLY a raw JSON array. No conversational text.
+FORMAT: Return ONLY a raw JSON array.
 Structure: [{"q":"Question?","options":["Choice A","Choice B","Choice C","Choice D"],"hidden_answer":"A"}].
-RULES: 
-1. Use exactly 4 options labeled A, B, C, D.
-2. Ground questions strictly in the dates and policies found in the provided CONTEXT.`;
+STRICT RULES: 
+1. Use exactly 4 options per question.
+2. Label options A, B, C, D in the array.
+3. Ground questions ONLY in the provided CONTEXT. 
+4. Output valid JSON. No conversational text.`;
 			
-			const raw = await this.runAI(model, "You are a specialized academic quiz generator.", prompt);
-			const jsonStart = raw.indexOf('[');
-			const jsonEnd = raw.lastIndexOf(']') + 1;
-			if (jsonStart === -1 || jsonEnd === -1) throw new Error("AI failed to output a valid JSON array.");
-			let jsonStr = raw.substring(jsonStart, jsonEnd).replace(/,\s*([\]}])/g, '$1');
+			const raw = await this.runAI(model, "You are a specialized JSON quiz generator. You speak only JSON.", prompt);
+			
+			// HARDENED JSON EXTRACTION (THE FIX)
+			const jsonMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/);
+			if (!jsonMatch) throw new Error("AI failed to output a valid JSON array format.");
+			
+			let jsonStr = jsonMatch[0];
+			// Repair common AI syntax errors (trailing commas, unescaped characters)
+			jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1'); 
 			
 			const pool = JSON.parse(jsonStr);
+			
+			if (!Array.isArray(pool) || pool.length === 0) throw new Error("Generated quiz was empty.");
+
 			await this.ctx.storage.put("quiz_pool", pool);
 			await this.ctx.storage.put("current_q_idx", 0);
 			await this.ctx.storage.put("quiz_score", 0);
@@ -306,7 +318,7 @@ I've generated 5 questions based on your academic documents.
 *Note: You can type **'stop quiz'** at any point to end this session.*
 
 ---\n\n### 📝 Question 1 of 5
-**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D (or 'stop quiz')!*`;
+**${firstQ.q}**\n\n${firstQ.options.map((o:string, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
 			
 			await this.saveMsg(sessionId, 'assistant', uiRes);
 			return new Response(`data: ${JSON.stringify({ response: uiRes })}\n\ndata: [DONE]\n\n`);
