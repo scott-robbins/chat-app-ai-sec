@@ -244,9 +244,17 @@
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
+			
 			document.getElementById('clear-screen-btn').onclick = () => { 
 				document.getElementById('chat-messages').innerHTML = ''; 
 				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
+			};
+
+			document.getElementById('voice-toggle-btn').onclick = () => {
+				voiceEnabled = !voiceEnabled;
+				const icon = document.getElementById('voice-icon');
+				icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
+				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
 			};
 
 			document.getElementById('new-chat-btn').onclick = async () => { 
@@ -257,23 +265,24 @@
 				
 				let greeting = "";
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Activated\nI'm ready for specialized academic analysis. I can help with quizzes, syllabus visualization, or **fetch the latest campus news**. What's on your mind?";
+					greeting = "### 🎓 UVA Mode Activated\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?";
 				} else {
-					greeting = "### 🏠 Personal Mode Active\nHow can I help you today?";
+					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search. How can I help you today?";
 				}
 				appendMessage('assistant-message', greeting);
 			};
 
 			const fileInput = document.getElementById('file-input');
+			const fileNameIndicator = document.getElementById('file-name-indicator');
 			document.getElementById('upload-btn').onclick = () => fileInput.click();
-			fileInput.onchange = () => { document.getElementById('file-name-indicator').innerText = fileInput.files[0]?.name || ""; };
+			fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
 
 			document.getElementById('memorize-btn').onclick = async () => {
 				const file = fileInput.files[0]; if (!file) return;
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
 				const formData = new FormData(); formData.append('file', file);
 				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-				document.getElementById('file-name-indicator').innerText = ""; fileInput.value = ""; updateDashboard();
+				fileNameIndicator.innerText = ""; fileInput.value = ""; updateDashboard();
 			};
 
 			async function deleteFile(filename) {
@@ -292,8 +301,8 @@
 					}
 					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
-					document.getElementById('msg-count-display').innerText = `${data.messageCount} messages`;
-					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
+					document.getElementById('msg-count-display').innerText = `${data.messageCount} messages recorded in D1`;
+					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
 					activeMode = data.mode;
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `<li><span>📄 ${f}</span><button class="delete-file-btn" onclick="deleteFile('${f}')"><i class="ph ph-trash"></i></button></li>`).join('') || '<li>Empty</li>';
@@ -321,7 +330,7 @@
 									const data = JSON.parse(raw);
 									if (data.response) { 
 										assistantText += data.response; 
-										// STREAM GUARD: Wait for full image links
+										// DOUBLE-LOCK STREAM GUARD: Don't render broken icons until complete
 										if (!assistantText.includes("![") || assistantText.includes(")")) {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										}
@@ -331,6 +340,7 @@
 							}
 						}
 					}
+					// FINAL SNAP: Force complete render
 					contentDiv.innerHTML = marked.parse(assistantText);
 					showTyping(false); updateDashboard();
 				} catch (e) { showTyping(false); appendMessage('assistant-message', `**Error:** ${e.message}`); }
