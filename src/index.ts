@@ -4,6 +4,20 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
+// --- SINGLE SOURCE OF TRUTH FOR THE DEMO ---
+const UVA_FACTS = `
+UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
+- Fall 2026 Courses begin: August 25, 2026.
+- Fall Reading Days 2026: October 3 - October 6.
+- Thanksgiving Recess: November 25 - November 29, 2026.
+- Fall Courses end: December 8, 2026.
+- Spring 2027 Courses begin: January 20, 2027.
+- Spring Recess 2027: March 6 - March 14, 2027.
+- Spring Courses end: May 4, 2027.
+- Finals Weekend 2027: May 21 - May 23, 2027.
+- Academic Success Data ID: WAHOO-AI-DEEP-RECALL.
+`;
+
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
@@ -67,11 +81,11 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- 1. QUIZ LOGIC (HARDENED) ---
+				// --- 1. QUIZ LOGIC (HARDENED GRADING) ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped\nI've reset your UVA session state. What else can I help with?";
+					const res = "### 🛑 Quiz Stopped\nI've reset your state. How can I help you now?";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -88,10 +102,8 @@ export class ChatSession extends DurableObject<Env> {
 						
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
-						// MANDATORY GROUND TRUTHS FOR GRADING
-						const uvaTruths = "Fall 2026 starts Aug 25, 2026. Spring 2027 starts Jan 20, 2027. Reading days are Oct 3-6 and Dec 13/16.";
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, `Use ONLY these facts: ${uvaTruths}`, `Explain the answer for: ${currentQ.q}. The correct choice is ${currentQ.hidden_answer}.`);
+						const explanation = await this.runAI(selectedModel, `Using only these verified facts: ${UVA_FACTS}`, `Briefly explain why the answer to "${currentQ.q}" is ${currentQ.hidden_answer}.`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -116,14 +128,14 @@ export class ChatSession extends DurableObject<Env> {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode Activated\nI am now focused exclusively on your University of Virginia materials. I can help with syllabus analysis or Academic Calendar testing. Say **'Start a Quiz'** to begin.`;
+					const res = `### 🎓 UVA Mode Activated\nReady for academic analysis. Say **'Start a Quiz'** or ask about your syllabus.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for family document access, real-time web search, and general assistance. How can I help?`;
+					const res = `### 🏠 Personal Mode Activated\nReady for family document access and web search. How can I help?`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -134,9 +146,9 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `Identity: Jolene, AI Assistant. Mode: ${activeMode.toUpperCase()}. 
-IMPORTANT: When in UVA mode, stay focused ON ACADEMICS. Do NOT suggest personal chat or dogs.
-UVA GROUND TRUTH: Data ID is WAHOO-AI-DEEP-RECALL. Spring 2027 starts Jan 20, 2027. Fall 2026 starts Aug 25, 2026.
-Identity Facts: Scott is a Senior Solutions Engineer at Cloudflare. Named after dog Jolene (Ray LaMontagne song).
+PERSONA FIREWALL: In UVA mode, focus 100% on ACADEMICS. Stop suggesting Zero Trust or dogs.
+UVA GROUND TRUTH: ${UVA_FACTS}
+Identity Facts: Scott Robbins, Senior Solutions Engineer at Cloudflare. Dog namesake is Jolene (The Town credits).
 Context: ${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
@@ -149,17 +161,14 @@ Context: ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar 2026-2027 Fall Spring Courses begin Reading Days Examinations Finals Registrar"] });
-		const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
-		const context = matches.matches.map(m => m.metadata.text).join("\n");
-
-		const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 multiple-choice questions about the UVA 2026-2027 Academic Calendar.
+		const prompt = `
+FACTS TO USE: ${UVA_FACTS}
+TASK: Generate 5 MCQs based ONLY on the 2026-2027 Academic Year.
 STRICT RULES:
-1. ONLY use dates for the 2026-2027 Academic Year (Fall 2026 and Spring 2027).
-2. DO NOT ask about Spring 2026.
-3. Provide 4 distinct options labeled A, B, C, D.
-4. The 'hidden_answer' field MUST be exactly one character: A, B, C, or D.
-Format: Return ONLY raw JSON array: [{"q":"Question text?","options":["Opt 1","Opt 2","Opt 3","Opt 4"],"hidden_answer":"A"}].`;
+1. One option MUST be the correct date from the FACTS above.
+2. The other 3 options must be plausible dates but incorrect.
+3. The 'hidden_answer' field MUST be the letter (A, B, C, or D) corresponding to the correct date.
+Format: Return ONLY raw JSON array: [{"q":"Question?","options":["Opt A","Opt B","Opt C","Opt D"],"hidden_answer":"A"}].`;
 
 		const raw = await this.runAI(model, "You are a UVA Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
@@ -171,7 +180,7 @@ Format: Return ONLY raw JSON array: [{"q":"Question text?","options":["Opt 1","O
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the 2026-2027 Registrar's dates. Type **'stop quiz'** to end early.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
