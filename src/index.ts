@@ -8,15 +8,13 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- HELPER: PERSISTENCE ---
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
-		} catch (e) { console.error("D1 Error:", e); }
+		} catch (e) { console.error("D1 Persistence Error:", e); }
 	}
 
-	// --- HELPER: UNIVERSAL AI BROKER ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -56,7 +54,7 @@ export class ChatSession extends DurableObject<Env> {
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.includes("gpt")) return data.choices[0].message.content;
 		if (model.includes("claude")) return data.content[0].text;
-		return "Logic Error";
+		return "Model logic error.";
 	}
 
 	async generateVisual(prompt: string, key: string) {
@@ -70,10 +68,22 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt: cleanPrompt })
 		});
 
-		if (!res.ok) throw new Error("Visual Engine Busy.");
+		if (!res.ok) throw new Error(`Visual Engine Busy (${res.status})`);
 		const buffer = await res.arrayBuffer();
 		await this.env.DOCUMENTS.put(key, buffer, { httpMetadata: { contentType: "image/png" } });
 		return key;
+	}
+
+	async tavilySearch(query: string) {
+		try {
+			const res = await fetch('https://api.tavily.com/search', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query, search_depth: "advanced", max_results: 3 })
+			});
+			const data: any = await res.json();
+			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No news found.";
+		} catch (e) { return "Search failed."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -81,7 +91,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- PUBLIC IMAGE PROXY (STABILIZED) ---
+		// --- ENDPOINT: PUBLIC PROXY ---
 		if (url.pathname === "/api/image") {
 			const key = url.searchParams.get("key");
 			if (!key) return new Response("Key required", { status: 400 });
@@ -90,7 +100,6 @@ export class ChatSession extends DurableObject<Env> {
 			const imgHeaders = new Headers();
 			object.writeHttpMetadata(imgHeaders);
 			imgHeaders.set("Access-Control-Allow-Origin", "*");
-			imgHeaders.set("Cache-Control", "public, max-age=31536000");
 			return new Response(object.body, { headers: imgHeaders });
 		}
 
@@ -125,42 +134,77 @@ export class ChatSession extends DurableObject<Env> {
 				const lowMsg = userMsg.toLowerCase().trim();
 
 				await this.saveMsg(sessionId, 'user', userMsg);
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- VISUAL CONCEPT HANDLER (STABILIZED) ---
-				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
-					// Step 1: Brain step to extract clean concept title
-					const conceptTitle = await this.runAI(selectedModel, "Extract technical concept in 3 words or less. No punctuation.", userMsg);
-					
-					// Step 2: RAG Context Search
-					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [conceptTitle] });
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
-					const context = matches.matches.map(m => m.metadata.text).join(" ");
-					
-					// Step 3: Create expanded image prompt
-					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams. Requirements: White background, 2D vector style, clear labels, NO humans.", `Topic: ${conceptTitle}. Context: ${context}`);
-					
-					// Step 4: Generate and save to R2
-					const safeKey = `visuals/${conceptTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.png`;
-					await this.generateVisual(promptSpec, safeKey);
-					
-					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(safeKey)})\n\n*Technical diagram generated from your UVA syllabus context and archived in R2.*`;
+				// Handle News Flow
+				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
+					await this.ctx.storage.delete("session_state");
+					const newsContext = await this.tavilySearch("University of Virginia UVA campus news April 2026");
+					const res = await this.runAI(selectedModel, "You are Jolene. Provide a professional summary of current UVA news.", newsContext);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- STANDARD RAG RESPONSE ---
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins family" : "UVA Syllabus Academic Calendar exam dates Thornton Rice Hall";
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+
+				// --- VISUAL CONCEPT HANDLER ---
+				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
+					const conceptTitle = await this.runAI(selectedModel, "Extract technical concept in 3 words or less.", userMsg);
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [conceptTitle] });
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
+					const context = matches.matches.map(m => m.metadata.text).join(" ");
+					
+					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams. Requirements: WHITE BACKGROUND, minimalist 2D style, clear labels.", `Topic: ${conceptTitle}. Context: ${context}`);
+					const safeKey = `visuals/${conceptTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.png`;
+					await this.generateVisual(promptSpec, safeKey);
+					
+					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(safeKey)})\n\n*Technical diagram generated from UVA syllabus context and saved to R2.*`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- MODE SWITCHES (RESTORED INTELLIGENCE) ---
+				if (lowMsg.includes("switch to uva mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
+					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
+I am now focused on your University of Virginia materials and campus life.
+
+**Capabilities in this mode:**
+- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
+- **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.
+- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
+- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
+
+**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				if (lowMsg.includes("switch to personal mode") || (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to")))) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const res = `### 🏠 Personal Mode Activated
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+
+**In this mode I can:**
+- **Real-Time Search**: Global news and sports via Tavily Search.
+- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// Standard RAG
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar exam dates Thornton Hall WAHOO-AI-DEEP-RECALL";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Named after dachshund Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
+				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Named after tan dachshund Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**System Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
