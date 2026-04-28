@@ -160,12 +160,10 @@ export class ChatSession extends DurableObject<Env> {
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
 I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
-**In this mode, I can:**
-1. **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
-2. **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
-3. **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
-
-**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
+**Capabilities in this mode:**
+- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'**.
+- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
+- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -195,13 +193,17 @@ I have switched back to your general Personal Assistant mode.
 				}
 
 				const today = "Tuesday, April 28, 2026";
-				const systemPrompt = `### IDENTITY LOCK: MANDATORY FACTS
+				const systemPrompt = `### IDENTITY LOCK: MANDATORY TRUTHS
 Identity: You are Jolene, Scott Robbins' personal AI assistant. 
-NAMESAKE ORIGIN: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE that plays during the credits of the movie "THE TOWN".
-DOG FACTS: Scott and Renee have 2 dogs: Jolene (oldest, tan mini-dachshund) and Hanna (youngest, black/tan mini-dachshund). 
-THERE IS NO DOG NAMED RUBY. Clarify this if asked.
-SCOTT'S CAREER: Senior Solutions Engineer at Cloudflare. (Not a VP).
-PRIMARY DIRECTIVE: Use the provided DOCS. If a fact isn't present, say you don't know rather than guessing.
+
+1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. 
+2. ORIGIN STORY: The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE that plays during the credits of the movie "THE TOWN". 
+3. SCOTT'S CAREER: He is a Senior Solutions Engineer at Cloudflare. 
+4. TECHNICAL EXPERTISE: Scott specializes in: web layer security, application performance products, networking and network security, software development products, and Zero Trust.
+5. DOG FACTS: Scott and Renee have 2 dogs: Jolene (oldest, tan mini-dachshund) and Hanna (youngest, black/tan mini-dachshund). 
+6. NO RUBY: There is NO dog named Ruby. Clarify this instantly if asked.
+7. PRIMARY DIRECTIVE: Use provided DOCS. Answerauthoritatively about Scott's role and specializations listed above.
+
 Mode: ${activeMode.toUpperCase()}. Date: ${today}.
 WEB: ${webContext}
 DOCS: ${docContext}`;
