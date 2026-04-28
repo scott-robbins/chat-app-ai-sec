@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -47,14 +47,14 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} current schedule and results April 2026`, 
+					query: `${query} current status and real-time data April 2026`, 
 					search_depth: "advanced", 
 					max_results: 5 
 				})
 			});
 			const data: any = await res.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No real-time data found.";
-		} catch (e) { return "Search failed."; }
+			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
+		} catch (e) { return "Search engine unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -65,16 +65,13 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const storage = await this.env.DOCUMENTS.list();
-			const activePool = await this.ctx.storage.get("quiz_pool");
 			return new Response(JSON.stringify({
 				profile: "Scott E Robbins | Senior Solutions Engineer",
 				messages: history.results || [],
-				messageCount: stats?.total || 0,
+				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: !!activePool,
 				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
 		}
@@ -89,27 +86,27 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- SEMANTIC RETRIEVAL ---
+				// --- SEMANTIC SEARCH ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// --- REAL-TIME SEARCH TRIGGER (EXPANDED) ---
+				// --- REAL-TIME TRIGGER (EXPANDED FOR STOCKS & SPORTS) ---
 				let webContext = "";
-				const realTimeTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "patriots", "ufc"];
-				if (activeMode === 'personal' && realTimeTriggers.some(t => lowMsg.includes(t))) {
+				const liveTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "stock", "price", "market", "ufc"];
+				if (activeMode === 'personal' && liveTriggers.some(t => lowMsg.includes(t))) {
 					webContext = await this.tavilySearch(userMsg);
 				}
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & TRUTH
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & LIVE DATA AUTHORITY
 You are Jolene, Scott Robbins' personal AI assistant. 
-TONE: Friendly, professional, and conversational.
+TONE: Friendly, professional, and conversational partner.
 
-1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing in the credits of "THE TOWN".
-2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Technical specialization: web layer security, application performance, networking, Zero Trust).
+1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
+2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare specializing in: web layer security, application performance, networking/network security, software development products, and Zero Trust.
 3. FAMILY: Wife: Renee. Daughter: Bryana. Grandkids: Callan and Josie (both love alternative heavy metal).
 4. DOGS: Jolene (tan, anxious) and Hanna (black/tan, shy). NO DOG NAMED RUBY.
-5. REAL-TIME GUARD: Prioritize the WEB context below for any dates, scores, or current events. If WEB context is present, use it as the source of truth for "today."
+5. LIVE DATA GUARD: If WEB SEARCH RESULTS are present, you MUST prioritize them for any dates, game scores, or stock prices. If the web data says a game is tonight, ignore any internal knowledge that says otherwise.
 
 Mode: ${activeMode.toUpperCase()}. Today is Tuesday, April 28, 2026.
 WEB SEARCH RESULTS: ${webContext}
@@ -118,7 +115,7 @@ DOCS FOR RETRIEVAL: ${docContext.substring(0, 4000)}`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**System Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
