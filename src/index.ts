@@ -87,7 +87,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- 1. STATE HANDLERS (NEWS & QUIZ) ---
+				// Handle News Confirm
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ok")) {
@@ -98,18 +98,17 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. MODE SWITCHES (RESTORED INTELLIGENCE) ---
+				// Mode Switches
 				if (lowMsg.includes("switch to uva mode") || (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to")))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
 I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
-**Here is what I can do for you in this mode:**
+**In this mode, I can help with:**
 1. **UVA Academic Calendar Quiz**: Test your knowledge on important dates. Say **'Start a Quiz'**.
-2. **Syllabus & Document Analysis**: Extracting exam dates, deadlines, and policies from your uploads.
+2. **Syllabus & Document Analysis**: Deep recall for course CS 4750.
 3. **Campus News & Events**: Stay updated with what's happening on the Lawn. Say **'Fetch UVA News'**.
-4. **General Academic Q&A**: High-precision answers based exclusively on your academic documents.
 
 **Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
@@ -119,24 +118,19 @@ I am now in specialized UVA mode, focused on your University of Virginia materia
 				if (lowMsg.includes("switch to personal mode") || (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to")))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+I have switched back to your general Personal Assistant mode. 
 
-**In this mode I can help with:**
-- **Real-Time Web Search**: Using **Tavily Search** for current sports scores, news, and real-time events.
-- **Cross-Document Access**: Accessing your personal documents (tax info, family notes) alongside academic files.
-- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
+**In this mode, I help with:**
+- **Real-Time Web Search**: Using **Tavily Search** for news, scores, and stock prices.
+- **Cross-Document Access**: Accessing your tax info and family notes alongside academic files.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. STANDARD RAG & IDENTITY LOCK ---
+				// Standard RAG & Identity Protection
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				
-				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee") || lowMsg.includes("deadline")) 
-					? {} : { segment: activeMode };
-
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: searchFilter, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => `[DOC: ${m.metadata.filename}] ${m.metadata.text}`).join("\n\n");
 				
 				let webContext = "";
@@ -150,16 +144,22 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
 				const dateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA INTEGRITY
-You are Jolene, Scott Robbins' personal AI assistant. 
-TONE: Friendly, professional, and conversational partner. Speak naturally.
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA AUTHORITY
+You are Jolene, Scott Robbins' personal AI assistant. Friendly, professional, conversational partner.
 
-1. IDENTITY LOCK: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the movie "THE TOWN" credits.
-2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Technical specialization: web layer security, application performance, networking, Zero Trust, software development products).
-3. FAMILY: Wife: Renee. Daughter: Bryana (Bry). Grandkids: Callan and Josie (both love alternative heavy metal).
-4. DOGS: Jolene (tan, barks) and Hanna (black/tan, shy). NO DOG NAMED RUBY.
-5. DOCUMENT TRUTH (TAX): Base Fee $375, Hourly $275. Info Deadline: Friday, March 13, 2026.
-6. LIVE DATA: Today is ${dateStr}, ${timeStr} EDT. Prioritize WEB results for current scores, dates, and stock movement calculations.
+1. IDENTITY LOCK: Named after Scott's dog Jolene (Ray LaMontagne song). Senior Solutions Engineer at Cloudflare.
+2. CAREER: Specialist in web layer security, networking, and Zero Trust.
+3. MANDATORY UVA SYLLABUS DATA (CS 4750):
+   - DATA ID: WAHOO-AI-DEEP-RECALL.
+   - ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
+   - INSTRUCTOR: Professor Scott.
+   - MID-TERM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
+   - EXAM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+   - FINAL EXAM: May 5, 2026.
+   - TRADITION: Visit Bodo’s Bagels on the Corner for the "Victory Bagel" after exams.
+   - SPIRIT: Wahoos congregate at the Lawn Rotunda during system updates.
+4. FAMILY: Wife is Renee. Dogs are Jolene and Hanna. NO dog named Ruby.
+5. TIME: Today is ${dateStr}, ${timeStr} EDT. 
 
 Mode: ${activeMode.toUpperCase()}.
 WEB SEARCH: ${webContext}
