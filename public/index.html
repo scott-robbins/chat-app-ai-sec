@@ -111,7 +111,7 @@
 			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
-			.dash-desc { font-size: 0.65rem; color: var(--text-light); margin-bottom: 6px; font-style: italic; }
+			.dash-desc { font-size: 0.7rem; color: var(--text-light); margin-top: 4px; font-style: italic; }
 
 			#file-list-display { margin-top: 10px; padding: 0; list-style: none; }
 			#file-list-display li { font-size: 0.75rem; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
@@ -146,7 +146,7 @@
 					</optgroup>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-high" id="voice-icon"></i> Voice</button>
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
 				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
@@ -189,7 +189,7 @@
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare KV: User Profile</span>
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
-					<div id="kv-profile-display" class="dash-value">Syncing...</div>
+					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
 				</div>
 
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
@@ -236,7 +236,10 @@
 				localStorage.setItem('jolene_session_id', id);
 				return id;
 			}
-			let sessionId = getSessionId(), isTyping = false, voiceEnabled = false, activeMode = "personal";
+			let sessionId = getSessionId();
+			let isTyping = false;
+			let voiceEnabled = false; 
+			let activeMode = "personal";
 
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -265,9 +268,9 @@
 				
 				let greeting = "";
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Activated\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?";
+					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.\n- **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
 				} else {
-					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search. How can I help you today?";
+					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.";
 				}
 				appendMessage('assistant-message', greeting);
 			};
@@ -278,59 +281,96 @@
 			fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
 
 			document.getElementById('memorize-btn').onclick = async () => {
-				const file = fileInput.files[0]; if (!file) return;
+				const file = fileInput.files[0];
+				if (!file) return;
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
-				const formData = new FormData(); formData.append('file', file);
+				const formData = new FormData();
+				formData.append('file', file);
 				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-				fileNameIndicator.innerText = ""; fileInput.value = ""; updateDashboard();
+				fileNameIndicator.innerText = "";
+				fileInput.value = "";
+				updateDashboard();
 			};
 
 			async function deleteFile(filename) {
-				if (!confirm(`Delete ${filename}?`)) return;
-				await fetch('/api/delete', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }, body: JSON.stringify({ filename }) });
-				updateDashboard();
+				if (!confirm(`Permanently remove ${filename}?`)) return;
+				try {
+					const res = await fetch('/api/delete', {
+						method: 'DELETE',
+						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+						body: JSON.stringify({ filename })
+					});
+					if (res.ok) updateDashboard();
+				} catch (e) { console.error("Deletion failed", e); }
 			}
 
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
+					
+					// Rehydrate chat if it's empty
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
 					}
-					document.getElementById('kv-profile-display').innerText = data.profile;
+
+					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins | Senior Solutions Engineer";
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
-					document.getElementById('msg-count-display').innerText = `${data.messageCount} messages recorded in D1`;
-					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
-					activeMode = data.mode;
+					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
+					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
+					activeMode = data.mode || "personal";
+					
 					const list = document.getElementById('file-list-display');
-					list.innerHTML = data.knowledgeAssets?.map(f => `<li><span>📄 ${f}</span><button class="delete-file-btn" onclick="deleteFile('${f}')"><i class="ph ph-trash"></i></button></li>`).join('') || '<li>Empty</li>';
+					list.innerHTML = data.knowledgeAssets?.map(f => `
+						<li>
+							<span>📄 ${f}</span>
+							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
+								<i class="ph ph-trash"></i>
+							</button>
+						</li>`).join('') || '<li>No assets indexed</li>';
 				} catch (e) {}
 			}
 
 			async function sendMessage() {
-				const input = document.getElementById('user-input'), content = input.value.trim();
+				const input = document.getElementById('user-input');
+				const content = input.value.trim();
 				if (!content || isTyping) return;
-				appendMessage('user-message', content); input.value = ''; showTyping(true);
+				appendMessage('user-message', content);
+				input.value = '';
+				showTyping(true);
+
 				try {
-					const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }, body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value }) });
-					const reader = res.body.getReader(), decoder = new TextDecoder();
-					let assistantText = "", lineBuffer = "";
-					const msgDiv = appendMessage('assistant-message', ""), contentDiv = msgDiv.querySelector('.message-content');
+					const res = await fetch('/api/chat', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+						body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value })
+					});
+
+					const reader = res.body.getReader();
+					const decoder = new TextDecoder();
+					let assistantText = "";
+					const msgDiv = appendMessage('assistant-message', "");
+					const contentDiv = msgDiv.querySelector('.message-content');
 					
+					let lineBuffer = "";
 					while (true) {
-						const { done, value } = await reader.read(); if (done) break;
+						const { done, value } = await reader.read();
+						if (done) break;
+						
 						lineBuffer += decoder.decode(value, { stream: true });
-						const lines = lineBuffer.split('\n'); lineBuffer = lines.pop(); 
+						const lines = lineBuffer.split('\n');
+						lineBuffer = lines.pop(); 
+
 						for (const line of lines) {
 							if (line.startsWith('data: ')) {
-								const raw = line.substring(6).trim(); if (raw === '[DONE]') continue;
+								const raw = line.substring(6).trim();
+								if (raw === '[DONE]') continue;
 								try {
 									const data = JSON.parse(raw);
 									if (data.response) { 
 										assistantText += data.response; 
-										// DOUBLE-LOCK STREAM GUARD: Don't render broken icons until complete
+										// STREAM GUARD: Don't render broken icons by waiting for complete links
 										if (!assistantText.includes("![") || assistantText.includes(")")) {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										}
@@ -342,20 +382,25 @@
 					}
 					// FINAL SNAP: Force complete render
 					contentDiv.innerHTML = marked.parse(assistantText);
-					showTyping(false); updateDashboard();
+					showTyping(false);
+					updateDashboard();
 				} catch (e) { showTyping(false); appendMessage('assistant-message', `**Error:** ${e.message}`); }
 			}
 
 			function appendMessage(cls, text, scroll = true) {
-				const container = document.getElementById('chat-messages'), div = document.createElement('div');
+				const container = document.getElementById('chat-messages');
+				const div = document.createElement('div');
 				div.className = cls === 'system-indicator' ? 'system-indicator' : `message ${cls}`;
 				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
-				container.appendChild(div); if (scroll) container.scrollTop = container.scrollHeight;
+				container.appendChild(div);
+				if (scroll) container.scrollTop = container.scrollHeight;
 				return div;
 			}
+
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
+
 			updateDashboard();
 		</script>
 	</body>
