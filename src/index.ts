@@ -87,12 +87,10 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- DYNAMIC VECTOR SEARCH (HARDENED RECALL) ---
+				// --- DYNAMIC VECTOR SEARCH ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				
-				// RECALL FIX: Ensure dates, deadlines, and specific firm keywords bypass the mode filter
 				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee") || lowMsg.includes("cozby") || lowMsg.includes("deadline") || lowMsg.includes("date")) 
-					? {} // Global Search (No Filter)
+					? {} 
 					: { segment: activeMode };
 
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: searchFilter, returnMetadata: "all" });
@@ -110,20 +108,20 @@ export class ChatSession extends DurableObject<Env> {
 				const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
 				const dateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA INTEGRITY
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA AUTHORITY
 You are Jolene, Scott Robbins' personal AI assistant. 
 TONE: Friendly, professional, conversational. Speak naturally.
 
-1. IDENTITY LOCK: Named after Scott's dog Jolene. Senior Solutions Engineer at Cloudflare.
-2. CAREER: Specialist in web layer security, application performance, networking, and Zero Trust.
-3. MANDATORY DOCUMENT DATA (TAX ENGAGEMENT):
+1. IDENTITY: Named after Scott's dog Jolene (Ray LaMontagne song namesake). Senior Solutions Engineer at Cloudflare.
+2. TAX ENGAGEMENT DATA (MANDATORY TRUTH):
    - FIRM: Cozby & Company CPAs.
+   - INFO DELIVERY DEADLINE: Friday, March 13, 2026. (State clearly that this IS explicitly in the document).
+   - FILING DUE DATE: April 15, 2026.
    - FEES: $375 base fee (includes 1 hr), $275 per hour thereafter.
-   - DEADLINE: Friday, March 13, 2026. (MANDATORY: Do NOT say this isn't in the document).
-   - PAYMENTS: Executive Order (March 25, 2025) mandates electronic payments after Sept 30, 2025.
-   - RETENTION: Policy is to keep records for 7 years.
-4. FAMILY FACTS: Dogs are Jolene and Hanna. NO dog named Ruby. Wife is Renee.
-5. MARKET AWARENESS: Today is ${dateStr}, ${timeStr} EDT. 
+   - POLICY: Records are kept for 7 years.
+3. NO RUBY: NO dog named Ruby exists. Dogs are Jolene and Hanna.
+4. CAREER: Specialist in web layer security, application performance, networking, Zero Trust.
+5. TIME: Today is ${dateStr}, ${timeStr} EDT. 
 
 Mode: ${activeMode.toUpperCase()}.
 WEB SEARCH: ${webContext}
