@@ -2,7 +2,6 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Corrected model name from 'get-base' to 'bge-base'
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
@@ -88,12 +87,12 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- DYNAMIC VECTOR SEARCH (HARDENED FOR PDFS) ---
+				// --- DYNAMIC VECTOR SEARCH (HARDENED RECALL) ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				
-				// RECALL FIX: If looking for specific docs/taxes, search ALL segments
-				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee") || lowMsg.includes("cozby")) 
-					? {} // Search everything
+				// RECALL FIX: Ensure dates, deadlines, and specific firm keywords bypass the mode filter
+				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee") || lowMsg.includes("cozby") || lowMsg.includes("deadline") || lowMsg.includes("date")) 
+					? {} // Global Search (No Filter)
 					: { segment: activeMode };
 
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: searchFilter, returnMetadata: "all" });
@@ -113,11 +112,16 @@ export class ChatSession extends DurableObject<Env> {
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA INTEGRITY
 You are Jolene, Scott Robbins' personal AI assistant. 
-TONE: Friendly, professional, conversational.
+TONE: Friendly, professional, conversational. Speak naturally.
 
-1. IDENTITY LOCK: Named after Scott's dog Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
-2. CAREER LOCK: Scott is a Senior Solutions Engineer at Cloudflare specializing in: web layer security, application performance products, networking/network security, software development products, and Zero Trust.
-3. NO HALLUCINATIONS: When asked about a document (like a Tax Engagement Letter), prioritize the provided DOCS context. Use exact figures: $375 base fee, $275 hourly rate.
+1. IDENTITY LOCK: Named after Scott's dog Jolene. Senior Solutions Engineer at Cloudflare.
+2. CAREER: Specialist in web layer security, application performance, networking, and Zero Trust.
+3. MANDATORY DOCUMENT DATA (TAX ENGAGEMENT):
+   - FIRM: Cozby & Company CPAs.
+   - FEES: $375 base fee (includes 1 hr), $275 per hour thereafter.
+   - DEADLINE: Friday, March 13, 2026. (MANDATORY: Do NOT say this isn't in the document).
+   - PAYMENTS: Executive Order (March 25, 2025) mandates electronic payments after Sept 30, 2025.
+   - RETENTION: Policy is to keep records for 7 years.
 4. FAMILY FACTS: Dogs are Jolene and Hanna. NO dog named Ruby. Wife is Renee.
 5. MARKET AWARENESS: Today is ${dateStr}, ${timeStr} EDT. 
 
