@@ -15,7 +15,7 @@
 				--primary-color: #f6821f;
 				--primary-hover: #e67e22;
 				--primary-light: rgba(246, 130, 31, 0.1);
-				--light-bg: #f4f6f8;
+				--light-bg: #f8fafc;
 				--app-bg: #ffffff;
 				--border-color: #e2e8f0;
 				--text-color: #1e293b;
@@ -24,41 +24,40 @@
 				--user-msg-bg: #f6821f;
 				--user-msg-text: #ffffff;
 				--assistant-msg-bg: #ffffff;
-				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
+				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f1f5f9 100%);
 			}
 
 			body.theme-fancy {
-				--app-bg: rgba(30, 41, 59, 0.4); 
+				--app-bg: rgba(30, 41, 59, 0.7); 
 				--light-bg: transparent; 
 				--border-color: rgba(255, 255, 255, 0.1);
 				--text-color: #f8fafc;
 				--text-light: #cbd5e1;
-				--assistant-msg-bg: rgba(255, 255, 255, 0.05);
+				--assistant-msg-bg: rgba(255, 255, 255, 0.08);
 				--body-bg: #0f172a;
 			}
 
 			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
-				backdrop-filter: blur(25px) saturate(180%);
-				-webkit-backdrop-filter: blur(25px) saturate(180%);
-				border: 1px solid rgba(255, 255, 255, 0.2);
+				backdrop-filter: blur(20px) saturate(180%);
+				border: 1px solid rgba(255, 255, 255, 0.15);
 				box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 				background-color: var(--app-bg);
 			}
 
-			body.theme-fancy #user-input { background-color: rgba(0, 0, 0, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.1); }
+			body.theme-fancy #user-input { background-color: rgba(0, 0, 0, 0.3); color: white; border: 1px solid rgba(255, 255, 255, 0.1); }
 			body.theme-fancy header h1 { color: #ffffff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.4); }
 
 			* { box-sizing: border-box; margin: 0; padding: 0; }
 
 			body {
-				font-family: -apple-system, system-ui, sans-serif;
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 				color: var(--text-color);
 				background: var(--body-bg);
 				min-height: 100vh;
 				display: flex;
 				flex-direction: column;
 				align-items: center;
-				padding: 2rem 1rem;
+				padding: 1.5rem 1rem;
 				transition: background 0.5s ease;
 				overflow-x: hidden;
 			}
@@ -66,65 +65,80 @@
 			.lava-lamp-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; display: none; pointer-events: none; }
 			body.theme-fancy .lava-lamp-container { display: block; }
 			
-			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; animation: float 15s infinite alternate ease-in-out; }
+			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; animation: float 15s infinite alternate ease-in-out; }
 			.blob1 { width: 500px; height: 500px; background: #f6821f; top: -100px; left: -100px; }
 			.blob2 { width: 600px; height: 600px; background: #d95d14; bottom: -150px; right: -100px; }
 			.blob3 { width: 400px; height: 400px; background: #faad3f; top: 30%; left: 60%; animation-delay: -5s; }
 
 			@keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(120px, -60px) scale(1.1); } }
 
-			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 1000px; }
-			h1 { font-size: 2rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
-			header p { color: var(--text-light); font-size: 1rem; margin-top: 0.25rem; opacity: 0.8; }
+			header { text-align: center; margin-bottom: 1.5rem; width: 100%; max-width: 900px; }
+			h1 { font-size: 2.25rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1.5px; }
+			header p { color: var(--text-light); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
 
 			.chat-container {
-				display: flex; flex-direction: column; width: 100%; max-width: 850px;
-				height: calc(100vh - 280px); min-height: 500px; background-color: var(--app-bg);
-				border-radius: 24px; overflow: hidden; border: 1px solid var(--border-color);
+				display: flex; flex-direction: column; width: 100%; max-width: 900px;
+				height: calc(100vh - 250px); min-height: 550px; background-color: var(--app-bg);
+				border-radius: 28px; overflow: hidden; border: 1px solid var(--border-color);
+				box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 				transition: all 0.3s ease;
 			}
 
 			#chat-messages { flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg); display: flex; flex-direction: column; gap: 1.5rem; }
-			.message { padding: 1rem 1.25rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
-			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
-			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
+			.message { padding: 1.25rem; max-width: 85%; border-radius: 20px; font-size: 0.95rem; line-height: 1.6; position: relative; }
+			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-bottom-right-radius: 4px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
+			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--border-color); box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
 			
-			.message-content img { max-width: 100%; height: auto; border-radius: 12px; margin: 12px 0; display: block; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid var(--border-color); }
+			.message-content img { max-width: 100%; height: auto; border-radius: 14px; margin: 16px 0; display: block; box-shadow: 0 12px 30px rgba(0,0,0,0.2); border: 1px solid var(--border-color); }
 
-			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
-			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+			.system-indicator { align-self: center; background: rgba(0,0,0,0.03); color: var(--text-light); font-size: 0.7rem; padding: 8px 20px; border-radius: 30px; font-style: italic; border: 1px dashed var(--border-color); margin: 12px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.05); color: #38bdf8; border-color: rgba(56, 189, 248, 0.2); }
 
-			.message-input { display: flex; flex-direction: column; padding: 1.5rem; background-color: transparent; border-top: 1px solid var(--border-color); gap: 0.75rem; }
+			.message-input { display: flex; flex-direction: column; padding: 1.5rem; background-color: var(--app-bg); border-top: 1px solid var(--border-color); gap: 0.75rem; }
 			.input-row { display: flex; gap: 0.75rem; width: 100%; }
-			#user-input { flex: 1; padding: 1rem; border: 1px solid var(--border-color); border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none; }
-			#send-button { padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white; border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s; }
-			#send-button:hover { transform: scale(1.05); }
+			#user-input { flex: 1; padding: 1.1rem; border: 1px solid var(--border-color); border-radius: 18px; min-height: 60px; background-color: var(--light-bg); color: inherit; font-family: inherit; font-size: 1rem; resize: none; outline: none; transition: border-color 0.2s; }
+			#user-input:focus { border-color: var(--primary-color); }
+			#send-button { width: 60px; height: 60px; background-color: var(--primary-color); color: white; border: none; border-radius: 18px; cursor: pointer; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
+			#send-button:hover { transform: scale(1.05); background-color: var(--primary-hover); }
+			#send-button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
+			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+			.btn-secondary { padding: 10px 18px; border-radius: 14px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+			.btn-secondary:hover { background: var(--light-bg); transform: translateY(-1px); }
 			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
-			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
+			.btn-primary { padding: 10px 20px; border-radius: 14px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 700; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); transition: all 0.2s; }
+			.btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
 
-			.sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: var(--app-bg); border-left: 1px solid var(--border-color); transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+			.sidebar { position: fixed; top: 0; right: -400px; width: 380px; height: 100%; background: var(--app-bg); border-left: 1px solid var(--border-color); transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
 			.sidebar.open { right: 0; }
+			.sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid var(--primary-color); padding-bottom: 15px; }
 
-			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
-			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
-			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
-			.dash-desc { font-size: 0.65rem; color: var(--text-light); margin-bottom: 6px; font-style: italic; }
+			.dash-card { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); border-radius: 18px; padding: 16px; margin-bottom: 5px; transition: all 0.2s; }
+			.dash-card:hover { border-color: var(--primary-color); background: rgba(246, 130, 31, 0.02); }
+			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; display: block; }
+			.dash-value { font-size: 0.9rem; font-weight: 600; line-height: 1.4; color: var(--text-color); }
+			.dash-desc { font-size: 0.65rem; color: var(--text-light); margin-bottom: 8px; font-style: italic; line-height: 1.3; }
 
-			#file-list-display { margin-top: 10px; padding: 0; list-style: none; }
-			#file-list-display li { font-size: 0.75rem; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
-			.delete-file-btn { color: #ef4444; background: none; border: none; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
-			.delete-file-btn:hover { background: rgba(239, 68, 68, 0.1); }
+			#file-list-display { margin-top: 10px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+			#file-list-display li { font-size: 0.75rem; padding: 10px; border-radius: 10px; background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+			body.theme-fancy #file-list-display li { background: rgba(255,255,255,0.03); }
+			.delete-file-btn { color: #ef4444; background: none; border: none; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+			.delete-file-btn:hover { background: rgba(239, 68, 68, 0.15); transform: scale(1.1); }
 
-			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+			.btn-danger { width: 100%; margin-top: 20px; padding: 16px; background: #ef4444; color: white; border: none; border-radius: 16px; cursor: pointer; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2); transition: all 0.2s; }
+			.btn-danger:hover { background: #dc2626; transform: scale(0.98); }
 
 			#typing-indicator { display: none; align-self: flex-start; }
 			#typing-indicator.visible { display: block !important; }
-			.typing-dots { display: flex; align-items: center; gap: 4px; padding: 10px 0; }
-			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
+			.typing-dots { display: flex; align-items: center; gap: 5px; padding: 12px 20px; background: var(--assistant-msg-bg); border-radius: 20px; border: 1px solid var(--border-color); }
+			.typing-dots span { width: 7px; height: 7px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
+			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+			.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+			::-webkit-scrollbar { width: 6px; }
+			::-webkit-scrollbar-track { background: transparent; }
+			::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
 		</style>
 	</head>
 	<body class="theme-fancy">
@@ -132,7 +146,7 @@
 
 		<header>
 			<h1>Jolene</h1>
-			<p>Your Personal AI Agent</p>
+			<p>Scott's Personal AI Specialist</p>
 			
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary">
@@ -146,11 +160,11 @@
 						<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (Anthropic)</option>
 					</optgroup>
 				</select>
-				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
-				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
-				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
-				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph-bold ph-palette"></i> Theme</button>
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph-bold ph-speaker-slash" id="voice-icon"></i> Voice</button>
+				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph-bold ph-monitor"></i> Dashboard</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph-bold ph-broom"></i> Clear</button>
+				<button id="new-chat-btn" class="btn-primary"><i class="ph-bold ph-plus-circle"></i> New Session</button>
 			</div>
 		</header>
 
@@ -158,7 +172,7 @@
 			<div id="chat-messages">
 				<div class="message assistant-message">
 					<div class="message-content">
-						<p>Hi Scott! I'm Jolene. Ready to assist with your UVA academic materials or personal assistant tasks. How can I help you today?</p>
+						<p>Hi Scott! I'm Jolene. Ready to assist with your UVA materials or personal assistant tasks. How can I help you today?</p>
 					</div>
 				</div>
 			</div>
@@ -168,10 +182,10 @@
 			</div>
 
 			<div class="message-input">
-				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
-					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
-					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
-					<span id="file-name-indicator" style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
+				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 10px;">
+					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph-bold ph-file-arrow-up"></i> Upload</button>
+					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e; color: #22c55e;"><i class="ph-bold ph-brain"></i> Memorize</button>
+					<span id="file-name-indicator" style="font-size: 0.75rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
 					<input type="file" id="file-input" style="display: none;">
 				</div>
 				<div class="input-row">
@@ -182,59 +196,59 @@
 		</div>
 
 		<div id="memory-sidebar" class="sidebar">
-			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-				<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
-				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
+			<div class="sidebar-header">
+				<h2 style="color: var(--primary-color); font-weight: 800; font-size: 1.25rem;">Command Center</h2>
+				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x-circle"></i></button>
 			</div>
 			<div class="sidebar-content">
 				<!-- CARD 1: KV USER PROFILE -->
 				<div class="dash-card">
-					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div class="dash-desc">Stores persistent user identity and preferences.</div>
-					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
+					<span class="dash-label">Edge Identity: KV</span>
+					<div class="dash-desc">Persistent user context stored at the global edge.</div>
+					<div id="kv-profile-display" class="dash-value">Syncing Profile...</div>
 				</div>
 
 				<!-- CARD 2: ACTIVE LEARNING -->
-				<div class="dash-card" style="border-left: 3px solid #22c55e;">
-					<span class="dash-label">Active Learning Session</span>
-					<div class="dash-desc">Tracking multi-step academic progress via Durable Objects.</div>
+				<div class="dash-card" style="border-left: 4px solid #22c55e;">
+					<span class="dash-label">Study Session: State</span>
+					<div class="dash-desc">Tracking real-time quiz and learning progress.</div>
 					<div id="quiz-status" class="dash-value">Idle</div>
 				</div>
 
 				<!-- CARD 3: DURABLE OBJECTS -->
-				<div class="dash-card" style="border-left: 3px solid #f6821f;">
-					<span class="dash-label">Durable Objects: State</span>
-					<div class="dash-desc">Coordinates real-time consistency across the edge.</div>
-					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div>
+				<div class="dash-card" style="border-left: 4px solid #f6821f;">
+					<span class="dash-label">Coordination: Durable Object</span>
+					<div class="dash-desc">Consistent state coordination for this session.</div>
+					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.7rem; font-family: monospace; word-break: break-all;">...</span><br><span id="do-status-display" style="color: #22c55e; font-size: 0.75rem;">● Active</span></div>
 				</div>
 
 				<!-- CARD 4: D1 SQL METRICS -->
 				<div class="dash-card">
-					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-					<div class="dash-desc">Relational database history tracking.</div>
-					<div id="msg-count-display" class="dash-value">0 messages</div>
+					<span class="dash-label">History Hub: D1 SQL</span>
+					<div class="dash-desc">Relational database storing your interaction records.</div>
+					<div id="msg-count-display" class="dash-value">0 messages logged</div>
 				</div>
 
 				<!-- CARD 5: VECTORIZE MEMORY -->
 				<div class="dash-card">
-					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-					<div class="dash-desc">Stores text embeddings for semantic RAG search.</div>
-					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Active Index</div>
+					<span class="dash-label">Semantic Memory: Vectorize</span>
+					<div class="dash-desc">Vector index for high-speed RAG syllabus search.</div>
+					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Index Ready</div>
 				</div>
 
 				<!-- CARD 6: R2 ASSETS -->
 				<div class="dash-card">
-					<span class="dash-label">Cloudflare R2: Assets</span>
-					<div class="dash-desc">Object storage for raw documents and diagrams.</div>
-					<ul id="file-list-display"><li>Scanning...</li></ul>
+					<span class="dash-label">Object Storage: R2 Assets</span>
+					<div class="dash-desc">Bucket storage for syllabus files and diagrams.</div>
+					<ul id="file-list-display"><li>Scanning Assets...</li></ul>
 				</div>
 				
-				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
+				<button id="clear-vector-btn" class="btn-danger"><i class="ph-bold ph-warning"></i> Reset Session & Identity</button>
 			</div>
 		</div>
 
 		<footer>
-			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">Jolene AI &copy; 2026</p>
 		</footer>
 
 		<script>
@@ -263,8 +277,8 @@
 			document.getElementById('voice-toggle-btn').onclick = () => {
 				voiceEnabled = !voiceEnabled;
 				const icon = document.getElementById('voice-icon');
-				icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
-				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
+				icon.className = voiceEnabled ? "ph-bold ph-speaker-high" : "ph-bold ph-speaker-slash";
+				appendMessage('system-indicator', voiceEnabled ? "System: Voice interaction enabled." : "System: Voice interaction disabled.");
 			};
 
 			document.getElementById('new-chat-btn').onclick = async () => { 
@@ -272,8 +286,9 @@
 				localStorage.setItem('jolene_session_id', sessionId); 
 				document.getElementById('chat-messages').innerHTML = ''; 
 				
-				// Sync mode before greeting
+				showTyping(true);
 				await updateDashboard();
+				showTyping(false);
 				
 				let greeting = "";
 				if (activeMode === "uva") {
@@ -296,10 +311,15 @@
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
 				const formData = new FormData();
 				formData.append('file', file);
-				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-				fileNameIndicator.innerText = "";
-				fileInput.value = "";
-				updateDashboard();
+				try {
+					const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
+					if(res.ok) {
+						appendMessage('system-indicator', `Done. ${file.name} is now part of my semantic memory.`);
+						fileNameIndicator.innerText = "";
+						fileInput.value = "";
+						updateDashboard();
+					}
+				} catch(e) { appendMessage('system-indicator', "Error during memorization."); }
 			};
 
 			async function deleteFile(filename) {
@@ -319,7 +339,7 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
-					// Rehydrate chat if it's empty
+					// Rehydrate chat if it's currently empty/default
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
@@ -327,7 +347,7 @@
 
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins";
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
-					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages`;
+					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
 					activeMode = data.mode || "personal";
 					
@@ -338,7 +358,7 @@
 							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
 								<i class="ph ph-trash"></i>
 							</button>
-						</li>`).join('') || '<li>No assets indexed</li>';
+						</li>`).join('') || '<li>No assets in storage</li>';
 				} catch (e) {}
 			}
 
@@ -380,7 +400,7 @@
 									const data = JSON.parse(raw);
 									if (data.response) { 
 										assistantText += data.response; 
-										// STREAM GUARD: Don't try to render Markdown image syntax until the close parenthesis arrives
+										// DUAL-STAGE STREAM GUARD: Prevents flickering broken image tags
 										if (!assistantText.includes("![") || assistantText.includes(")")) {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										}
@@ -390,7 +410,7 @@
 							}
 						}
 					}
-					// FINAL SNAP: Ensure complete render of finished text/image
+					// FINAL SNAP: Force complete render including technical diagrams
 					contentDiv.innerHTML = marked.parse(assistantText);
 					showTyping(false);
 					updateDashboard();
