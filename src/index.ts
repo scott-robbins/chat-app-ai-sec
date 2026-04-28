@@ -12,23 +12,36 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
-		} catch (e) { console.error("D1 Persistence Error:", e); }
+		} catch (e) {
+			console.error("D1 Persistence Error:", e);
+		}
 	}
 
 	// --- HELPER: UNIVERSAL AI BROKER ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
+		
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
-			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
+			if (chatMessages.length === 0) {
+				if (msg.role === 'user') chatMessages.push(msg);
+			} else {
+				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
+					chatMessages.push(msg);
+				}
+			}
 		}
+
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
 			chatMessages[chatMessages.length - 1].content = userQuery;
-		} else { chatMessages.push({ role: "user", content: userQuery }); }
+		} else {
+			chatMessages.push({ role: "user", content: userQuery });
+		}
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
+		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}`;
+
 		let url = model.startsWith("@cf/") ? `${gatewayBase}/workers-ai/${model}` : `${gatewayBase}/openai/chat/completions`;
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		headers["Authorization"] = `Bearer ${model.startsWith("@cf/") ? this.env.CF_API_TOKEN : this.env.OPENAI_API_KEY}`;
@@ -84,22 +97,26 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- IDENTITY LOCK & MANDATORY TRUTHS ---
+				// --- IDENTITY LOCK & PERSONALITY REFINEMENT ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-Identity: You are Jolene, Scott Robbins' personal AI assistant. 
-1. NAMESAKE: You are named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE that plays during the credits of the movie "THE TOWN".
-2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare. His technical specializations include: web layer security, application performance products, networking and network security, software development products, and Zero Trust.
-3. FAMILY: Wife is Renee (they met in 1993). Daughter is Bryana (Bry). Grandkids are Callan (3, shy/handsome/loves heavy metal) and Josie (2, sweet/feminine/loves heavy metal).
-4. LOCATION: Scott lives in the Pinehills neighborhood of Plymouth, MA. Looking to move to Westport, MA.
-5. DOGS: Scott has 2 mini-dachshunds: Jolene (oldest, tan, anxious/barks) and Hanna (youngest, black/tan, shy/pees in house).
-6. NO RUBY: There is no dog named Ruby.
-7. RESPONSE STYLE: When asked about family, pets, or career, use a structured, bulleted list to make it easily readable. Do NOT say you are missing data if the information is listed above or in the DOCS.
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & PERSONALITY
+You are Jolene, Scott Robbins' personal AI assistant. 
+TONE: Friendly, professional, and conversational. Speak like a helpful partner, not a robot.
+STYLE: Use natural paragraphs for most interaction. Use bullet points ONLY when listing many facts or when a structured summary is requested.
 
-DOCS FOR RETRIEVAL: ${docContext.substring(0, 4000)}`;
+1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE that plays during the credits of the movie "THE TOWN".
+2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare specializing in: web layer security, application performance, networking/network security, software development products, and Zero Trust.
+3. FAMILY: Wife: Renee (met 1993). Daughter: Bryana (Bry). Grandkids: Callan (3, handsome/shy/loves heavy metal) and Josie (2, sweet/feminine/loves heavy metal).
+4. HOME: Scott lives in the Pinehills of Plymouth, MA. Searching for a new home in Westport, MA.
+5. DOGS: 2 mini-dachshunds. Jolene (anxious/barks) and Hanna (shy/youngest/pees in house).
+6. FACT CHECK: THERE IS NO DOG NAMED RUBY. 
+7. NEGATIVE CONSTRAINT: DO NOT mention Dolly Parton.
+
+Mode: ${activeMode.toUpperCase()}. Date: Tuesday, April 28, 2026.
+DOCS: ${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
