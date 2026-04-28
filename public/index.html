@@ -30,7 +30,7 @@
 			body.theme-fancy {
 				--app-bg: rgba(30, 41, 59, 0.7); 
 				--light-bg: transparent; 
-				--border-color: rgba(255, 255, 255, 0.1);
+				--border-color: rgba(255, 255, 255, 0.15);
 				--text-color: #f8fafc;
 				--text-light: #cbd5e1;
 				--assistant-msg-bg: rgba(255, 255, 255, 0.08);
@@ -50,7 +50,7 @@
 			* { box-sizing: border-box; margin: 0; padding: 0; }
 
 			body {
-				font-family: -apple-system, system-ui, sans-serif;
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 				color: var(--text-color);
 				background: var(--body-bg);
 				min-height: 100vh;
@@ -72,60 +72,62 @@
 			@keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(120px, -60px) scale(1.1); } }
 
 			header { text-align: center; margin-bottom: 1.5rem; width: 100%; max-width: 900px; }
-			h1 { font-size: 2.25rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1.5px; }
-			header p { color: var(--text-light); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
+			h1 { font-size: 2.5rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1.5px; }
+			header p { color: var(--text-light); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 
 			.chat-container {
 				display: flex; flex-direction: column; width: 100%; max-width: 900px;
 				height: calc(100vh - 250px); min-height: 550px; background-color: var(--app-bg);
 				border-radius: 28px; overflow: hidden; border: 1px solid var(--border-color);
-				box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
 				transition: all 0.3s ease;
 			}
 
 			#chat-messages { flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg); display: flex; flex-direction: column; gap: 1.5rem; }
-			.message { padding: 1.25rem; max-width: 85%; border-radius: 20px; font-size: 0.95rem; line-height: 1.6; position: relative; }
+			.message { padding: 1.25rem; max-width: 85%; border-radius: 22px; font-size: 0.95rem; line-height: 1.6; position: relative; }
 			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-bottom-right-radius: 4px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
-			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--border-color); box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--border-color); }
 			
-			.message-content img { max-width: 100%; height: auto; border-radius: 14px; margin: 16px 0; display: block; box-shadow: 0 12px 30px rgba(0,0,0,0.2); border: 1px solid var(--border-color); }
+			.message-content img { max-width: 100%; height: auto; border-radius: 16px; margin: 16px 0; display: block; box-shadow: 0 15px 35px rgba(0,0,0,0.25); border: 1px solid var(--border-color); }
 
-			.system-indicator { align-self: center; background: rgba(0,0,0,0.03); color: var(--text-light); font-size: 0.7rem; padding: 8px 20px; border-radius: 30px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
+			.system-indicator { align-self: center; background: rgba(0,0,0,0.04); color: var(--text-light); font-size: 0.7rem; padding: 8px 24px; border-radius: 30px; font-style: italic; border: 1px dashed var(--border-color); margin: 12px 0; text-transform: uppercase; letter-spacing: 0.5px; }
 			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.05); color: #38bdf8; border-color: rgba(56, 189, 248, 0.2); }
 
 			.message-input { display: flex; flex-direction: column; padding: 1.5rem; background-color: var(--app-bg); border-top: 1px solid var(--border-color); gap: 0.75rem; }
 			.input-row { display: flex; gap: 0.75rem; width: 100%; }
-			#user-input { flex: 1; padding: 1.1rem; border: 1px solid var(--border-color); border-radius: 18px; min-height: 60px; background-color: var(--light-bg); color: inherit; font-family: inherit; font-size: 1rem; resize: none; outline: none; transition: border-color 0.2s; }
+			#user-input { flex: 1; padding: 1.2rem; border: 1px solid var(--border-color); border-radius: 20px; min-height: 60px; background-color: var(--light-bg); color: inherit; font-family: inherit; font-size: 1rem; resize: none; outline: none; transition: border-color 0.2s; }
 			#user-input:focus { border-color: var(--primary-color); }
-			#send-button { width: 60px; height: 60px; background-color: var(--primary-color); color: white; border: none; border-radius: 18px; cursor: pointer; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
+			#send-button { width: 60px; height: 60px; background-color: var(--primary-color); color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
 			#send-button:hover { transform: scale(1.05); background-color: var(--primary-hover); }
 
 			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
-			.btn-secondary { padding: 10px 18px; border-radius: 14px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+			.btn-secondary { padding: 10px 20px; border-radius: 15px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
 			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
-			.btn-primary { padding: 10px 20px; border-radius: 14px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 700; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); transition: all 0.2s; }
+			.btn-primary { padding: 10px 22px; border-radius: 15px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 700; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); transition: all 0.2s; }
+			.btn-primary:hover { transform: translateY(-1px); background-color: var(--primary-hover); }
 
-			.sidebar { position: fixed; top: 0; right: -400px; width: 380px; height: 100%; background: var(--app-bg); border-left: 1px solid var(--border-color); transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+			.sidebar { position: fixed; top: 0; right: -420px; width: 400px; height: 100%; background: var(--app-bg); border-left: 1px solid var(--border-color); transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; padding: 35px; overflow-y: auto; }
 			.sidebar.open { right: 0; }
+			.sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 2px solid var(--primary-color); padding-bottom: 15px; }
 
-			.dash-card { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); border-radius: 18px; padding: 16px; margin-bottom: 5px; transition: all 0.2s; }
+			.dash-card { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 20px; padding: 18px; margin-bottom: 12px; transition: all 0.2s; }
+			.dash-card:hover { border-color: var(--primary-color); background: rgba(246, 130, 31, 0.03); }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; display: block; }
-			.dash-value { font-size: 0.9rem; font-weight: 600; line-height: 1.4; color: var(--text-color); }
-			.dash-desc { font-size: 0.65rem; color: var(--text-light); margin-bottom: 8px; font-style: italic; line-height: 1.3; }
+			.dash-value { font-size: 0.95rem; font-weight: 600; line-height: 1.4; color: var(--text-color); }
+			.dash-desc { font-size: 0.65rem; color: var(--text-light); margin-bottom: 8px; font-style: italic; line-height: 1.4; }
 
 			#file-list-display { margin-top: 10px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
-			#file-list-display li { font-size: 0.75rem; padding: 10px; border-radius: 10px; background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
-			.delete-file-btn { color: #ef4444; background: none; border: none; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+			#file-list-display li { font-size: 0.75rem; padding: 12px; border-radius: 12px; background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+			body.theme-fancy #file-list-display li { background: rgba(255,255,255,0.03); }
+			.delete-file-btn { color: #ef4444; background: none; border: none; cursor: pointer; padding: 6px; border-radius: 8px; transition: all 0.2s; }
 			.delete-file-btn:hover { background: rgba(239, 68, 68, 0.15); transform: scale(1.1); }
 
-			.btn-danger { width: 100%; margin-top: 20px; padding: 16px; background: #ef4444; color: white; border: none; border-radius: 16px; cursor: pointer; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2); }
+			.btn-danger { width: 100%; margin-top: 25px; padding: 18px; background: #ef4444; color: white; border: none; border-radius: 18px; cursor: pointer; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2); }
 
 			#typing-indicator { display: none; align-self: flex-start; }
 			#typing-indicator.visible { display: block !important; }
-			.typing-dots { display: flex; align-items: center; gap: 5px; padding: 12px 20px; background: var(--assistant-msg-bg); border-radius: 20px; border: 1px solid var(--border-color); }
-			.typing-dots span { width: 7px; height: 7px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
-			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-			.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+			.typing-dots { display: flex; align-items: center; gap: 5px; padding: 12px 24px; background: var(--assistant-msg-bg); border-radius: 20px; border: 1px solid var(--border-color); }
+			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
 			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 		</style>
 	</head>
@@ -147,11 +149,9 @@
 						<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (Anthropic)</option>
 					</optgroup>
 				</select>
-				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph-bold ph-palette"></i> Theme</button>
-				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph-bold ph-speaker-slash" id="voice-icon"></i> Voice</button>
-				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph-bold ph-monitor"></i> Dashboard</button>
-				<button id="clear-screen-btn" class="btn-secondary"><i class="ph-bold ph-broom"></i> Clear</button>
-				<button id="new-chat-btn" class="btn-primary"><i class="ph-bold ph-plus-circle"></i> New Session</button>
+				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-palette"></i> Theme</button>
+				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-monitor"></i> Dashboard</button>
+				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-plus-circle"></i> New Session</button>
 			</div>
 		</header>
 
@@ -170,8 +170,8 @@
 
 			<div class="message-input">
 				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 10px;">
-					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph-bold ph-file-arrow-up"></i> Upload</button>
-					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e; color: #22c55e;"><i class="ph-bold ph-brain"></i> Memorize</button>
+					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-file-arrow-up"></i> Upload</button>
+					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e; color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
 					<span id="file-name-indicator" style="font-size: 0.75rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
 					<input type="file" id="file-input" style="display: none;">
 				</div>
@@ -183,50 +183,53 @@
 		</div>
 
 		<div id="memory-sidebar" class="sidebar">
-			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-				<h2 style="color: var(--primary-color); font-weight: 800; font-size: 1.25rem;">Command Center</h2>
+			<div class="sidebar-header">
+				<h2 style="color: var(--primary-color); font-weight: 800; font-size: 1.3rem;">Command Center</h2>
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x-circle"></i></button>
 			</div>
 			<div class="sidebar-content">
 				<div class="dash-card">
 					<span class="dash-label">Edge Identity: KV</span>
-					<div class="dash-desc">Persistent user context stored at the global edge.</div>
+					<div class="dash-desc">Stores persistent user profile and session preferences at the edge.</div>
 					<div id="kv-profile-display" class="dash-value">Scott E Robbins</div>
 				</div>
 
 				<div class="dash-card" style="border-left: 4px solid #22c55e;">
-					<span class="dash-label">Active Learning Session</span>
-					<div class="dash-desc">Tracking real-time quiz and progress via Durable Objects.</div>
+					<span class="dash-label">Study Session: State</span>
+					<div class="dash-desc">Coordinates real-time academic progress and quiz tracking.</div>
 					<div id="quiz-status" class="dash-value">Idle</div>
 				</div>
 
 				<div class="dash-card" style="border-left: 4px solid #f6821f;">
-					<span class="dash-label">Coordination: Durable Object</span>
-					<div id="do-id-display" class="dash-value" style="font-size: 0.7rem; font-family: monospace; word-break: break-all;">...</div>
+					<span class="dash-label">Consistency: Durable Object</span>
+					<div class="dash-desc">Broker for multi-step tasks requiring strong global consistency.</div>
+					<div id="do-id-display" class="dash-value" style="font-size: 0.75rem; font-family: monospace; word-break: break-all;">...</div>
 				</div>
 
 				<div class="dash-card">
 					<span class="dash-label">History Hub: D1 SQL</span>
-					<div class="dash-desc">Relational database storing your interaction records.</div>
+					<div class="dash-desc">Cloudflare's serverless SQL database tracking your interaction history.</div>
 					<div id="msg-count-display" class="dash-value">0 messages logged</div>
 				</div>
 
 				<div class="dash-card">
 					<span class="dash-label">Semantic Memory: Vectorize</span>
-					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Index Active</div>
+					<div class="dash-desc">Stores syllabus text embeddings for high-speed RAG retrieval.</div>
+					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Index Ready</div>
 				</div>
 
 				<div class="dash-card">
 					<span class="dash-label">Object Storage: R2 Assets</span>
-					<ul id="file-list-display"><li>Scanning Assets...</li></ul>
+					<div class="dash-desc">Bucket storage for syllabus documents and generated study diagrams.</div>
+					<ul id="file-list-display"><li>Scanning R2 Bucket...</li></ul>
 				</div>
 				
-				<button id="clear-vector-btn" class="btn-danger"><i class="ph-bold ph-warning"></i> Reset Session & History</button>
+				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Session & Identity</button>
 			</div>
 		</div>
 
 		<footer>
-			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">Jolene AI &copy; 2026</p>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">Jolene AI • Optimized for UVA Study Groups</p>
 		</footer>
 
 		<script>
@@ -237,7 +240,6 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false; 
 			let activeMode = "personal";
 
 			const modelSelector = document.getElementById('model-selector');
@@ -247,11 +249,6 @@
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
 			
-			document.getElementById('clear-screen-btn').onclick = () => { 
-				document.getElementById('chat-messages').innerHTML = ''; 
-				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
-			};
-
 			document.getElementById('new-chat-btn').onclick = async () => { 
 				sessionId = crypto.randomUUID(); 
 				localStorage.setItem('jolene_session_id', sessionId); 
@@ -261,7 +258,13 @@
 				await updateDashboard();
 				showTyping(false);
 				
-				let greeting = activeMode === "uva" ? "### 🎓 UVA Mode Active\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?" : "### 🏠 Personal Mode Active\nHow can I help you today?";
+				let greeting = "";
+				if (activeMode === "uva") {
+					greeting = "### 🎓 UVA Mode Active\nI'm now in specialized Comprehensive University Assistant mode. I focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?";
+				} else {
+					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search. How can I help you today?";
+				}
+				
 				appendMessage('assistant-message', greeting);
 			};
 
@@ -276,14 +279,19 @@
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
 				const formData = new FormData();
 				formData.append('file', file);
-				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-				fileNameIndicator.innerText = "";
-				fileInput.value = "";
-				updateDashboard();
+				try {
+					const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
+					if(res.ok) {
+						appendMessage('system-indicator', `Success: ${file.name} is now indexed.`);
+						fileNameIndicator.innerText = "";
+						fileInput.value = "";
+						updateDashboard();
+					}
+				} catch(e) { appendMessage('system-indicator', "Upload error."); }
 			};
 
 			async function deleteFile(filename) {
-				if (!confirm(`Delete ${filename}?`)) return;
+				if (!confirm(`Permanently remove ${filename}?`)) return;
 				try {
 					const res = await fetch('/api/delete', {
 						method: 'DELETE',
@@ -291,7 +299,7 @@
 						body: JSON.stringify({ filename })
 					});
 					if (res.ok) updateDashboard();
-				} catch (e) {}
+				} catch (e) { console.error("Deletion failed", e); }
 			}
 
 			async function updateDashboard() {
@@ -299,6 +307,7 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
+					// Rehydrate chat if it's empty
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
@@ -307,14 +316,14 @@
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins";
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
 					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
-					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
+					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
 					activeMode = data.mode || "personal";
 					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `
 						<li>
 							<span>📄 ${f}</span>
-							<button class="delete-file-btn" onclick="deleteFile('${f}')">
+							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
 								<i class="ph ph-trash"></i>
 							</button>
 						</li>`).join('') || '<li>No assets indexed</li>';
@@ -359,7 +368,7 @@
 									const data = JSON.parse(raw);
 									if (data.response) { 
 										assistantText += data.response; 
-										// STREAM GUARD: Prevent broken icons by waiting for markdown URL close
+										// DUAL-STAGE STREAM GUARD: Prevents rendering partial image tags
 										if (!assistantText.includes("![") || assistantText.includes(")")) {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										}
@@ -369,7 +378,7 @@
 							}
 						}
 					}
-					// FINAL SNAP: Force render complete response
+					// FINAL SNAP: Force complete render
 					contentDiv.innerHTML = marked.parse(assistantText);
 					showTyping(false);
 					updateDashboard();
