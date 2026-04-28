@@ -8,7 +8,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
-	// --- HELPER: RELIABLE D1 SQL PERSISTENCE ---
+	// --- HELPER: RELIABLE D1 PERSISTENCE ---
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
@@ -16,7 +16,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Persistence Error:", e); }
 	}
 
-	// --- HELPER: UNIVERSAL AI BROKER (ALL ROUTED THROUGH AI GATEWAY) ---
+	// --- HELPER: UNIVERSAL AI BROKER (TPM HARDENED) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -41,6 +41,7 @@ export class ChatSession extends DurableObject<Env> {
 		} else if (model.includes("gpt")) {
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
+			// FIX: Explicit max_tokens to prevent Gateway TPM overflow
 			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages], max_tokens: 800 };
 		} else if (model.includes("claude")) {
 			url = `${gatewayBase}/anthropic/messages`;
@@ -59,12 +60,10 @@ export class ChatSession extends DurableObject<Env> {
 		return "Error: Unsupported model.";
 	}
 
-	// --- FIX: ULTRA-ROBUST IMAGE GENERATION ---
+	// --- HELPER: ROBUST IMAGE GENERATION ---
 	async generateVisual(prompt: string, filename: string) {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-
-		// Clean prompt to prevent gateway 400s
 		const cleanPrompt = prompt.replace(/\n/g, " ").substring(0, 500);
 
 		const res = await fetch(`${gatewayBase}/workers-ai/${IMAGE_MODEL}`, {
@@ -93,7 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No news found.";
-		} catch (e) { return "Web search currently unavailable."; }
+		} catch (e) { return "Search failed."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -163,15 +162,15 @@ export class ChatSession extends DurableObject<Env> {
 					const isCorrect = lowMsg[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 					
-					let feedback = isCorrect ? `✅ **Correct!**` : `❌ **Incorrect.** The correct answer was ${currentQ.hidden_answer}.`;
+					let feedback = isCorrect ? `✅ **Correct!**` : `❌ **Incorrect.** The answer was ${currentQ.hidden_answer}.`;
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const nextQ = pool[qIdx + 1];
-						const nextUi = `\n\n---\n### 📝 Q${qIdx + 2} of 5\n**${nextQ.q}**\n${nextQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
+						const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n${nextQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
 						await this.saveMsg(sessionId, 'assistant', feedback + nextUi);
 						return new Response(`data: ${JSON.stringify({ response: feedback + nextUi })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nActivity state reset.`;
+						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nActivity state reset. What's next?`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -187,11 +186,12 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Concept: "${concept}". Syllabus Context: ${context}. Requirements: White background, 2D vector style, clear labels, academic aesthetic.`);
+					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Drawing: "${concept}". Syllabus: ${context}. Requirements: White background, minimalist 2D vector style, no humans, clear text labels.`);
 					const imgUrl = await this.generateVisual(promptSpec, concept.replace(/\s+/g, '_'));
-					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](${imgUrl})\n\n*Diagram archived in R2 Assets.*`;
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+					const resText = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](${imgUrl})\n\n*Diagram saved to R2 Assets.*`;
+					
+					await this.saveMsg(sessionId, 'assistant', resText);
+					return new Response(`data: ${JSON.stringify({ response: resText })}\n\ndata: [DONE]\n\n`);
 				}
 
 				// --- 3. MODE SWITCHES (RESTORED FULL EXPLANATIONS) ---
@@ -220,7 +220,7 @@ I have switched back to your general Personal Assistant mode.
 **In this mode, I can:**
 - **Real-Time Web Search**: Sports scores, current news, and events via Tavily Search.
 - **Cross-Document Access**: Access personal files (tax info) plus academic files.
-- **Identity Lock**: Ask about my namesake or the movie "The Town".`;
+- **Identity Lock**: Ask about my namesake or Ray LaMontagne.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -228,12 +228,14 @@ I have switched back to your general Personal Assistant mode.
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
 				// --- 4. STANDARD RAG RESPONSE ---
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins family" : "UVA Syllabus Academic Calendar March May 2026 WAHOO-AI-DEEP-RECALL";
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins family" : "UVA Syllabus Academic Calendar exam dates WAHOO-AI-DEEP-RECALL";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
-				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Named after dachshund Jolene. Ray LaMontagne song. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
+				
+				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Namesake: dachshund Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
+				
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
@@ -244,7 +246,7 @@ I have switched back to your general Personal Assistant mode.
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates Thornton Hall Rice Hall March May 2026"] });
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates March May 2026 Registrar Thornton Hall"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
 			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Calendar and Syllabus content provided. Return ONLY JSON array. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
@@ -255,7 +257,7 @@ I have switched back to your general Personal Assistant mode.
 			await this.ctx.storage.put("quiz_score", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 			const firstQ = pool[0];
-			const res = `### 🎓 UVA Academic Calendar Quiz Started!\nI've generated 5 questions based on your documents.\n\n---\n### 📝 Q1 of 5\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
+			const res = `### 🎓 UVA Academic Calendar Quiz Started!\nI've generated 5 questions based on your documents.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
 			await this.saveMsg(sessionId, 'assistant', res);
 			return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
