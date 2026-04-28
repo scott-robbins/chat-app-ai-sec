@@ -133,7 +133,6 @@
 		<header>
 			<h1>Jolene</h1>
 			<p>Your Personal AI Agent</p>
-			
 			<div class="controls-row">
 				<select id="model-selector" class="btn-secondary">
 					<optgroup label="Cloudflare Workers AI">
@@ -156,17 +155,9 @@
 
 		<div class="chat-container">
 			<div id="chat-messages">
-				<div class="message assistant-message">
-					<div class="message-content">
-						<p>Hi Scott! I'm Jolene. Ready to assist with your UVA academic materials or personal assistant tasks. How can I help you today?</p>
-					</div>
-				</div>
+				<div class="message assistant-message"><div class="message-content"><p>Hi Scott! I'm Jolene. Ready to assist with your UVA materials or personal assistant tasks. How can I help you today?</p></div></div>
 			</div>
-			
-			<div id="typing-indicator" class="message assistant-message">
-				<div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>
-			</div>
-
+			<div id="typing-indicator" class="message assistant-message"><div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>
 			<div class="message-input">
 				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
 					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
@@ -174,10 +165,7 @@
 					<span id="file-name-indicator" style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
 					<input type="file" id="file-input" style="display: none;">
 				</div>
-				<div class="input-row">
-					<textarea id="user-input" placeholder="Ask Jolene a question..." rows="1"></textarea>
-					<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
-				</div>
+				<div class="input-row"><textarea id="user-input" placeholder="Ask Jolene a question..." rows="1"></textarea><button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button></div>
 			</div>
 		</div>
 
@@ -187,225 +175,120 @@
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
-				<!-- CARD 1: KV USER PROFILE -->
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare KV: User Profile</span>
-					<div class="dash-desc">Stores persistent user identity and preferences.</div>
-					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
-				</div>
-
-				<!-- CARD 2: ACTIVE LEARNING -->
-				<div class="dash-card" style="border-left: 3px solid #22c55e;">
-					<span class="dash-label">Active Learning Session</span>
-					<div class="dash-desc">Tracking multi-step academic progress via Durable Objects.</div>
-					<div id="quiz-status" class="dash-value">Idle</div>
-				</div>
-
-				<!-- CARD 3: DURABLE OBJECTS -->
-				<div class="dash-card" style="border-left: 3px solid #f6821f;">
-					<span class="dash-label">Durable Objects: State</span>
-					<div class="dash-desc">Coordinates real-time consistency across the edge.</div>
-					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div>
-				</div>
-
-				<!-- CARD 4: D1 SQL METRICS -->
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-					<div class="dash-desc">Relational database history tracking.</div>
-					<div id="msg-count-display" class="dash-value">0 messages</div>
-				</div>
-
-				<!-- CARD 5: VECTORIZE MEMORY -->
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-					<div class="dash-desc">Stores text embeddings for semantic RAG search.</div>
-					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Active Index</div>
-				</div>
-
-				<!-- CARD 6: R2 ASSETS -->
-				<div class="dash-card">
-					<span class="dash-label">Cloudflare R2: Assets</span>
-					<div class="dash-desc">Object storage for raw documents and diagrams.</div>
-					<ul id="file-list-display"><li>Scanning...</li></ul>
-				</div>
-				
+				<div class="dash-card"><span class="dash-label">Cloudflare KV: User Profile</span><div class="dash-desc">Stores user identity and preferences.</div><div id="kv-profile-display" class="dash-value">Syncing...</div></div>
+				<div class="dash-card" style="border-left: 3px solid #22c55e;"><span class="dash-label">Active Learning Session</span><div class="dash-desc">Tracking academic quiz progress.</div><div id="quiz-status" class="dash-value">Idle</div></div>
+				<div class="dash-card" style="border-left: 3px solid #f6821f;"><span class="dash-label">Durable Objects: State</span><div class="dash-desc">Coordinates consistency across the edge.</div><div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div></div>
+				<div class="dash-card"><span class="dash-label">Cloudflare D1: SQL Metrics</span><div class="dash-desc">Relational database history tracking.</div><div id="msg-count-display" class="dash-value">0 messages</div></div>
+				<div class="dash-card"><span class="dash-label">Cloudflare Vectorize: Semantic Memory</span><div class="dash-desc">Text embeddings for semantic RAG search.</div><div id="vector-status" class="dash-value" style="color: #38bdf8;">Active Index</div></div>
+				<div class="dash-card"><span class="dash-label">Cloudflare R2: Assets</span><div class="dash-desc">Object storage for raw documents.</div><ul id="file-list-display"><li>Scanning...</li></ul></div>
 				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
 			</div>
 		</div>
-
-		<footer>
-			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
-		</footer>
+		<footer><p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p></footer>
 
 		<script>
-			function getSessionId() {
-				let id = localStorage.getItem('jolene_session_id') || crypto.randomUUID();
-				localStorage.setItem('jolene_session_id', id);
-				return id;
-			}
-			let sessionId = getSessionId();
-			let isTyping = false;
-			let voiceEnabled = false; 
-			let activeMode = "personal";
-
+			function getSessionId() { let id = localStorage.getItem('jolene_session_id') || crypto.randomUUID(); localStorage.setItem('jolene_session_id', id); return id; }
+			let sessionId = getSessionId(), isTyping = false, voiceEnabled = false, activeMode = "personal";
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
 
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
-			
-			document.getElementById('clear-screen-btn').onclick = () => { 
-				document.getElementById('chat-messages').innerHTML = ''; 
-				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
-			};
+			document.getElementById('clear-screen-btn').onclick = () => { document.getElementById('chat-messages').innerHTML = ''; appendMessage('assistant-message', "Screen cleared.", true); };
+			document.getElementById('voice-toggle-btn').onclick = () => { voiceEnabled = !voiceEnabled; document.getElementById('voice-icon').className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash"; };
 
-			document.getElementById('voice-toggle-btn').onclick = () => {
-				voiceEnabled = !voiceEnabled;
-				const icon = document.getElementById('voice-icon');
-				icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
-				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
-			};
-
-			document.getElementById('new-chat-btn').onclick = async () => { 
-				sessionId = crypto.randomUUID(); 
-				localStorage.setItem('jolene_session_id', sessionId); 
-				document.getElementById('chat-messages').innerHTML = ''; 
-				
-				// Sync mode before greeting
+			document.getElementById('new-chat-btn').onclick = async () => {
+				sessionId = crypto.randomUUID(); localStorage.setItem('jolene_session_id', sessionId);
+				document.getElementById('chat-messages').innerHTML = '';
 				await updateDashboard();
-				
-				let greeting = "";
-				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Active\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?";
-				} else {
-					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search. How can I help you today?";
-				}
-				
+				let greeting = activeMode === "uva" ? "### 🎓 UVA Mode Active\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?" : "### 🏠 Personal Mode Active\nHow can I help you today?";
 				appendMessage('assistant-message', greeting);
 			};
 
 			const fileInput = document.getElementById('file-input');
-			const fileNameIndicator = document.getElementById('file-name-indicator');
 			document.getElementById('upload-btn').onclick = () => fileInput.click();
-			fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
+			fileInput.onchange = () => { document.getElementById('file-name-indicator').innerText = fileInput.files[0]?.name || ""; };
 
 			document.getElementById('memorize-btn').onclick = async () => {
-				const file = fileInput.files[0];
-				if (!file) return;
+				const file = fileInput.files[0]; if (!file) return;
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
-				const formData = new FormData();
-				formData.append('file', file);
+				const formData = new FormData(); formData.append('file', file);
 				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
-				fileNameIndicator.innerText = "";
-				fileInput.value = "";
-				updateDashboard();
+				document.getElementById('file-name-indicator').innerText = ""; fileInput.value = ""; updateDashboard();
 			};
 
 			async function deleteFile(filename) {
-				if (!confirm(`Permanently remove ${filename}?`)) return;
-				try {
-					const res = await fetch('/api/delete', {
-						method: 'DELETE',
-						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ filename })
-					});
-					if (res.ok) updateDashboard();
-				} catch (e) { console.error("Deletion failed", e); }
+				if (!confirm(`Permanently remove ${filename} from Jolene's memory?`)) return;
+				await fetch('/api/delete', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }, body: JSON.stringify({ filename }) });
+				updateDashboard();
 			}
 
 			async function updateDashboard() {
 				try {
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
-					
-					// Rehydrate chat if it's empty
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
-						document.getElementById('chat-messages').innerHTML = ''; 
+						document.getElementById('chat-messages').innerHTML = '';
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
 					}
-
-					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins";
+					document.getElementById('kv-profile-display').innerText = data.profile;
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
-					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages`;
-					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
-					activeMode = data.mode || "personal";
-					
+					document.getElementById('msg-count-display').innerText = `${data.messageCount} messages`;
+					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
+					activeMode = data.mode;
 					const list = document.getElementById('file-list-display');
-					list.innerHTML = data.knowledgeAssets?.map(f => `
-						<li>
-							<span>📄 ${f}</span>
-							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
-								<i class="ph ph-trash"></i>
-							</button>
-						</li>`).join('') || '<li>No assets indexed</li>';
+					list.innerHTML = data.knowledgeAssets?.map(f => `<li><span>📄 ${f}</span><button class="delete-file-btn" onclick="deleteFile('${f}')"><i class="ph ph-trash"></i></button></li>`).join('') || '<li>Empty</li>';
 				} catch (e) {}
 			}
 
 			async function sendMessage() {
-				const input = document.getElementById('user-input');
-				const content = input.value.trim();
+				const input = document.getElementById('user-input'), content = input.value.trim();
 				if (!content || isTyping) return;
-				appendMessage('user-message', content);
-				input.value = '';
-				showTyping(true);
-
+				appendMessage('user-message', content); input.value = ''; showTyping(true);
 				try {
-					const res = await fetch('/api/chat', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value })
-					});
-
-					const reader = res.body.getReader();
-					const decoder = new TextDecoder();
-					let assistantText = "";
-					const msgDiv = appendMessage('assistant-message', "");
-					const contentDiv = msgDiv.querySelector('.message-content');
+					const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId }, body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value }) });
+					const reader = res.body.getReader(), decoder = new TextDecoder();
+					let assistantText = "", lineBuffer = "";
+					const msgDiv = appendMessage('assistant-message', ""), contentDiv = msgDiv.querySelector('.message-content');
 					
-					let lineBuffer = "";
 					while (true) {
-						const { done, value } = await reader.read();
-						if (done) break;
-						
+						const { done, value } = await reader.read(); if (done) break;
 						lineBuffer += decoder.decode(value, { stream: true });
-						const lines = lineBuffer.split('\n');
-						lineBuffer = lines.pop(); 
-
+						const lines = lineBuffer.split('\n'); lineBuffer = lines.pop();
 						for (const line of lines) {
 							if (line.startsWith('data: ')) {
-								const raw = line.substring(6).trim();
-								if (raw === '[DONE]') continue;
+								const raw = line.substring(6).trim(); if (raw === '[DONE]') continue;
 								try {
 									const data = JSON.parse(raw);
-									if (data.response) {
-										assistantText += data.response;
-										contentDiv.innerHTML = marked.parse(assistantText);
-										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+									if (data.response) { 
+										assistantText += data.response; 
+										// STREAM GUARD: Don't render while an image markdown string is incomplete
+										if (!assistantText.includes("![") || assistantText.includes(")")) {
+											contentDiv.innerHTML = marked.parse(assistantText);
+										}
+										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
 									}
-								} catch (e) { }
+								} catch (e) {}
 							}
 						}
 					}
-					showTyping(false);
-					updateDashboard();
+					// FINAL SNAP: Force render complete text/image
+					contentDiv.innerHTML = marked.parse(assistantText);
+					showTyping(false); updateDashboard();
 				} catch (e) { showTyping(false); appendMessage('assistant-message', `**Error:** ${e.message}`); }
 			}
 
 			function appendMessage(cls, text, scroll = true) {
-				const container = document.getElementById('chat-messages');
-				const div = document.createElement('div');
+				const container = document.getElementById('chat-messages'), div = document.createElement('div');
 				div.className = cls === 'system-indicator' ? 'system-indicator' : `message ${cls}`;
 				div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
-				container.appendChild(div);
-				if (scroll) container.scrollTop = container.scrollHeight;
+				container.appendChild(div); if (scroll) container.scrollTop = container.scrollHeight;
 				return div;
 			}
-
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
-
 			updateDashboard();
 		</script>
 	</body>
