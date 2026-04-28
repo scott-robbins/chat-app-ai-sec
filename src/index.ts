@@ -8,6 +8,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
 
+	// --- HELPER: PERSISTENCE ---
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
@@ -15,6 +16,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
+	// --- HELPER: AI BROKER (TPM HARDENED) ---
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -91,6 +93,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- PUBLIC IMAGE PROXY (STABILIZED) ---
 		if (url.pathname === "/api/image") {
 			const key = url.searchParams.get("key");
 			if (!key) return new Response("Key required", { status: 400 });
@@ -135,6 +138,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
+				// --- WAITING FOR NEWS HANDLER ---
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
 					await this.ctx.storage.delete("session_state");
 					const newsContext = await this.tavilySearch("University of Virginia UVA campus news April 2026");
@@ -143,29 +147,33 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- VISUAL CONCEPT HANDLER (RESTORED INTELLIGENCE) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
-					const conceptTitle = await this.runAI(selectedModel, "Extract technical concept in 3 words or less. NO punctuation.", userMsg);
+					// Step A: Extract clean 3-word title
+					const conceptTitle = await this.runAI(selectedModel, "Extract the technical concept in 3 words or less. Return ONLY the words.", userMsg);
+					
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [conceptTitle] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const promptSpec = await this.runAI(selectedModel, "Create a prompt for a 2D engineering diagram. White background, clear labels, academic style.", `Concept: ${conceptTitle}. Context: ${context}`);
+					const promptSpec = await this.runAI(selectedModel, "Create a visual prompt for a technical diagram. Requirements: White background, 2D vector style, no humans, clear labels.", `Topic: ${conceptTitle}. Context: ${context}`);
 					const safeKey = `visuals/${conceptTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.png`;
 					await this.generateVisual(promptSpec, safeKey);
 					
-					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(safeKey)})\n\n*Technical diagram generated from UVA syllabus context and saved to R2.*`;
+					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(safeKey)})\n\n*Technical diagram generated from UVA syllabus context.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- MODE SWITCHES (RESTORED FULL MENUS) ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
-I am now focused on your University of Virginia materials and campus life.
+I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
-**Capabilities in this mode:**
+**In this mode, I can:**
 - **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
 - **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.
 - **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
@@ -181,12 +189,13 @@ I am now focused on your University of Virginia materials and campus life.
 I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
 
 **In this mode I can:**
-- **Real-Time Search**: Global news and sports via Tavily.
-- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.`;
+- **Real-Time Search**: Current sports scores and global news via Tavily Search.
+- **Cross-Document Access**: Accessing your personal files (tax info, family notes) alongside academic materials.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- STANDARD RAG RESPONSE ---
 				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar exam dates WAHOO-AI-DEEP-RECALL";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
@@ -197,7 +206,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**System Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
