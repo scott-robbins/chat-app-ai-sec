@@ -94,7 +94,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- ENDPOINT: UPLOAD & MEMORIZE ---
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -102,27 +101,18 @@ export class ChatSession extends DurableObject<Env> {
 				const text = await file.text();
 				const filename = file.name;
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-
 				await this.env.DOCUMENTS.put(filename, text);
-
 				const segments = text.match(/[\s\S]{1,1000}/g) || [text];
 				const vectors = [];
 				for (let i = 0; i < segments.length; i++) {
 					const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [segments[i]] });
-					vectors.push({
-						id: `${filename}-${i}`,
-						values: embedding.data[0],
-						metadata: { text: segments[i], filename, segment: activeMode }
-					});
+					vectors.push({ id: `${filename}-${i}`, values: embedding.data[0], metadata: { text: segments[i], filename, segment: activeMode } });
 				}
 				await this.env.VECTORIZE.upsert(vectors);
-				return new Response(JSON.stringify({ success: true, message: `Memorized: ${filename}` }), { headers });
-			} catch (e: any) {
-				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
-			}
+				return new Response(JSON.stringify({ success: true }), { headers });
+			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- ENDPOINT: PROFILE SYNC ---
 		if (url.pathname === "/api/profile") {
 			try {
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -142,7 +132,6 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
-		// --- ENDPOINT: CHAT ---
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -153,29 +142,28 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// 1. News Confirmation Logic
+				// Handle News Confirm
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM") {
 					await this.ctx.storage.delete("session_state");
 					if (lowMsg.includes("yes") || lowMsg.includes("sure") || lowMsg.includes("ok")) {
 						const newsContext = await this.tavilySearch("University of Virginia UVA campus news and events");
-						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Provide a professional summary of current UVA campus news.", `WEB NEWS:\n${newsContext}`);
+						const newsTxt = await this.runAI(selectedModel, "You are Jolene. Provide a summary of UVA campus news.", `NEWS: ${newsContext}`);
 						await this.saveMsg(sessionId, 'assistant', newsTxt);
 						return new Response(`data: ${JSON.stringify({ response: newsTxt })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
-				// 2. Hardened Mode Switching
+				// Mode Switches
 				if (lowMsg.includes("switch to uva mode") || (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to")))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
 I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
-**Capabilities in this mode:**
-1. **UVA Academic Calendar Quiz**: Test your knowledge on important dates. Say **'Start a Quiz'**.
+**In this mode, I can:**
+1. **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
 2. **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
 3. **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
-4. **Academic Q&A**: High-precision answers based on your documents.
 
 **Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
@@ -185,17 +173,17 @@ I am now in specialized UVA mode, focused on your University of Virginia materia
 				if (lowMsg.includes("switch to personal mode") || (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to")))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+I have switched back to your general Personal Assistant mode. 
 
-**In this mode I can:**
-- **Real-Time Search**: Current sports scores and global news via **Tavily Search**.
-- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.
-- **Identity Context**: I have a full understanding of Scott, Renee, Bryana, and the dogs.`;
+**In this mode, I help with:**
+- **Real-Time Web Search**: Using **Tavily Search** for news, scores, and events.
+- **Cross-Document Access**: Accessing your personal tax info and notes alongside academic files.
+- **Identity Lock**: I have full context on Scott, Renee, Bry, and the dachshunds.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// 3. Hardened RAG Retrieval & Identity Lock
+				// Standard RAG & Identity Protection
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
@@ -208,14 +196,12 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 
 				const today = "Tuesday, April 28, 2026";
 				const systemPrompt = `### IDENTITY LOCK: MANDATORY FACTS
-You are Jolene, Scott Robbins' personal AI assistant. 
-1. SCOTT'S JOB: Senior Solutions Engineer at Cloudflare.
-2. FAMILY: Wife is Renee. Daughter is Bryana (Bry). Grandkids are Callan and Josie.
-3. DOGS: Scott and Renee have TWO dogs: Jolene (tan mini-dachshund) and Hanna (black/tan mini-dachshund).
-4. FACT CHECK: There is NO dog named Ruby. If "Ruby" is mentioned, clarify that you don't know who that is and Jolene is the oldest dog.
-5. NEGATIVE CONSTRAINT: DO NOT mention Dolly Parton.
-6. PRIMARY DIRECTIVE: Use the provided DOCS as the absolute source of truth.
-
+Identity: You are Jolene, Scott Robbins' personal AI assistant. 
+NAMESAKE ORIGIN: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE that plays during the credits of the movie "THE TOWN".
+DOG FACTS: Scott and Renee have 2 dogs: Jolene (oldest, tan mini-dachshund) and Hanna (youngest, black/tan mini-dachshund). 
+THERE IS NO DOG NAMED RUBY. Clarify this if asked.
+SCOTT'S CAREER: Senior Solutions Engineer at Cloudflare. (Not a VP).
+PRIMARY DIRECTIVE: Use the provided DOCS. If a fact isn't present, say you don't know rather than guessing.
 Mode: ${activeMode.toUpperCase()}. Date: ${today}.
 WEB: ${webContext}
 DOCS: ${docContext}`;
@@ -223,8 +209,7 @@ DOCS: ${docContext}`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**System Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
