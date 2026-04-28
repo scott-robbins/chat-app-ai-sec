@@ -70,7 +70,7 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt: cleanPrompt })
 		});
 
-		if (!res.ok) throw new Error("Visual engine busy.");
+		if (!res.ok) throw new Error("Visual Engine Busy.");
 		const buffer = await res.arrayBuffer();
 		await this.env.DOCUMENTS.put(key, buffer, { httpMetadata: { contentType: "image/png" } });
 		return key;
@@ -81,16 +81,16 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- PUBLIC IMAGE PROXY (NO AUTH/SESSION REQUIRED) ---
+		// --- PUBLIC IMAGE PROXY ---
 		if (url.pathname === "/api/image") {
 			const key = url.searchParams.get("key");
 			if (!key) return new Response("Missing key", { status: 400 });
 			const object = await this.env.DOCUMENTS.get(key);
-			if (!object) return new Response("Image not found", { status: 404 });
+			if (!object) return new Response("Not found", { status: 404 });
 			const imgHeaders = new Headers();
 			object.writeHttpMetadata(imgHeaders);
 			imgHeaders.set("Access-Control-Allow-Origin", "*");
-			imgHeaders.set("Cache-Control", "public, max-age=31536000"); // Cache for 1 year
+			imgHeaders.set("Cache-Control", "public, max-age=31536000");
 			return new Response(object.body, { headers: imgHeaders });
 		}
 
@@ -103,12 +103,13 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
 			return new Response(JSON.stringify({
 				profile: "Scott E Robbins | Senior Solutions Engineer",
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
+				messageCount: stats?.total || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
 				activeQuiz: !!activePool,
@@ -126,24 +127,41 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- VISUAL CONCEPT HANDLER (STABILIZED) ---
+				// --- 1. VISUAL CONCEPT HANDLER (RE-STABILIZED) ---
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
-					// 1. Extract clean Concept Title
-					const conceptTitle = await this.runAI(selectedModel, "Extract the core technical concept from this user query in 3 words or less. Return ONLY the words.", userMsg);
-					
-					// 2. Search Syllabus
+					const conceptTitle = await this.runAI(selectedModel, "Extract technical concept in 3 words or less. No punctuation.", userMsg);
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [conceptTitle] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					// 3. Create cleaned Image Prompt
-					const promptSpec = await this.runAI(selectedModel, "Create a visual prompt for a technical diagram. Requirements: White background, professional 2D vector style, no humans, clear labels.", `Topic: ${conceptTitle}. Context: ${context}`);
-					
-					// 4. Save to R2 with sanitized key
+					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams. WHITE BACKGROUND, 2D vector style, clear labels.", `Topic: ${conceptTitle}. Syllabus: ${context}`);
 					const safeKey = `visuals/${conceptTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.png`;
 					await this.generateVisual(promptSpec, safeKey);
 					
-					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(safeKey)})\n\n*Technical diagram generated from your UVA syllabus context.*`;
+					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(safeKey)})\n\n*Technical diagram generated from your UVA materials and archived in R2.*`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- 2. MODE SWITCHES (RESTORED CAPABILITIES) ---
+				if (lowMsg.includes("switch to uva mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
+I am now focused on your University of Virginia materials and campus life.
+
+**Capabilities in this mode:**
+- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
+- **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.
+- **Syllabus Analysis**: Extract exam dates and traditions from Thornton Hall.
+- **Identity Lock**: Named after Scott's dachshund Jolene.`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				if (lowMsg.includes("switch to personal mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const res = `### 🏠 Personal Mode Activated
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -168,7 +186,6 @@ export class ChatSession extends DurableObject<Env> {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
-		// ROUTING FIX: Handle image requests at the top level to avoid session header issues
 		if (url.pathname === "/api/image") {
 			const id = env.CHAT_SESSION.idFromName("global");
 			return env.CHAT_SESSION.get(id).fetch(request);
