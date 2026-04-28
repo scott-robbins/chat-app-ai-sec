@@ -71,7 +71,7 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt: cleanPrompt })
 		});
 
-		if (!res.ok) throw new Error(`Visual Engine Busy (${res.status}). Try again shortly.`);
+		if (!res.ok) throw new Error(`Visual Engine Busy. Please try again.`);
 
 		const buffer = await res.arrayBuffer();
 		await this.env.DOCUMENTS.put(key, buffer, { httpMetadata: { contentType: "image/png" } });
@@ -83,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- ENDPOINT: IMAGE PROXY ---
+		// --- ENDPOINT: IMAGE PROXY (STABILIZED) ---
 		if (url.pathname === "/api/image") {
 			const key = url.searchParams.get("key");
 			if (!key) return new Response("Key required", { status: 400 });
@@ -92,6 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 			const imgHeaders = new Headers();
 			object.writeHttpMetadata(imgHeaders);
 			imgHeaders.set("Access-Control-Allow-Origin", "*");
+			imgHeaders.set("Cache-Control", "public, max-age=3600");
 			return new Response(object.body, { headers: imgHeaders });
 		}
 
@@ -128,7 +129,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- 1. QUIZ HANDLER ---
+				// --- 1. QUIZ HANDLER (SYLLABUS LOCKED) ---
 				const pool = await this.ctx.storage.get("quiz_pool") as any[];
 				if (sessionState === "WAITING_FOR_ANSWER" && pool && /^[a-d]/.test(lowMsg)) {
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
@@ -137,7 +138,7 @@ export class ChatSession extends DurableObject<Env> {
 					const isCorrect = lowMsg[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 					
-					let feedback = isCorrect ? `✅ **Correct!**` : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
+					let feedback = isCorrect ? `✅ **Correct!**` : `❌ **Incorrect.** The answer was ${currentQ.hidden_answer}.`;
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const nextQ = pool[qIdx + 1];
@@ -145,7 +146,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.saveMsg(sessionId, 'assistant', feedback + nextUi);
 						return new Response(`data: ${JSON.stringify({ response: feedback + nextUi })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nI have reset your study session. What else can I help with?`;
+						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset. What's next?`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -153,19 +154,26 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. VISUAL CONCEPT HANDLER ---
+				// --- 2. VISUAL CONCEPT HANDLER (STABILIZED) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (activeMode === "uva" && (lowMsg.includes("visualize") || lowMsg.includes("illustrate") || lowMsg.includes("draw"))) {
-					const concept = lowMsg.replace(/visualize|illustrate|draw|of|the/g, "").trim();
-					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [concept] });
+					// STEP A: Use LLM to extract a clean CONCEPT TITLE (fixes the all-caps repetition)
+					const conceptTitle = await this.runAI(selectedModel, "Extract the core technical concept from this prompt in 3 words or less. Return ONLY the words.", userMsg);
+					
+					// STEP B: Search Syllabus
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [conceptTitle] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Concept: "${concept}". Syllabus Context: ${context}. Requirements: WHITE BACKGROUND, 2D vector style, NO humans, clear labels.`);
-					const r2Key = `visuals/${concept.replace(/\s+/g, '_')}_${Date.now()}.png`;
+					// STEP C: Expand Prompt for Image Model
+					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Draw a 2D vector schematic for: "${conceptTitle}". Based on: ${context}. Requirements: White background, professional engineering style, clear nodes, NO humans, legible labels.`);
+					
+					// STEP D: Save to R2 with encoded filename
+					const safeFilename = conceptTitle.toLowerCase().replace(/[^a-z0-9]/g, '_');
+					const r2Key = `visuals/${safeFilename}_${Date.now()}.png`;
 					await this.generateVisual(promptSpec, r2Key);
 					
-					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](/api/image?key=${r2Key})\n\n*Technical diagram generated from your UVA materials and archived in R2.*`;
+					const res = `### 🎨 Visual Study Aid: ${conceptTitle.toUpperCase()}\n![${conceptTitle}](/api/image?key=${encodeURIComponent(r2Key)})\n\n*Technical diagram generated from your UVA syllabus and archived in R2.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -174,13 +182,12 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
-I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
+I am now in specialized UVA mode, focused on your academic materials.
 
 **In this mode, I can:**
-- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
+- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'**.
 - **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.
-- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
-- **Identity Lock**: Named after Scott's dachshund Jolene.`;
+- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -188,11 +195,7 @@ I am now in specialized UVA mode, focused on your University of Virginia materia
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode.
-
-**Capabilities:**
-- **Real-Time Web Search**: Global news and sports via Tavily.
-- **Document Access**: Accessing your tax files and personal notes.`;
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -200,27 +203,27 @@ I have switched back to your general Personal Assistant mode.
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
 				// --- 4. STANDARD RAG RESPONSE ---
-				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins family" : "UVA Syllabus Academic Calendar Thornton Rice Hall March May 2026";
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins" : "UVA Syllabus Academic Calendar Thornton Rice Hall WAHOO-AI-DEEP-RECALL";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Namesake: dachshund Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
+				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Named after dachshund Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**System Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates March May 2026 Thornton Rice Hall"] });
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates Thornton Rice Hall May 2026"] });
 			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
-			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Calendar and Syllabus content. Return ONLY JSON array. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
+			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Calendar. Return ONLY JSON array. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
 			const raw = await this.runAI(model, "JSON quiz generator.", prompt);
 			const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 			await this.ctx.storage.put("quiz_pool", pool);
@@ -228,7 +231,7 @@ I have switched back to your general Personal Assistant mode.
 			await this.ctx.storage.put("quiz_score", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 			const firstQ = pool[0];
-			const res = `### 🎓 UVA Quiz Started!\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
+			const res = `### 🎓 UVA Quiz Started!\n---\n### 📝 Q1 of 5\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
 			await this.saveMsg(sessionId, 'assistant', res);
 			return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
