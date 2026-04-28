@@ -2,7 +2,8 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
+// FIXED: Corrected typo from 'get-base' to 'bge-base'
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -12,7 +13,9 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
-		} catch (e) { console.error("D1 Persistence Error:", e); }
+		} catch (e) {
+			console.error("D1 Persistence Error:", e);
+		}
 	}
 
 	// --- HELPER: UNIVERSAL AI BROKER ---
@@ -91,7 +94,7 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// --- REAL-TIME TRIGGER (EXPANDED FOR STOCKS & SPORTS) ---
+				// --- REAL-TIME TRIGGER ---
 				let webContext = "";
 				const liveTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "stock", "price", "market", "ufc"];
 				if (activeMode === 'personal' && liveTriggers.some(t => lowMsg.includes(t))) {
@@ -104,9 +107,9 @@ TONE: Friendly, professional, and conversational partner.
 
 1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
 2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare specializing in: web layer security, application performance, networking/network security, software development products, and Zero Trust.
-3. FAMILY: Wife: Renee. Daughter: Bryana. Grandkids: Callan and Josie (both love alternative heavy metal).
-4. DOGS: Jolene (tan, anxious) and Hanna (black/tan, shy). NO DOG NAMED RUBY.
-5. LIVE DATA GUARD: If WEB SEARCH RESULTS are present, you MUST prioritize them for any dates, game scores, or stock prices. If the web data says a game is tonight, ignore any internal knowledge that says otherwise.
+3. FAMILY: Wife: Renee. Daughter: Bryana. Grandkids: Callan (shy/handsome) and Josie (sweet/feminine). Both kids love alternative heavy metal.
+4. DOGS: Jolene (tan, anxious) and Hanna (black/tan, youngest/shy). NO DOG NAMED RUBY.
+5. LIVE DATA GUARD: If WEB SEARCH RESULTS are present, you MUST prioritize them for any dates, game scores, or stock prices.
 
 Mode: ${activeMode.toUpperCase()}. Today is Tuesday, April 28, 2026.
 WEB SEARCH RESULTS: ${webContext}
