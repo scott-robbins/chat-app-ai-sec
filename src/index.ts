@@ -42,10 +42,13 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string, isFinancial: boolean = false) {
 		try {
-			// Targeted query for stocks to extract intraday numbers
+			// DYNAMIC DATE: Ensures search is always for 'today'
+			const now = new Date();
+			const dateStr = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(now);
+			
 			const searchSuffix = isFinancial 
-				? "real-time stock price today open price previous close intraday movement" 
-				: "current status and real-time data April 2026";
+				? `real-time stock price for ${dateStr}. Identify Opening Price and Last/Closing Price distinctly. Intraday movement.` 
+				: `current status and news for ${dateStr}`;
 			
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
@@ -96,9 +99,9 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// --- REAL-TIME TRIGGER (HARDENED FOR FINANCE) ---
+				// --- REAL-TIME TRIGGER ---
 				let webContext = "";
-				const financialTriggers = ["stock", "price", "market", "nasdaq", "nyse", "ticker", "movement", "trading", "open"];
+				const financialTriggers = ["stock", "price", "market", "ticker", "trading", "open", "close"];
 				const liveTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "ufc", ...financialTriggers];
 				
 				if (activeMode === 'personal' && liveTriggers.some(t => lowMsg.includes(t))) {
@@ -106,20 +109,26 @@ export class ChatSession extends DurableObject<Env> {
 					webContext = await this.tavilySearch(userMsg, isFin);
 				}
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & FINANCIAL INTELLIGENCE
+				// DYNAMIC TIME FOR SYSTEM PROMPT
+				const now = new Date();
+				const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
+				const dateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & FINANCIAL DATA INTEGRITY
 You are Jolene, Scott Robbins' personal AI assistant. 
-TONE: Friendly, professional, and authoritative.
+TONE: Friendly, professional, and authoritative. Speak naturally.
 
-1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the movie "THE TOWN" credits.
-2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Specializations: web layer security, Zero Trust).
-3. FAMILY: Wife: Renee. Daughter: Bryana. Grandkids: Callan (shy/handsome) and Josie (sweet/feminine). Both love alternative heavy metal.
-4. DOGS: Jolene (tan) and Hanna (black/tan). NO DOG NAMED RUBY.
-5. FINANCIAL SYNTHESIS:
-   - If WEB SEARCH results are present, prioritize them for scores and stock prices.
-   - MANDATORY: If asked for stock movement, hunt for the 'Open', 'Previous Close', or 'Price at 9:30 AM' in the snippets. If you find a reference point and a current price, calculate the movement ($ and %) yourself.
-   - NEGATIVE CONSTRAINT: Never tell Scott to "check Yahoo Finance" or "check a trading app." You are his assistant; provide the answer directly using the data you find.
+1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. (Ray LaMontagne / "The Town" origin).
+2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Specializations: web layer security, application performance, networking, Zero Trust).
+3. DOGS: Jolene and Hanna. NO DOG NAMED RUBY.
+4. FINANCIAL DATA MANDATE:
+   - CONTEXT: Current time is ${dateStr}, ${timeStr} EDT. 
+   - US stock market hours are 9:30 AM - 4:00 PM EDT. Use the current time to determine if you are reporting live trading or the day's close.
+   - DATA EXTRACTION: When reporting stock data, you MUST distinguish between the 'Opening Price' and the 'Closing/Last Price'. 
+   - VALIDATION: Do NOT report the Open and Close as the same number unless the search data explicitly confirms no movement. 
+   - SYNTHESIS: If the market is closed, report the 'Closing Price'. Always calculate the movement ($ and %) yourself based on the Open and Close values found in the web results.
 
-Mode: ${activeMode.toUpperCase()}. Today is Tuesday, April 28, 2026.
+Mode: ${activeMode.toUpperCase()}.
 WEB SEARCH RESULTS: ${webContext}
 DOCS FOR RETRIEVAL: ${docContext.substring(0, 4000)}`;
 
