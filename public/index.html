@@ -124,8 +124,6 @@
 			#typing-indicator.visible { display: block !important; }
 			.typing-dots { display: flex; align-items: center; gap: 4px; padding: 10px 0; }
 			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
-			.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-			.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 		</style>
 	</head>
@@ -213,7 +211,7 @@
 				<!-- CARD 4: D1 SQL METRICS -->
 				<div class="dash-card">
 					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-					<div class="dash-desc">Relational database tracking interaction history.</div>
+					<div class="dash-desc">Relational database history tracking.</div>
 					<div id="msg-count-display" class="dash-value">0 messages</div>
 				</div>
 
@@ -269,20 +267,22 @@
 				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
 			};
 
-			document.getElementById('new-chat-btn').onclick = () => { 
+			document.getElementById('new-chat-btn').onclick = async () => { 
 				sessionId = crypto.randomUUID(); 
 				localStorage.setItem('jolene_session_id', sessionId); 
 				document.getElementById('chat-messages').innerHTML = ''; 
+				
+				// Sync mode before greeting
+				await updateDashboard();
 				
 				let greeting = "";
 				if (activeMode === "uva") {
 					greeting = "### 🎓 UVA Mode Active\nI focus **exclusively** on your UVA documents. I can help with quizzes, syllabus analysis, or **visualize complex topics**. What's on your mind?";
 				} else {
-					greeting = "### 🏠 Personal Mode Active\nHow can I help you today?";
+					greeting = "### 🏠 Personal Mode Active\nI'm in your general Personal Assistant mode. I've got access to your personal files and real-time web search. How can I help you today?";
 				}
 				
 				appendMessage('assistant-message', greeting);
-				updateDashboard(); 
 			};
 
 			const fileInput = document.getElementById('file-input');
@@ -319,7 +319,7 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
-					// Rehydrate chat if it's empty/default
+					// Rehydrate chat if it's empty
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
@@ -328,7 +328,7 @@
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins";
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
 					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages`;
-					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Learning Session Active" : "Idle";
+					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
 					activeMode = data.mode || "personal";
 					
 					const list = document.getElementById('file-list-display');
@@ -338,7 +338,7 @@
 							<button class="delete-file-btn" onclick="deleteFile('${f}')" title="Delete Asset">
 								<i class="ph ph-trash"></i>
 							</button>
-						</li>`).join('') || '<li>No assets in storage</li>';
+						</li>`).join('') || '<li>No assets indexed</li>';
 				} catch (e) {}
 			}
 
