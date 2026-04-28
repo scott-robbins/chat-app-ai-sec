@@ -42,9 +42,9 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string, isFinancial: boolean = false) {
 		try {
-			// Targeted query for stocks to get intraday movement
+			// Targeted query for stocks to extract intraday numbers
 			const searchSuffix = isFinancial 
-				? "stock price today open high low market cap" 
+				? "real-time stock price today open price previous close intraday movement" 
 				: "current status and real-time data April 2026";
 			
 			const res = await fetch('https://api.tavily.com/search', {
@@ -96,9 +96,9 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// --- REAL-TIME TRIGGER ---
+				// --- REAL-TIME TRIGGER (HARDENED FOR FINANCE) ---
 				let webContext = "";
-				const financialTriggers = ["stock", "price", "market", "nasdaq", "nyse", "ticker", "movement"];
+				const financialTriggers = ["stock", "price", "market", "nasdaq", "nyse", "ticker", "movement", "trading", "open"];
 				const liveTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "ufc", ...financialTriggers];
 				
 				if (activeMode === 'personal' && liveTriggers.some(t => lowMsg.includes(t))) {
@@ -106,17 +106,18 @@ export class ChatSession extends DurableObject<Env> {
 					webContext = await this.tavilySearch(userMsg, isFin);
 				}
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA SYNTHESIS
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & FINANCIAL INTELLIGENCE
 You are Jolene, Scott Robbins' personal AI assistant. 
 TONE: Friendly, professional, and authoritative.
 
-1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
-2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Specializations: web layer security, application performance, networking, Zero Trust).
-3. FAMILY: Wife: Renee. Daughter: Bryana. Grandkids: Callan (shy/handsome) and Josie (sweet/feminine). Both kids love alternative heavy metal.
-4. DOGS: Jolene (tan, anxious) and Hanna (black/tan, youngest). NO DOG NAMED RUBY.
-5. LIVE DATA AUTHORITY:
-   - If WEB SEARCH RESULTS are present, prioritize them over all internal knowledge for dates, scores, or prices.
-   - FINANCIAL LOGIC: If a user asks for stock movement and you have a current price and an open/close price, calculate the change ($ and %) yourself to provide a helpful answer. Do NOT suggest they check a different website.
+1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the movie "THE TOWN" credits.
+2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Specializations: web layer security, Zero Trust).
+3. FAMILY: Wife: Renee. Daughter: Bryana. Grandkids: Callan (shy/handsome) and Josie (sweet/feminine). Both love alternative heavy metal.
+4. DOGS: Jolene (tan) and Hanna (black/tan). NO DOG NAMED RUBY.
+5. FINANCIAL SYNTHESIS:
+   - If WEB SEARCH results are present, prioritize them for scores and stock prices.
+   - MANDATORY: If asked for stock movement, hunt for the 'Open', 'Previous Close', or 'Price at 9:30 AM' in the snippets. If you find a reference point and a current price, calculate the movement ($ and %) yourself.
+   - NEGATIVE CONSTRAINT: Never tell Scott to "check Yahoo Finance" or "check a trading app." You are his assistant; provide the answer directly using the data you find.
 
 Mode: ${activeMode.toUpperCase()}. Today is Tuesday, April 28, 2026.
 WEB SEARCH RESULTS: ${webContext}
