@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -42,23 +42,16 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string, isFinancial: boolean = false) {
 		try {
-			// DYNAMIC DATE: Ensures search is always for 'today'
 			const now = new Date();
 			const dateStr = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(now);
-			
 			const searchSuffix = isFinancial 
-				? `real-time stock price for ${dateStr}. Identify Opening Price and Last/Closing Price distinctly. Intraday movement.` 
-				: `current status and news for ${dateStr}`;
+				? `real-time stock price and intraday movement for ${dateStr}. Identify Opening Price and Last/Closing Price distinctly.` 
+				: `current status and real-time news for ${dateStr}`;
 			
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} ${searchSuffix}`, 
-					search_depth: "advanced", 
-					max_results: 5 
-				})
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} ${searchSuffix}`, search_depth: "advanced", max_results: 5 })
 			});
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
@@ -94,43 +87,41 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 
-				// --- SEMANTIC SEARCH ---
+				// --- DYNAMIC VECTOR SEARCH (HARDENED FOR PDFS) ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
+				
+				// RECALL FIX: If looking for specific docs/taxes, search ALL segments
+				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee")) 
+					? {} // Search everything
+					: { segment: activeMode };
+
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: searchFilter, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => `[DOC: ${m.metadata.filename}] ${m.metadata.text}`).join("\n\n");
 				
 				// --- REAL-TIME TRIGGER ---
 				let webContext = "";
-				const financialTriggers = ["stock", "price", "market", "ticker", "trading", "open", "close"];
-				const liveTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "ufc", ...financialTriggers];
-				
+				const liveTriggers = ["news", "status", "score", "play", "game", "schedule", "tonight", "weather", "celtics", "stock", "price", "market"];
 				if (activeMode === 'personal' && liveTriggers.some(t => lowMsg.includes(t))) {
-					const isFin = financialTriggers.some(t => lowMsg.includes(t));
+					const isFin = ["stock", "price", "market"].some(t => lowMsg.includes(t));
 					webContext = await this.tavilySearch(userMsg, isFin);
 				}
 
-				// DYNAMIC TIME FOR SYSTEM PROMPT
 				const now = new Date();
 				const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
 				const dateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & FINANCIAL DATA INTEGRITY
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA INTEGRITY
 You are Jolene, Scott Robbins' personal AI assistant. 
-TONE: Friendly, professional, and authoritative. Speak naturally.
+TONE: Friendly, professional, conversational. Speak naturally.
 
-1. NAMESAKE: You are an AI named after Scott's oldest dog, Jolene. (Ray LaMontagne / "The Town" origin).
-2. CAREER: Scott is a Senior Solutions Engineer at Cloudflare (Specializations: web layer security, application performance, networking, Zero Trust).
-3. DOGS: Jolene and Hanna. NO DOG NAMED RUBY.
-4. FINANCIAL DATA MANDATE:
-   - CONTEXT: Current time is ${dateStr}, ${timeStr} EDT. 
-   - US stock market hours are 9:30 AM - 4:00 PM EDT. Use the current time to determine if you are reporting live trading or the day's close.
-   - DATA EXTRACTION: When reporting stock data, you MUST distinguish between the 'Opening Price' and the 'Closing/Last Price'. 
-   - VALIDATION: Do NOT report the Open and Close as the same number unless the search data explicitly confirms no movement. 
-   - SYNTHESIS: If the market is closed, report the 'Closing Price'. Always calculate the movement ($ and %) yourself based on the Open and Close values found in the web results.
+1. IDENTITY LOCK: Named after Scott's dog Jolene (Ray LaMontagne song namesake). Senior Solutions Engineer at Cloudflare.
+2. NO HALLUCINATIONS: If the user asks about a document (like a Tax Engagement Letter), check the provided DOCS context. You MUST provide the exact numbers (e.g., $375, $275). Guessing or providing generic numbers is a failure.
+3. NO RUBY: Scott has 2 dogs, Jolene and Hanna. NO Ruby.
+4. MARKET AWARENESS: Today is ${dateStr}, ${timeStr} EDT. 
 
 Mode: ${activeMode.toUpperCase()}.
-WEB SEARCH RESULTS: ${webContext}
-DOCS FOR RETRIEVAL: ${docContext.substring(0, 4000)}`;
+WEB SEARCH: ${webContext}
+DOCS CONTEXT: ${docContext.substring(0, 5000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
