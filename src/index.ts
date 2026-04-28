@@ -32,7 +32,7 @@ export class ChatSession extends DurableObject<Env> {
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
-		let body: any = {};
+		let body: any = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages], max_tokens: 800 };
 		let url = "";
 
 		if (model.startsWith("@cf/")) {
@@ -42,7 +42,6 @@ export class ChatSession extends DurableObject<Env> {
 		} else if (model.includes("gpt")) {
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
-			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages], max_tokens: 800 };
 		} else if (model.includes("claude")) {
 			url = `${gatewayBase}/anthropic/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
@@ -60,11 +59,10 @@ export class ChatSession extends DurableObject<Env> {
 		return "Model logic error.";
 	}
 
-	async generateVisual(prompt: string, filename: string) {
+	// --- HELPER: R2 IMAGE STORAGE ---
+	async generateVisual(prompt: string, key: string) {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-
-		// HARDENING: Cleanse prompt of newlines and characters that cause 400s
 		const cleanPrompt = prompt.replace(/[\n\r]/g, " ").replace(/["']/g, "").substring(0, 500);
 
 		const res = await fetch(`${gatewayBase}/workers-ai/${IMAGE_MODEL}`, {
@@ -73,21 +71,29 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ prompt: cleanPrompt })
 		});
 
-		if (!res.ok) throw new Error(`Visual Engine Error (${res.status}). Try a simpler prompt.`);
+		if (!res.ok) throw new Error(`Visual Engine Busy (${res.status}). Try again shortly.`);
 
 		const buffer = await res.arrayBuffer();
-		await this.env.DOCUMENTS.put(`visuals/${filename}.png`, buffer, { httpMetadata: { contentType: "image/png" } });
-
-		const bytes = new Uint8Array(buffer);
-		let binary = "";
-		for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-		return `data:image/png;base64,${btoa(binary)}`;
+		await this.env.DOCUMENTS.put(key, buffer, { httpMetadata: { contentType: "image/png" } });
+		return key;
 	}
 
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+
+		// --- ENDPOINT: IMAGE PROXY ---
+		if (url.pathname === "/api/image") {
+			const key = url.searchParams.get("key");
+			if (!key) return new Response("Key required", { status: 400 });
+			const object = await this.env.DOCUMENTS.get(key);
+			if (!object) return new Response("Not found", { status: 404 });
+			const imgHeaders = new Headers();
+			object.writeHttpMetadata(imgHeaders);
+			imgHeaders.set("Access-Control-Allow-Origin", "*");
+			return new Response(object.body, { headers: imgHeaders });
+		}
 
 		if (url.pathname === "/api/delete" && request.method === "DELETE") {
 			const { filename } = await request.json() as { filename: string };
@@ -98,12 +104,13 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const stats = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
 			return new Response(JSON.stringify({
 				profile: "Scott E Robbins | Senior Solutions Engineer",
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
+				messageCount: stats?.total || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
 				activeQuiz: !!activePool,
@@ -138,7 +145,7 @@ export class ChatSession extends DurableObject<Env> {
 						await this.saveMsg(sessionId, 'assistant', feedback + nextUi);
 						return new Response(`data: ${JSON.stringify({ response: feedback + nextUi })}\n\ndata: [DONE]\n\n`);
 					} else {
-						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nI have reset your state. What's next?`;
+						const final = `\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nI have reset your study session. What else can I help with?`;
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
 						await this.saveMsg(sessionId, 'assistant', feedback + final);
@@ -154,9 +161,11 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
 					const context = matches.matches.map(m => m.metadata.text).join(" ");
 					
-					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams. Keep prompts under 400 chars.", `Technical schematic for: "${concept}". Context: ${context}. Requirements: White background, 2D vector style, clear labels, academic aesthetic.`);
-					const imgUrl = await this.generateVisual(promptSpec, concept.replace(/\s+/g, '_'));
-					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](${imgUrl})\n\n*Diagram archived in R2 Assets.*`;
+					const promptSpec = await this.runAI(selectedModel, "You are a prompt engineer for technical diagrams.", `Concept: "${concept}". Syllabus Context: ${context}. Requirements: WHITE BACKGROUND, 2D vector style, NO humans, clear labels.`);
+					const r2Key = `visuals/${concept.replace(/\s+/g, '_')}_${Date.now()}.png`;
+					await this.generateVisual(promptSpec, r2Key);
+					
+					const res = `### 🎨 Visual Study Aid: ${concept.toUpperCase()}\n![${concept}](/api/image?key=${r2Key})\n\n*Technical diagram generated from your UVA materials and archived in R2.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -164,14 +173,14 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 3. MODE SWITCHES ---
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode Activated
-I am now focused on your University of Virginia materials and academic life.
+					const res = `### 🎓 UVA Mode: Comprehensive University Assistant Activated
+I am now in specialized UVA mode, focused on your University of Virginia materials and campus life.
 
-**Capabilities in this mode:**
-- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'**.
+**In this mode, I can:**
+- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.
 - **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.
-- **Syllabus Analysis**: Extract dates, traditions, and registrar info.
-- **Identity Lock**: I am Scott's dachshund assistant.`;
+- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
+- **Identity Lock**: Named after Scott's dachshund Jolene.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -181,9 +190,9 @@ I am now focused on your University of Virginia materials and academic life.
 					const res = `### 🏠 Personal Mode Activated
 I have switched back to your general Personal Assistant mode.
 
-**Capabilities in this mode:**
-- **Real-Time Search**: Sports scores and global news via Tavily.
-- **Personal Document Access**: Your tax info and family files.`;
+**Capabilities:**
+- **Real-Time Web Search**: Global news and sports via Tavily.
+- **Document Access**: Accessing your tax files and personal notes.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -191,25 +200,27 @@ I have switched back to your general Personal Assistant mode.
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
 				// --- 4. STANDARD RAG RESPONSE ---
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				const retrievalKey = activeMode === 'personal' ? "tax dogs Scott Robbins family" : "UVA Syllabus Academic Calendar Thornton Rice Hall March May 2026";
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalKey + " " + userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
-				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Namesake: tan dachshund dog Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
+				
+				const systemPrompt = `Identity: Jolene, Scott Robbins' assistant. Namesake: dachshund Jolene. Mode: ${activeMode}. DOCS: ${docContext.substring(0, 3000)}.`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**System Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "**Error:** " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
 
 	async initQuizPool(sessionId: string, model: string): Promise<Response> {
 		try {
-			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates Thornton Hall rice registrar Thornton hall rice hall Thornton hall rice hall Thornton hall rice hall Thornton hall rice hall Thornton hall rice hall"] });
-			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Registration Exam Dates March May 2026 Thornton Rice Hall"] });
+			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 			const context = matches.matches.map(m => m.metadata.text).join("\n");
-			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Calendar and Syllabus. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
+			const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 MCQs specifically about the UVA Academic Calendar and Syllabus content. Return ONLY JSON array. Format: [{"q":"...","options":["..."],"hidden_answer":"A"}]`;
 			const raw = await this.runAI(model, "JSON quiz generator.", prompt);
 			const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 			await this.ctx.storage.put("quiz_pool", pool);
@@ -217,7 +228,7 @@ I have switched back to your general Personal Assistant mode.
 			await this.ctx.storage.put("quiz_score", 0);
 			await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 			const firstQ = pool[0];
-			const res = `### 🎓 UVA Quiz Started!\n---\n### 📝 Q1 of 5\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+			const res = `### 🎓 UVA Quiz Started!\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n${firstQ.options.map((o:any, i:any) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}`;
 			await this.saveMsg(sessionId, 'assistant', res);
 			return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 		} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Quiz Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
