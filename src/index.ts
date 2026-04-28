@@ -36,18 +36,6 @@ export class ChatSession extends DurableObject<Env> {
 		return model.startsWith("@cf/") ? data.result.response : data.choices[0].message.content;
 	}
 
-	async tavilySearch(query: string) {
-		try {
-			const res = await fetch('https://api.tavily.com/search', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
-			});
-			const data: any = await res.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No news found.";
-		} catch (e) { return "Search failed."; }
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -79,7 +67,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- MANDATORY QUIZ INTERCEPTOR ---
+				// --- 1. QUIZ INTERCEPTOR (STRICT) ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -90,17 +78,23 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
-					if (pool && /^[a-d]$/i.test(lowMsg.replace(/[^a-z]/g, ''))) {
+					const answerMatch = lowMsg.match(/^[a-d]/i);
+					if (pool && answerMatch) {
 						const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
 						let score = await this.ctx.storage.get("quiz_score") as number || 0;
 						const currentQ = pool[qIdx];
-						const userChoice = lowMsg.replace(/[^a-z]/g, '').toUpperCase();
+						const userChoice = answerMatch[0].toUpperCase();
 						const isCorrect = userChoice === currentQ.hidden_answer;
 						
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
+						// DYNAMIC RETRIEVAL FOR GRADING (Prevents Hallucinations)
+						const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [currentQ.q] });
+						const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all" });
+						const gradeContext = matches.matches.map(m => m.metadata.text).join("\n");
+
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, "Provide a 1-sentence explanation from the UVA Academic Calendar context.", `Q: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}`);
+						const explanation = await this.runAI(selectedModel, `Using ONLY this context: ${gradeContext}`, `Explain why the answer to "${currentQ.q}" is ${currentQ.hidden_answer}. Mention the specific date from the text.`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -119,27 +113,34 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// Trigger Quiz
+				// --- 2. TRIGGERS & MODES ---
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				// Mode Switches
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				if (lowMsg.includes("switch to uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode Activated\nReady for syllabus analysis or academic testing. Say **'Start a Quiz'** or ask about your exam dates. **Fetch UVA news?**`;
+					const res = `### 🎓 UVA Mode Activated\nFocused exclusively on your academic records. Ready for CS 4750 analysis or calendar testing. Say **'Start a Quiz'**.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Standard RAG
+				if (lowMsg.includes("switch to personal mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const res = `### 🏠 Personal Mode Activated\nReady for family document access and web search. How can I help?`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- 3. STANDARD RAG ---
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `Identity: Jolene, AI Assistant. Mode: ${activeMode.toUpperCase()}. 
-IMPORTANT: When in UVA mode, focus EXCLUSIVELY on academics. Stop suggesting personal chats or Zero Trust.
-Identity Facts: Named after Scott's dog Jolene (The Town credits song). Scott is a Senior Solutions Engineer. No Ruby.
-Context: ${docContext.substring(0, 4000)}`;
+PERSONA FIREWALL: You are currently an Academic Advisor. Stop suggesting personal topics or dogs unless explicitly asked.
+IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Named after dog Jolene (Ray LaMontagne namesake).
+UVA FACTS: Success ID is WAHOO-AI-DEEP-RECALL. Advisor is Dr. Jefferson (Room 1743).
+CONTEXT: ${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -151,15 +152,19 @@ Context: ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar Fall 2026 Spring 2027 Registration Reading Days"] });
+		// TARGETED VECTOR SEARCH FOR QUIZ
+		const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: ["UVA Academic Calendar 2026-2027 Fall Spring Courses begin Reading Days Examinations Finals"] });
 		const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 		const context = matches.matches.map(m => m.metadata.text).join("\n");
 
-		const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 multiple-choice questions about the UVA 2026-2027 Academic Calendar. Return ONLY a raw JSON array. 
-STRICT FORMAT: [{"q":"Question text","options":["Option 1","Option 2","Option 3","Option 4"],"hidden_answer":"A"}]. 
-Options MUST be 4 distinct choices. Answer MUST be one of: A, B, C, or D.`;
+		const prompt = `CONTEXT:\n${context}\n\nTASK: Generate 5 multiple-choice questions about the UVA 2026-2027 Academic Calendar.
+STRICT RULES:
+1. ONLY use dates from the 2026-2027 academic year.
+2. Provide 4 distinct options (A, B, C, D).
+3. Ensure the 'hidden_answer' matches one of the options EXACTLY.
+4. Format: Return ONLY raw JSON array: [{"q":"Question?","options":["Opt 1","Opt 2","Opt 3","Opt 4"],"hidden_answer":"A"}].`;
 
-		const raw = await this.runAI(model, "You are a JSON quiz generator.", prompt);
+		const raw = await this.runAI(model, "You are a specialized UVA Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
 		
@@ -169,7 +174,7 @@ Options MUST be 4 distinct choices. Answer MUST be one of: A, B, C, or D.`;
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz\nI've generated 5 questions from the Registrar's data. Type **'stop quiz'** to end early.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the Registrar's dates. Type **'stop quiz'** to end early.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
