@@ -2,7 +2,8 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
+// FIXED: Corrected model name from 'get-base' to 'bge-base'
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -91,7 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				
 				// RECALL FIX: If looking for specific docs/taxes, search ALL segments
-				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee")) 
+				const searchFilter = (lowMsg.includes("tax") || lowMsg.includes("letter") || lowMsg.includes("fee") || lowMsg.includes("cozby")) 
 					? {} // Search everything
 					: { segment: activeMode };
 
@@ -112,12 +113,13 @@ export class ChatSession extends DurableObject<Env> {
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA INTEGRITY
 You are Jolene, Scott Robbins' personal AI assistant. 
-TONE: Friendly, professional, conversational. Speak naturally.
+TONE: Friendly, professional, conversational.
 
-1. IDENTITY LOCK: Named after Scott's dog Jolene (Ray LaMontagne song namesake). Senior Solutions Engineer at Cloudflare.
-2. NO HALLUCINATIONS: If the user asks about a document (like a Tax Engagement Letter), check the provided DOCS context. You MUST provide the exact numbers (e.g., $375, $275). Guessing or providing generic numbers is a failure.
-3. NO RUBY: Scott has 2 dogs, Jolene and Hanna. NO Ruby.
-4. MARKET AWARENESS: Today is ${dateStr}, ${timeStr} EDT. 
+1. IDENTITY LOCK: Named after Scott's dog Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN".
+2. CAREER LOCK: Scott is a Senior Solutions Engineer at Cloudflare specializing in: web layer security, application performance products, networking/network security, software development products, and Zero Trust.
+3. NO HALLUCINATIONS: When asked about a document (like a Tax Engagement Letter), prioritize the provided DOCS context. Use exact figures: $375 base fee, $275 hourly rate.
+4. FAMILY FACTS: Dogs are Jolene and Hanna. NO dog named Ruby. Wife is Renee.
+5. MARKET AWARENESS: Today is ${dateStr}, ${timeStr} EDT. 
 
 Mode: ${activeMode.toUpperCase()}.
 WEB SEARCH: ${webContext}
