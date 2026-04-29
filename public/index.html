@@ -272,9 +272,9 @@
 				
 				let greeting = "";
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
+					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
 				} else {
-					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.";
+					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.\n- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.";
 				}
 				appendMessage('assistant-message', greeting);
 			};
