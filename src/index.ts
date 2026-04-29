@@ -48,7 +48,7 @@ export class ChatSession extends DurableObject<Env> {
 		} else { chatMessages.push({ role: "user", content: userQuery }); }
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+		const gatewayBase = `https://gateway.ai.googleapis.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = model.startsWith("@cf/") ? `${gatewayBase}/workers-ai/${model}` : `${gatewayBase}/openai/chat/completions`;
 		let headers: Record<string, string> = { 
 			"Content-Type": "application/json", 
@@ -134,7 +134,7 @@ export class ChatSession extends DurableObject<Env> {
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, `Facts: ${UVA_FACTS}`, `Explain why the answer for: ${currentQ.q} is ${currentQ.hidden_answer}. Focus ONLY on calendar dates.`);
+						const explanation = await this.runAI(selectedModel, `Use facts: ${UVA_FACTS}`, `Briefly explain the answer for: ${currentQ.q}. Correct is ${currentQ.hidden_answer}.`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -185,7 +185,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. STANDARD RAG (WITH NAMESAKE IDENTITY LOCK) ---
+				// --- 4. STANDARD RAG (WITH REFINED NAMESAKE IDENTITY LOCK) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
@@ -193,8 +193,8 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene. You are NOT named after the Dolly Parton song.
-NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". 
-If asked about your name, you MUST tell this story about Ray LaMontagne and the movie "The Town." Never mention Dolly Parton.
+NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that beloved dog.
+If asked about your name, you MUST tell this story about Scott and Renee's shared decision while watching "The Town." Never mention Dolly Parton.
 
 ### SECONDARY DIRECTIVES
 1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Daughter: Bryana (Bry). Dogs: Jolene and Hanna. NO dog named Ruby.
@@ -219,7 +219,7 @@ ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Calendar. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
+		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Year. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
 		const raw = await this.runAI(model, "You are a UVA Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
