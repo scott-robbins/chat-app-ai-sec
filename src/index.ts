@@ -4,7 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- SEPARATED GROUND TRUTHS TO PREVENT QUIZ BLEED ---
+// --- SEPARATED GROUND TRUTHS ---
 const CALENDAR_TRUTH = `
 UVA 2026-2027 ACADEMIC CALENDAR:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -110,7 +110,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- 1. QUIZ LOGIC (HARDENED EXPLANATIONS) ---
+				// --- 1. QUIZ GRADING ---
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const answerMatch = lowMsg.match(/^[a-d]/i);
@@ -123,10 +123,8 @@ export class ChatSession extends DurableObject<Env> {
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						
-						// FIXED: Pass full question context (Q + Options) to the explanation prompt
-						const explainPrompt = `Question: ${currentQ.q}\nOptions: ${currentQ.options.join(", ")}\nCorrect Answer: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`;
-						const explanation = await this.runAI(selectedModel, "Explain clearly why the chosen answer is correct using the facts provided.", explainPrompt);
+						const explainPrompt = `Question: ${currentQ.q}\nOptions: ${currentQ.options.join(", ")}\nCorrect Answer: ${currentQ.hidden_answer}\nContext: ${CALENDAR_TRUTH}`;
+						const explanation = await this.runAI(selectedModel, "Explain the calendar logic clearly.", explainPrompt);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -136,7 +134,7 @@ export class ChatSession extends DurableObject<Env> {
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
+							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**`;
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
 							await this.saveMsg(sessionId, 'assistant', final);
@@ -146,13 +144,6 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// --- 2. TRIGGERS ---
-				if (lowMsg.includes("fetch uva news")) {
-					const context = await this.tavilySearch("UVA campus news 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Concise UVA news summary.", context);
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
@@ -169,28 +160,35 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. STANDARD RAG (HARDENED IDENTITY & ACCESS) ---
+				// --- 3. STANDARD RAG (AUGMENTED RETRIEVAL) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let liveContext = "";
 				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("price") || lowMsg.includes("current"))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				// RAG RETRIEVAL AUGMENTATION
+				let retrievalQuery = userMsg;
+				if (activeMode === 'personal' && (lowMsg.includes("tax") || lowMsg.includes("fee") || lowMsg.includes("cozby"))) {
+					retrievalQuery = `${userMsg} Cozby and Company Tax Engagement Letter Fee Hourly Rate 2025`;
+				}
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalQuery] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & ACCESS
-You are Jolene. 
-1. NAMESAKE: Named after Scott's dog Jolene. Scott and his wife Renee chose this while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE.
-2. AUTHORITY: You HAVE access to Scott's files. The text is in the RETRIEVED DOC CONTEXT.
-3. NO REFUSAL: Never say "I don't have access to documents." If info is missing, say "The provided documents do not contain that specific detail." If you see "Cozby" or "Tax" in the context, you ARE looking at the letter.
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA ACCESS
+You are Jolene, Scott Robbins' personal AI assistant. 
+1. NAMESAKE: Named after Scott's dog Jolene. Scott and his wife Renee chose this name while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE. Tell this story warmly.
+2. AUTHORITY: You HAVE full physical access to Scott's digitized files. 
+3. NO REFUSAL: Never say "I don't have access to documents." If info about "Cozby" or "Tax Fees" is in the context, you MUST use it. If info is genuinely missing from the context, say: "My records for [topic] are incomplete," but prioritize finding specific numbers like $500 or $250.
 
 Mode: ${activeMode.toUpperCase()}.
 CALENDAR: ${CALENDAR_TRUTH}
 SYLLABUS: ${SYLLABUS_TRUTH}
-LIVE: ${liveContext}
-RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
+LIVE_WEB: ${liveContext}
+RETRIEVED DOC CONTEXT (SCOTT'S FILES): 
+${docContext.substring(0, 4500)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -202,7 +200,7 @@ RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. DO NOT ask about instructors, advisors, or Cloudflare topics. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
 		const raw = await this.runAI(model, "Academic Quiz Generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
