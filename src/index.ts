@@ -153,12 +153,29 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. TRIGGERS ---
+				// --- 2. TRIGGERS (RESTORED UVA NEWS HANDLER) ---
+				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
+					await this.ctx.storage.delete("session_state");
+					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
+					const res = await this.runAI(selectedModel, "Provide a concise summary of current UVA news. Talk to Scott warmly.", `NEWS CONTEXT:\n${context}`);
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode Activated\nReady to help with your University of Virginia materials, Scott! Whether you want to analyze a syllabus or jump into an Academic Calendar Quiz, I'm here for it.`;
+					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
+					const res = `### 🎓 UVA Mode Activated
+I am now focused on your University of Virginia materials and campus life.
+
+**Capabilities in this mode:**
+- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
+- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
+- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
+
+**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
