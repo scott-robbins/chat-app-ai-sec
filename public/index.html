@@ -248,6 +248,13 @@
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
 
+			// UI INDICATOR FOR MODEL SWITCH
+			modelSelector.onchange = () => {
+				localStorage.setItem('jolene_selected_model', modelSelector.value);
+				const modelName = modelSelector.options[modelSelector.selectedIndex].text;
+				appendMessage('system-indicator', `System: Jolene is now using ${modelName}`);
+			};
+
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
@@ -274,7 +281,7 @@
 				if (activeMode === "uva") {
 					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
 				} else {
-					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.\n- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.";
+					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes.\n- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.";
 				}
 				appendMessage('assistant-message', greeting);
 			};
@@ -313,7 +320,6 @@
 					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
 					const data = await res.json();
 					
-					// Rehydrate chat if it's empty
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
 						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
@@ -324,11 +330,10 @@
 					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
 					
-					// Update Active Mode in KV card
 					const modeEl = document.getElementById('kv-mode-display');
 					const mode = data.mode || "personal";
 					modeEl.innerText = mode.toUpperCase();
-					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; // Blue for UVA, Green for Personal
+					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
 					
 					const list = document.getElementById('file-list-display');
@@ -380,7 +385,6 @@
 									const data = JSON.parse(raw);
 									if (data.response) { 
 										assistantText += data.response; 
-										// STREAM GUARD: Don't render broken icons by waiting for complete links
 										if (!assistantText.includes("![") || assistantText.includes(")")) {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										}
@@ -390,7 +394,6 @@
 							}
 						}
 					}
-					// FINAL SNAP: Force complete render
 					contentDiv.innerHTML = marked.parse(assistantText);
 					showTyping(false);
 					updateDashboard();
