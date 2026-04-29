@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- SINGLE SOURCE OF TRUTH FOR THE DEMO ---
 const UVA_FACTS = `
-UVA 2026-2027 ACADEMIC CALENDAR & SYLLABUS GROUND TRUTH:
+UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
 - Fall 2026 Courses begin: August 25, 2026.
 - Fall Reading Days 2026: October 3 - October 6.
 - Thanksgiving Recess: November 25 - November 29, 2026.
@@ -16,6 +16,8 @@ UVA 2026-2027 ACADEMIC CALENDAR & SYLLABUS GROUND TRUTH:
 - Spring Courses end: May 4, 2027.
 - Finals Weekend 2027: May 21 - May 23, 2027.
 - Academic Success Data ID: WAHOO-AI-DEEP-RECALL.
+
+UVA COURSE SYLLABUS DATA (FOR Q&A ONLY - NOT FOR QUIZ):
 - ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
 - CS 4750 MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
 - PRIMARY INSTRUCTOR: Professor Scott.
@@ -132,7 +134,7 @@ export class ChatSession extends DurableObject<Env> {
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, `Facts: ${UVA_FACTS}`, `Explain why the answer for: ${currentQ.q} is ${currentQ.hidden_answer}.`);
+						const explanation = await this.runAI(selectedModel, `Facts: ${UVA_FACTS}`, `Explain why the answer for: ${currentQ.q} is ${currentQ.hidden_answer}. Focus ONLY on calendar dates.`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -181,7 +183,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. STANDARD RAG (WITH ANCHORED FACTS & NO-REFUSAL DIRECTIVE) ---
+				// --- 4. STANDARD RAG (WITH NO-REFUSAL DIRECTIVE) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
@@ -209,16 +211,38 @@ ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Year. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
-		const raw = await this.runAI(model, "You are a UVA Quiz JSON generator.", prompt);
+		const prompt = `
+FACTS TO USE: ${UVA_FACTS}
+
+TASK: Generate 5 Multiple Choice Questions about the UVA 2026-2027 Academic Calendar.
+STRICT CATEGORIES TO INCLUDE: Semester start/end dates, Reading Days, Exam windows, Recesses (Thanksgiving/Spring Recess).
+STRICT CATEGORIES TO EXCLUDE: Do NOT ask about course topics (Cloudflare architecture), Instructors, Advisors, Room numbers, or syllabus milestones. 
+
+STRICT RULES:
+1. One option MUST be the correct date from the FACTS above.
+2. Labels MUST be A, B, C, D.
+3. hidden_answer MUST be exactly one letter: A, B, C, or D.
+Format: Return ONLY raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
+
+		const raw = await this.runAI(model, "You are a specialized UVA Academic Calendar Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
+		
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
+
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
+I've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.
+
+---\n### 📝 Question 1 of 5
+**${firstQ.q}**
+
+${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}
+
+*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
