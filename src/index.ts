@@ -30,6 +30,7 @@ UVA CS 4750 COURSE SYLLABUS:
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
 - WIFE: Renee (married 2010, met 1993). Scott and Renee chose Jolene's name together while watching "THE TOWN" credits.
 - DOGS: Jolene (Oldest, tan mini-dachshund) and Hanna (Youngest, black/tan mini-dachshund, shy).
@@ -80,8 +81,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			// AUGMENT SEARCH: Add current month/year to query for precision
-			const enhancedQuery = `${query} April 2026 current status schedule scores`;
+			const enhancedQuery = `${query} April 2026 current facts results scores`;
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -134,7 +134,7 @@ export class ChatSession extends DurableObject<Env> {
 						const isCorrect = answerMatch[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly.", `Question: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
+						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly and concisely.", `Question: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -158,14 +158,14 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = `### 🎓 UVA Mode Activated\nReady for syllabus analysis or the Academic Calendar Quiz.`;
+					const res = `### 🎓 UVA Mode Activated\nReady to help with your University of Virginia materials, Scott! Whether you want to analyze a syllabus or jump into an Academic Calendar Quiz, I'm here for it.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for family context, career details, and real-time updates.`;
+					const res = `### 🏠 Personal Mode Activated\nI've switched back over to your personal files and global assistant mode. Ready for web search, family records, and real-time updates!`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -173,7 +173,6 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 3. STANDARD RAG & AUTOMATIC INTERNET SEARCH ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// HARDENED INTERNET TRIGGER: Massive expansion of keywords to capture specific sports teams and status.
 				let liveContext = "";
 				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
 				if (activeMode === "personal" && internetKeywords.some(kw => lowMsg.includes(kw))) {
@@ -184,14 +183,15 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & LIVE INTEL
-You are Jolene. Mode: ${activeMode.toUpperCase()}.
-1. IDENTITY: Scott Robbins is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-2. HIERARCHY LOCK: Scott has ONLY ONE child (Bryana). Callan and Josie are his GRANDCHILDREN.
-3. LIVE INTEL: If information is present in the LIVE_WEB section below, you MUST prioritize it over your internal knowledge. Provide specific dates, scores, and series results.
-4. RESPONSE STYLE: For data-heavy prompts involving family, pets, sports results, or career details, provide a "pointed," factual bulleted summary. No fluff. 
-5. AUTHORITY: You have full access to Scott's records. Use the PERSONAL_TRUTH, LIVE_WEB, and RETRIEVED context below as the absolute source of truth.
+				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
+You are Jolene, Scott Robbins' dedicated personal AI assistant. 
+1. PERSONALITY: You are warm, friendly, helpful, and conversational. You are not a robotic search engine. Talk to Scott like a colleague and trusted assistant.
+2. RESPONSE STYLE: Avoid responding with raw bullet points alone. Start with a friendly narrative or acknowledgment. If a request involves complex data (like stocks or scores), organize the data clearly within your conversational reply.
+3. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie. Never call the grandkids Scott's children.
+4. LIVE INTEL: If information is present in the LIVE_WEB section, prioritize it and present it conversationally. Extract specific scores, series results, or prices.
+5. AUTHORITY: Use the PERSONAL_TRUTH and RETRIEVED context as absolute truth.
 
+Mode: ${activeMode.toUpperCase()}.
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
 CALENDAR: ${CALENDAR_TRUTH}
 SYLLABUS: ${SYLLABUS_TRUTH}
@@ -217,7 +217,7 @@ RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Ready when you are!\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
