@@ -2,7 +2,8 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
+// FIXED: Corrected model name from 'get' to 'bge'
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- SEPARATED GROUND TRUTHS FOR HIGH-STAKES DEMO ---
 const CALENDAR_TRUTH = `
@@ -74,13 +75,11 @@ export class ChatSession extends DurableObject<Env> {
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		let body: any = {};
 
-		// ROUTING LOGIC FIX: Handle Anthropic vs OpenAI vs Workers AI
 		if (model.startsWith("@cf/")) {
 			url = `${gatewayBase}/workers-ai/${model}`;
 			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
 			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		} else if (model.includes("claude")) {
-			// FIXED: Route to Anthropic endpoint with correct versioning and payload
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01";
@@ -104,7 +103,6 @@ export class ChatSession extends DurableObject<Env> {
 		
 		const data: any = await res.json();
 		
-		// PARSING LOGIC FIX: Anthropic returns 'content[0].text'
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
