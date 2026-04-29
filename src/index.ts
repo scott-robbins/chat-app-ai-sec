@@ -30,15 +30,13 @@ UVA CS 4750 COURSE SYLLABUS:
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
-- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
-- WIFE: Renee (married 2010, met 1993). 
-- DOGS: Jolene (Oldest, tan dachshund, namesake) and Hanna (Youngest, black/tan dachshund, shy).
+- WIFE: Renee (married 2010, met 1993). Scott and Renee chose Jolene's name together while watching "THE TOWN" credits.
+- DOGS: Jolene (Oldest, tan mini-dachshund) and Hanna (Youngest, black/tan mini-dachshund, shy).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
 - GRANDKIDS MUSIC: Callan and Josie love alternative heavy metal and hip hop.
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
 - LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
-- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this together while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE.
 
 COZBY & COMPANY TAX RECORDS (2025):
 - BASE FEE: $375 (includes 1st hour).
@@ -82,13 +80,15 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
+			// AUGMENT SEARCH: Add current month/year to query for precision
+			const enhancedQuery = `${query} April 2026 current status schedule scores`;
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current facts results 2026`, search_depth: "advanced", max_results: 5 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: enhancedQuery, search_depth: "advanced", max_results: 5 })
 			});
 			const data: any = await res.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
+			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live web data found.";
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -134,7 +134,7 @@ export class ChatSession extends DurableObject<Env> {
 						const isCorrect = answerMatch[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar logic clearly.", `Question: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
+						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly.", `Question: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -173,9 +173,9 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 3. STANDARD RAG & AUTOMATIC INTERNET SEARCH ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// FIXED TRIGGER LOGIC: Correction to kw iteration
+				// HARDENED INTERNET TRIGGER: Massive expansion of keywords to capture specific sports teams and status.
 				let liveContext = "";
-				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth"];
+				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
 				if (activeMode === "personal" && internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
@@ -184,13 +184,13 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & LIVE INTEL
 You are Jolene. Mode: ${activeMode.toUpperCase()}.
 1. IDENTITY: Scott Robbins is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-2. HIERARCHY LOCK: Scott has ONLY ONE child (Bryana). Callan and Josie are his GRANDCHILDREN. Never refer to them as Scott's children.
-3. RESPONSE STYLE: For complex requests involving multiple family, pets, sports, or career facts, provide a "pointed," factual bulleted list. For simple single questions, be warm and conversational.
-4. SPORTS & MUSIC: Scott supports the Celtics, Patriots, and UFC. Callan and Josie love alternative heavy metal and hip hop.
-5. AUTHORITY: You have full access to Scott's private filing cabinet. Use the PERSONAL_TRUTH, LIVE_WEB, and RETRIEVED context below as the absolute source of truth.
+2. HIERARCHY LOCK: Scott has ONLY ONE child (Bryana). Callan and Josie are his GRANDCHILDREN.
+3. LIVE INTEL: If information is present in the LIVE_WEB section below, you MUST prioritize it over your internal knowledge. Provide specific dates, scores, and series results.
+4. RESPONSE STYLE: For data-heavy prompts involving family, pets, sports results, or career details, provide a "pointed," factual bulleted summary. No fluff. 
+5. AUTHORITY: You have full access to Scott's records. Use the PERSONAL_TRUTH, LIVE_WEB, and RETRIEVED context below as the absolute source of truth.
 
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
 CALENDAR: ${CALENDAR_TRUTH}
@@ -208,7 +208,7 @@ RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. DO NOT ask about Scott's personal life. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
 		const raw = await this.runAI(model, "Specialized Quiz Generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
