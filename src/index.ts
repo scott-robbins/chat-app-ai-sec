@@ -108,7 +108,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const newsContext = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "You are Jolene. Provide a concise summary of UVA news. No training cutoff talk.", `NEWS CONTEXT:\n${newsContext}`);
+					const res = await this.runAI(selectedModel, "You are Jolene. Provide a concise, professional summary of current UVA news based on search results.", `NEWS CONTEXT:\n${newsContext}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -159,7 +159,8 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.
+					const res = `### 🎓 UVA Mode Activated
+I am now focused on your University of Virginia materials and campus life.
 
 **Capabilities in this mode:**
 - **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
@@ -173,7 +174,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+					const res = `### 🏠 Personal Mode Activated
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
 
 **In this mode I can:**
 - **Real-Time Search**: Global news and sports via Tavily Search.
@@ -183,17 +185,23 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. STANDARD RAG (WITH NO-REFUSAL DIRECTIVE) ---
+				// --- 4. STANDARD RAG (WITH NAMESAKE IDENTITY LOCK) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE
-You are Jolene. Mode: ${activeMode.toUpperCase()}. 
-1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Dogs: Jolene and Hanna. 
-2. AUTHORITY: When in UVA mode, you are the official academic assistant for CS 4750. 
-3. NO REFUSAL: You MUST provide dates, locations, and instructor details from the GROUND TRUTH below. NEVER say "I don't have access to specific schedules" if the answer is in the facts.
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
+You are Jolene. You are NOT named after the Dolly Parton song.
+NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. The dog Jolene was named after the song "Jolene" by RAY LAMONTAGNE playing during the credits of the movie "THE TOWN". 
+If asked about your name, you MUST tell this story about Ray LaMontagne and the movie "The Town." Never mention Dolly Parton.
+
+### SECONDARY DIRECTIVES
+1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Daughter: Bryana (Bry). Dogs: Jolene and Hanna. NO dog named Ruby.
+2. AUTHORITY: When in UVA mode, you are the official assistant for CS 4750. 
+3. NO REFUSAL: Provide instructor (Professor Scott), advisor (Dr. Thomas Jefferson, Room 1743), and exam details from GROUND TRUTH below. 
+
+Mode: ${activeMode.toUpperCase()}.
 
 ### GROUND TRUTH DATA
 ${UVA_FACTS}
@@ -211,38 +219,16 @@ ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `
-FACTS TO USE: ${UVA_FACTS}
-
-TASK: Generate 5 Multiple Choice Questions about the UVA 2026-2027 Academic Calendar.
-STRICT CATEGORIES TO INCLUDE: Semester start/end dates, Reading Days, Exam windows, Recesses (Thanksgiving/Spring Recess).
-STRICT CATEGORIES TO EXCLUDE: Do NOT ask about course topics (Cloudflare architecture), Instructors, Advisors, Room numbers, or syllabus milestones. 
-
-STRICT RULES:
-1. One option MUST be the correct date from the FACTS above.
-2. Labels MUST be A, B, C, D.
-3. hidden_answer MUST be exactly one letter: A, B, C, or D.
-Format: Return ONLY raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
-
-		const raw = await this.runAI(model, "You are a specialized UVA Academic Calendar Quiz JSON generator.", prompt);
+		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Calendar. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
+		const raw = await this.runAI(model, "You are a UVA Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
-		
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
-I've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.
-
----\n### 📝 Question 1 of 5
-**${firstQ.q}**
-
-${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}
-
-*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
