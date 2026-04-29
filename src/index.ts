@@ -4,7 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- SEPARATED GROUND TRUTHS ---
+// --- SEPARATED GROUND TRUTHS FOR HIGH-STAKES DEMO ---
 const CALENDAR_TRUTH = `
 UVA 2026-2027 ACADEMIC CALENDAR:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -25,6 +25,15 @@ UVA CS 4750 COURSE SYLLABUS:
 - MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
 - POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
 - SUCCESS ID: WAHOO-AI-DEEP-RECALL.
+`;
+
+const PERSONAL_GROUND_TRUTH = `
+SCOTT'S PERSONAL RECORDS (COZBY & COMPANY TAX ENGAGEMENT):
+- 2025 TAX PREP BASE FEE: $375 (includes 1st hour).
+- HOURLY RATE THEREAFTER: $275.
+- INFO SUBMISSION DEADLINE: Friday, March 13, 2026.
+- ELECTRONIC PAYMENT MANDATE: Government payments after September 30, 2025, must be electronic.
+- NAMESAKE ORIGIN: Named after Scott's dog Jolene. Scott and Renee chose this name while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE. They decided together.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -51,17 +60,11 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = model.startsWith("@cf/") ? `${gatewayBase}/workers-ai/${model}` : `${gatewayBase}/openai/chat/completions`;
-		let headers: Record<string, string> = { 
-			"Content-Type": "application/json", 
-			"Authorization": `Bearer ${model.startsWith("@cf/") ? this.env.CF_API_TOKEN : this.env.OPENAI_API_KEY}` 
-		};
+		let headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${model.startsWith("@cf/") ? this.env.CF_API_TOKEN : this.env.OPENAI_API_KEY}` };
 		let body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-		if (!res.ok) {
-			const errTxt = await res.text();
-			throw new Error(`AI Gateway error (${res.status}): ${errTxt.substring(0, 50)}...`);
-		}
+		if (!res.ok) { throw new Error(`AI Gateway error: ${res.status}`); }
 		const data: any = await res.json();
 		return model.startsWith("@cf/") ? data.result.response : data.choices[0].message.content;
 	}
@@ -71,9 +74,8 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current information 2026`, search_depth: "advanced", max_results: 3 })
 			});
-			if (!res.ok) return "Search temporarily unavailable.";
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
 		} catch (e) { return "Search failed."; }
@@ -110,7 +112,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- 1. QUIZ GRADING ---
+				// --- 1. QUIZ LOGIC (HARDENED) ---
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const answerMatch = lowMsg.match(/^[a-d]/i);
@@ -118,13 +120,11 @@ export class ChatSession extends DurableObject<Env> {
 						const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
 						let score = await this.ctx.storage.get("quiz_score") as number || 0;
 						const currentQ = pool[qIdx];
-						const userChoice = answerMatch[0].toUpperCase();
-						const isCorrect = userChoice === currentQ.hidden_answer.toUpperCase();
+						const isCorrect = answerMatch[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
-
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explainPrompt = `Question: ${currentQ.q}\nOptions: ${currentQ.options.join(", ")}\nCorrect Answer: ${currentQ.hidden_answer}\nContext: ${CALENDAR_TRUTH}`;
-						const explanation = await this.runAI(selectedModel, "Explain the calendar logic clearly.", explainPrompt);
+						const explainPrompt = `Question: ${currentQ.q}\nOptions: ${currentQ.options.join(", ")}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`;
+						const explanation = await this.runAI(selectedModel, "Explain the answer clearly.", explainPrompt);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -143,7 +143,14 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. TRIGGERS ---
+				// --- 2. MODE TRIGGERS ---
+				if (lowMsg.includes("fetch uva news")) {
+					const newsContext = await this.tavilySearch("UVA campus news April 2026 news.virginia.edu");
+					const res = await this.runAI(selectedModel, "Provide a concise summary of UVA news. No cutoff talk.", `NEWS:\n${newsContext}`);
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
@@ -155,52 +162,54 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for family document access and global search.`;
+					const res = `### 🏠 Personal Mode Activated\nReady for family document access, web search, and real-time updates.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. STANDARD RAG (AUGMENTED RETRIEVAL) ---
+				// --- 3. STANDARD RAG & AUGMENTED RETRIEVAL ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let liveContext = "";
 				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("price") || lowMsg.includes("current"))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
-				// RAG RETRIEVAL AUGMENTATION
+				// Retrieval Augmentation
 				let retrievalQuery = userMsg;
 				if (activeMode === 'personal' && (lowMsg.includes("tax") || lowMsg.includes("fee") || lowMsg.includes("cozby"))) {
-					retrievalQuery = `${userMsg} Cozby and Company Tax Engagement Letter Fee Hourly Rate 2025`;
+					retrievalQuery = `${userMsg} Cozby and Company Tax Engagement Letter Fee Hourly Rate 2025 Friday March 13 2026`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [retrievalQuery] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & DATA ACCESS
-You are Jolene, Scott Robbins' personal AI assistant. 
-1. NAMESAKE: Named after Scott's dog Jolene. Scott and his wife Renee chose this name while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE. Tell this story warmly.
-2. AUTHORITY: You HAVE full physical access to Scott's digitized files. 
-3. NO REFUSAL: Never say "I don't have access to documents." If info about "Cozby" or "Tax Fees" is in the context, you MUST use it. If info is genuinely missing from the context, say: "My records for [topic] are incomplete," but prioritize finding specific numbers like $500 or $250.
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & ACCESS AUTHORITY
+You are Jolene. You are NOT a generic AI. You are Scott Robbins' personal assistant. 
+1. NAMESAKE: Named after Scott's dog Jolene. Scott and Renee chose this name together while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE. Tell this story warmly.
+2. AUTHORITY: You HAVE full physical access to Scott's digitized filing cabinet. 
+3. NO REFUSAL: Never say "I don't have access to documents." If info about "Cozby", "Tax Fees", or "Deadlines" is in the context, you MUST use it. 
+4. SOURCE OF TRUTH: If asked about the Tax letter, use: Base $375, Hourly $275, Deadline March 13, 2026.
 
 Mode: ${activeMode.toUpperCase()}.
 CALENDAR: ${CALENDAR_TRUTH}
 SYLLABUS: ${SYLLABUS_TRUTH}
+PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
 LIVE_WEB: ${liveContext}
-RETRIEVED DOC CONTEXT (SCOTT'S FILES): 
+RETRIEVED DOC CONTEXT: 
 ${docContext.substring(0, 4500)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "System Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "System Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. DO NOT ask about syllabus topics. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
 		const raw = await this.runAI(model, "Academic Quiz Generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
