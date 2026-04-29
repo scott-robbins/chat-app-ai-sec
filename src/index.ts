@@ -29,14 +29,14 @@ UVA CS 4750 COURSE SYLLABUS:
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- JOB TITLE: Senior Solutions Engineer at Cloudflare (Zero Trust, Web Security, Networking).
-- FAMILY ROSTER (STRICT): Wife (Renee). Daughter (Bryana/Bry, age 31). Grandchildren (Callan, age 3 and Josie, age 2).
-- DOGS: Jolene (Oldest, tan dachshund) and Hanna (Youngest, black/tan dachshund, shy).
+- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
+- FAMILY: Wife (Renee). Daughter (Bryana/Bry, age 31). Grandchildren (Callan, age 3 and Josie, age 2).
+- DOGS: Jolene (Oldest, tan dachshund, namesake) and Hanna (Youngest, black/tan dachshund, shy).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
-- MUSIC PREFERENCES: Callan and Josie love alternative heavy metal and hip hop.
+- MUSIC: Callan and Josie love alternative heavy metal and hip hop.
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
-- LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
-- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this together while watching "THE TOWN" credits (song by RAY LAMONTAGNE).
+- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this together while watching credits for "THE TOWN" with the song "Jolene" by RAY LAMONTAGNE.
 
 COZBY & COMPANY TAX RECORDS (2025):
 - BASE FEE: $375 (includes 1st hour).
@@ -83,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current 2026`, search_depth: "advanced", max_results: 3 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events results 2026`, search_depth: "advanced", max_results: 5 })
 			});
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
@@ -132,7 +132,7 @@ export class ChatSession extends DurableObject<Env> {
 						const isCorrect = answerMatch[0].toUpperCase() === currentQ.hidden_answer.toUpperCase();
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly.", `Question: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
+						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar logic clearly.", `Question: ${currentQ.q}\nCorrect: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -168,10 +168,13 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. STANDARD RAG & IDENTITY LOCK ---
+				// --- 3. STANDARD RAG & AUTOMATIC INTERNET SEARCH ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				
+				// HARDENED INTERNET TRIGGER: Broadened keywords to capture weather and sports.
 				let liveContext = "";
-				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("price") || lowMsg.includes("current"))) {
+				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "what is the status"];
+				if (activeMode === "personal" && internetKeywords.some(kw => lowMsg.includes(internetKeywords))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -181,10 +184,11 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene. Mode: ${activeMode.toUpperCase()}.
-1. IDENTITY: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-2. STRICTURE: Scott has ONLY ONE child (Bryana). Callan and Josie are GRANDCHILDREN. Never call Callan/Josie Scott's children.
-3. RESPONSE STYLE: For complex prompts involving multiple family, pets, or sports details, provide a "pointed," factual bulleted list. For simple single questions, be warm and conversational.
-4. AUTHORITY: You have full access to Scott's private records. Use the PERSONAL_TRUTH and RETRIEVED context below as the ONLY source of truth.
+1. IDENTITY: Scott Robbins is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
+2. FAMILY HIERARCHY: Scott has ONLY ONE child (Bryana). Callan and Josie are GRANDCHILDREN. Never call Callan or Josie Scott's children.
+3. RESPONSE STYLE: For complex requests involving multiple family, pets, sports, or career facts, provide a "pointed," factual bulleted list. For simple single questions, be warm and conversational.
+4. SPORTS & MUSIC: Scott is a fan of Celtics, Patriots, and UFC. Callan and Josie love alternative heavy metal and hip hop.
+5. AUTHORITY: You have full access to Scott's private records. Use the PERSONAL_TRUTH, LIVE_WEB, and RETRIEVED context below as the absolute source of truth.
 
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
 CALENDAR: ${CALENDAR_TRUTH}
