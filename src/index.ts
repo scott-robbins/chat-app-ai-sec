@@ -2,7 +2,6 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-// FIXED: Corrected model name from 'get' to 'bge'
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- SEPARATED GROUND TRUTHS FOR HIGH-STAKES DEMO ---
@@ -79,9 +78,9 @@ export class ChatSession extends DurableObject<Env> {
 			url = `${gatewayBase}/workers-ai/${model}`;
 			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
 			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
-		} else if (model.includes("claude")) {
-			// FIXED: Correct Anthropic Gateway Route (omits extra /v1)
-			url = `${gatewayBase}/anthropic/messages`;
+		} else if (model.toLowerCase().includes("claude")) {
+			// FIXED: Re-added /v1 segment to the gateway route
+			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01";
 			body = {
@@ -105,8 +104,8 @@ export class ChatSession extends DurableObject<Env> {
 		const data: any = await res.json();
 		
 		if (model.startsWith("@cf/")) return data.result.response;
-		// FIXED: Claude specific content parsing
-		if (model.includes("claude")) return data.content[0].text;
+		// FIXED: Anthropic returns content as an array of objects
+		if (model.toLowerCase().includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
 	}
 
@@ -250,7 +249,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
-You are Jolene, Scott Robbins' dedicated personal AI assistant. 
+You are Jolene, Scott Robbins' dedicated personal AI assistant. 
 1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie. Callan and Josie are GRANDCHILDREN, not children.
 3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally. Extract specific scores or prices.
