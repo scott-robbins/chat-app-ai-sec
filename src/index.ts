@@ -29,17 +29,20 @@ UVA CS 4750 COURSE SYLLABUS:
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- JOB TITLE: Senior Solutions Engineer at Cloudflare.
-- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development products.
-- FAMILY: Wife (Renee). Daughter (Bryana/Bry). Grandchildren (Callan and Josie).
-- DOGS: Jolene (Oldest, tan dachshund, namesake) and Hanna (Youngest, black/tan dachshund, shy). NO dog named Ruby.
-- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this name while watching credits for "THE TOWN" when the song "Jolene" by RAY LAMONTAGNE played. They decided together.
+- JOB TITLE: Senior Solutions Engineer at Cloudflare (Zero Trust, Web Security, Networking).
+- FAMILY ROSTER (STRICT): Wife (Renee). Daughter (Bryana/Bry, age 31). Grandchildren (Callan, age 3 and Josie, age 2).
+- DOGS: Jolene (Oldest, tan dachshund) and Hanna (Youngest, black/tan dachshund, shy).
+- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
+- MUSIC PREFERENCES: Callan and Josie love alternative heavy metal and hip hop.
+- HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
+- LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
+- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this together while watching "THE TOWN" credits (song by RAY LAMONTAGNE).
 
 COZBY & COMPANY TAX RECORDS (2025):
 - BASE FEE: $375 (includes 1st hour).
-- HOURLY RATE: $275 per hour thereafter.
+- HOURLY RATE: $275 thereafter.
 - DEADLINE: Friday, March 13, 2026.
-- ELECTRONIC PAYMENT: Mandated for gov payments after Sept 30, 2025.
+- ELECTRONIC MANDATE: After Sept 30, 2025.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -80,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current 2026`, search_depth: "advanced", max_results: 3 })
 			});
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
@@ -160,12 +163,12 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for family document access, career context, and real-time updates.`;
+					const res = `### 🏠 Personal Mode Activated\nReady for family context, career details, and real-time updates.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 3. STANDARD RAG & IDENTITY PROTECTION ---
+				// --- 3. STANDARD RAG & IDENTITY LOCK ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let liveContext = "";
 				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("price") || lowMsg.includes("current"))) {
@@ -177,13 +180,12 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-You are Jolene, Scott Robbins' personal AI.
-1. IDENTITY: Scott is a Senior Solutions Engineer at Cloudflare (Zero Trust, Web Security). Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-2. DOGS: Jolene is the tan dachshund (oldest). Hanna is the shy black/tan dachshund (youngest).
-3. RESPONSE STYLE: For data-heavy prompts involving multiple family members, pets, or career details, provide a "pointed," factual bulleted summary. For simple conversational questions, be warm and explanatory.
-4. AUTHORITY: You have full access to Scott's private records. Never say you lack access to family or career info. Use the PERSONAL_TRUTH and RETRIEVED context below.
+You are Jolene. Mode: ${activeMode.toUpperCase()}.
+1. IDENTITY: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
+2. STRICTURE: Scott has ONLY ONE child (Bryana). Callan and Josie are GRANDCHILDREN. Never call Callan/Josie Scott's children.
+3. RESPONSE STYLE: For complex prompts involving multiple family, pets, or sports details, provide a "pointed," factual bulleted list. For simple single questions, be warm and conversational.
+4. AUTHORITY: You have full access to Scott's private records. Use the PERSONAL_TRUTH and RETRIEVED context below as the ONLY source of truth.
 
-Mode: ${activeMode.toUpperCase()}.
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
 CALENDAR: ${CALENDAR_TRUTH}
 SYLLABUS: ${SYLLABUS_TRUTH}
@@ -200,7 +202,7 @@ RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. DO NOT ask about instructors or Scott's career. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. DO NOT ask about Scott's personal life. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
 		const raw = await this.runAI(model, "Specialized Quiz Generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
