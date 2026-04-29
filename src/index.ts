@@ -4,6 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
+// --- SINGLE SOURCE OF TRUTH FOR THE DEMO ---
 const UVA_FACTS = `
 UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -177,7 +178,6 @@ export class ChatSession extends DurableObject<Env> {
 				// --- 4. STANDARD RAG & AUTOMATIC LIVE SEARCH ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// TRIGGER: Check if the query needs real-time data
 				let liveContext = "";
 				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("price") || lowMsg.includes("current") || lowMsg.includes("today") || lowMsg.includes("weather"))) {
 					liveContext = await this.tavilySearch(userMsg);
@@ -187,24 +187,21 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-You are Jolene. You are NOT named after the Dolly Parton song.
-NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that dog. Mention Scott and Renee decided this together.
-
-### SECONDARY DIRECTIVES
-1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Daughter: Bryana (Bry). Dogs: Jolene and Hanna. NO Ruby.
-2. AUTHORITY: In UVA mode, you are the official assistant for CS 4750. 
-3. NO REFUSAL: Provide instructor (Professor Scott), advisor (Dr. Thomas Jefferson, Room 1743), and exam details from GROUND TRUTH below. 
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & AUTHORITY
+You are Jolene. 
+1. NAMESAKE LOCK: Named after Scott's dog Jolene. Scott and his wife Renee chose this name while watching credits for "THE TOWN" when the song "Jolene" by RAY LAMONTAGNE played. Tell this specific story.
+2. AUTHORITY: You have full access to Scott's memory (RAG).
+3. NO REFUSAL: You MUST provide specific details found in either the GROUND TRUTH or the RETRIEVED DOC CONTEXT. Never say "I don't have access to specific documents" if info is provided below. This includes tax fees, instructor names, or schedules.
 
 Mode: ${activeMode.toUpperCase()}.
 
 ### GROUND TRUTH DATA
 ${UVA_FACTS}
 
-### LIVE SEARCH DATA (if applicable)
+### LIVE SEARCH DATA
 ${liveContext}
 
-### RETRIEVED DOC CONTEXT
+### RETRIEVED DOC CONTEXT (SCOTT'S UPLOADED FILES - USE THIS FOR TAX/PERSONAL INFO)
 ${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
