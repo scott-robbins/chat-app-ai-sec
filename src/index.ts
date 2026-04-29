@@ -4,7 +4,6 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- SINGLE SOURCE OF TRUTH FOR THE DEMO ---
 const UVA_FACTS = `
 UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -57,13 +56,10 @@ export class ChatSession extends DurableObject<Env> {
 		let body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-		
-		// HARDENED: Check for non-JSON errors (like 526)
 		if (!res.ok) {
 			const errTxt = await res.text();
 			throw new Error(`AI Gateway error (${res.status}): ${errTxt.substring(0, 50)}...`);
 		}
-		
 		const data: any = await res.json();
 		return model.startsWith("@cf/") ? data.result.response : data.choices[0].message.content;
 	}
@@ -73,9 +69,9 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current information ${new Date().getFullYear()}`, search_depth: "advanced", max_results: 3 })
 			});
-			if (!res.ok) return "Search temporarily unavailable due to network error.";
+			if (!res.ok) return "Search temporarily unavailable.";
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
 		} catch (e) { return "Search failed."; }
@@ -125,7 +121,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped\nI've reset your state. How can I help you now?";
+					const res = "### 🛑 Quiz Stopped\nSession reset. How can I help you now?";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -166,33 +162,38 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
-					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life. Say **'Start a quiz based on the UVA Academic Calendar'** to begin.`;
+					const res = `### 🎓 UVA Mode Activated\nFocused on your University of Virginia materials. Say **'Start a quiz based on the UVA Academic Calendar'** to begin.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.`;
+					const res = `### 🏠 Personal Mode Activated\nReady for web search, family document access, and real-time updates.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. STANDARD RAG (WITH REFINED NAMESAKE IDENTITY LOCK) ---
+				// --- 4. STANDARD RAG & AUTOMATIC LIVE SEARCH ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				
+				// TRIGGER: Check if the query needs real-time data
+				let liveContext = "";
+				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("price") || lowMsg.includes("current") || lowMsg.includes("today") || lowMsg.includes("weather"))) {
+					liveContext = await this.tavilySearch(userMsg);
+				}
+
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene. You are NOT named after the Dolly Parton song.
-NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that beloved dog. 
-If asked about your name, you MUST tell this story about Scott and Renee's shared decision while watching "The Town." Never mention Dolly Parton.
+NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that dog. Mention Scott and Renee decided this together.
 
 ### SECONDARY DIRECTIVES
-1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Daughter: Bryana (Bry). Dogs: Jolene and Hanna. NO dog named Ruby.
-2. AUTHORITY: When in UVA mode, you are the official academic assistant for CS 4750. 
+1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Daughter: Bryana (Bry). Dogs: Jolene and Hanna. NO Ruby.
+2. AUTHORITY: In UVA mode, you are the official assistant for CS 4750. 
 3. NO REFUSAL: Provide instructor (Professor Scott), advisor (Dr. Thomas Jefferson, Room 1743), and exam details from GROUND TRUTH below. 
 
 Mode: ${activeMode.toUpperCase()}.
@@ -200,7 +201,10 @@ Mode: ${activeMode.toUpperCase()}.
 ### GROUND TRUTH DATA
 ${UVA_FACTS}
 
-### RETRIEVED CONTEXT
+### LIVE SEARCH DATA (if applicable)
+${liveContext}
+
+### RETRIEVED DOC CONTEXT
 ${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
@@ -213,7 +217,7 @@ ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Year. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
+		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Calendar. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
 		const raw = await this.runAI(model, "You are a UVA Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
