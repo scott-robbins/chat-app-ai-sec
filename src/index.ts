@@ -17,7 +17,7 @@ UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
 - Finals Weekend 2027: May 21 - May 23, 2027.
 - Academic Success Data ID: WAHOO-AI-DEEP-RECALL.
 
-UVA COURSE SYLLABUS DATA (FOR Q&A ONLY - NOT FOR QUIZ):
+UVA COURSE SYLLABUS DATA (FOR Q&A ONLY):
 - ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
 - CS 4750 MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
 - PRIMARY INSTRUCTOR: Professor Scott.
@@ -48,7 +48,7 @@ export class ChatSession extends DurableObject<Env> {
 		} else { chatMessages.push({ role: "user", content: userQuery }); }
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		const gatewayBase = `https://gateway.ai.googleapis.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = model.startsWith("@cf/") ? `${gatewayBase}/workers-ai/${model}` : `${gatewayBase}/openai/chat/completions`;
 		let headers: Record<string, string> = { 
 			"Content-Type": "application/json", 
@@ -57,6 +57,13 @@ export class ChatSession extends DurableObject<Env> {
 		let body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+		
+		// HARDENED: Check for non-JSON errors (like 526)
+		if (!res.ok) {
+			const errTxt = await res.text();
+			throw new Error(`AI Gateway error (${res.status}): ${errTxt.substring(0, 50)}...`);
+		}
+		
 		const data: any = await res.json();
 		return model.startsWith("@cf/") ? data.result.response : data.choices[0].message.content;
 	}
@@ -68,6 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
 			});
+			if (!res.ok) return "Search temporarily unavailable due to network error.";
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
 		} catch (e) { return "Search failed."; }
@@ -108,7 +116,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const newsContext = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "You are Jolene. Provide a concise, professional summary of current UVA news based on search results.", `NEWS CONTEXT:\n${newsContext}`);
+					const res = await this.runAI(selectedModel, "You are Jolene. Provide a concise summary of current UVA news.", `NEWS CONTEXT:\n${newsContext}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -159,28 +167,14 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated
-I am now focused on your University of Virginia materials and campus life.
-
-**Capabilities in this mode:**
-- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
-- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
-- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
-
-**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
+					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life. Say **'Start a quiz based on the UVA Academic Calendar'** to begin.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
-
-**In this mode I can:**
-- **Real-Time Search**: Global news and sports via Tavily Search.
-- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.
-- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
+					const res = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -193,12 +187,12 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene. You are NOT named after the Dolly Parton song.
-NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that beloved dog.
+NAMESAKE TRUTH: You are named after Scott's oldest dog, Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that beloved dog. 
 If asked about your name, you MUST tell this story about Scott and Renee's shared decision while watching "The Town." Never mention Dolly Parton.
 
 ### SECONDARY DIRECTIVES
 1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Daughter: Bryana (Bry). Dogs: Jolene and Hanna. NO dog named Ruby.
-2. AUTHORITY: When in UVA mode, you are the official assistant for CS 4750. 
+2. AUTHORITY: When in UVA mode, you are the official academic assistant for CS 4750. 
 3. NO REFUSAL: Provide instructor (Professor Scott), advisor (Dr. Thomas Jefferson, Room 1743), and exam details from GROUND TRUTH below. 
 
 Mode: ${activeMode.toUpperCase()}.
@@ -213,7 +207,7 @@ ${docContext.substring(0, 4000)}`;
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "System Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "System Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
@@ -228,7 +222,7 @@ ${docContext.substring(0, 4000)}`;
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
