@@ -57,7 +57,7 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
 			});
-			const data: any = await res.json();
+			const data: any = await response.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
 		} catch (e) { return "Search failed."; }
 	}
@@ -157,14 +157,15 @@ I am now focused on your University of Virginia materials and campus life.
 - **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
 - **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
 
-**Would you like me to start by fetching the latest UVA campus news for you?**`;
+**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (lowMsg.includes("switch to personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for family document access and web search. How can I help today?`;
+					const res = `### 🏠 Personal Mode Activated
+I have switched back to your general Personal Assistant mode. Ready for family document access and web search. How can I help today?`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
