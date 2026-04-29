@@ -190,6 +190,10 @@
 					<span class="dash-label">Cloudflare KV: User Profile</span>
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
 					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
+					<div id="kv-mode-container" style="margin-top: 10px; font-size: 0.7rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+						<span style="color: var(--text-light)">Session Context:</span> 
+						<span id="kv-mode-display" style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
+					</div>
 				</div>
 
 				<div class="dash-card" style="border-left: 3px solid #22c55e;">
@@ -268,7 +272,7 @@
 				
 				let greeting = "";
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.\n- **Visual Study Aids**: Generate technical diagrams. Say **'Visualize Durable Objects'**.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
+					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a Quiz'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
 				} else {
 					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.";
 				}
@@ -319,7 +323,13 @@
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
 					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
-					activeMode = data.mode || "personal";
+					
+					// Update Active Mode in KV card
+					const modeEl = document.getElementById('kv-mode-display');
+					const mode = data.mode || "personal";
+					modeEl.innerText = mode.toUpperCase();
+					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; // Blue for UVA, Green for Personal
+					activeMode = mode;
 					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `
