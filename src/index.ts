@@ -141,7 +141,6 @@ export class ChatSession extends DurableObject<Env> {
 						const currentQ = pool[qIdx];
 						const userChoice = answerMatch[0].toUpperCase();
 						
-						// Hardened comparison: Checks if answer is the letter OR matches the text of the hidden answer
 						const isCorrect = userChoice === currentQ.hidden_answer.toUpperCase() || lowMsg.includes(currentQ.hidden_answer.toLowerCase());
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 						
@@ -165,7 +164,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 2. TRIGGERS ---
+				// --- 2. TRIGGERS (UVA NEWS) ---
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
@@ -176,7 +175,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
 
-				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
+				// MODE SWITCH: UVA (RESTORED CAPABILITIES)
+				if ((lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to uva")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode Activated
@@ -192,9 +192,16 @@ I am now focused on your University of Virginia materials and campus life.
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) {
+				// MODE SWITCH: PERSONAL (RESTORED CAPABILITIES)
+				if ((lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to personal")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nI've switched back over to your personal files and global assistant mode. Ready for web search, family records, and real-time updates!`;
+					const res = `### 🏠 Personal Mode Activated
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+
+**Capabilities in this mode:**
+- **Real-Time Search**: Global news, stocks, and sports via Tavily Search.
+- **Cross-Document Access**: Accessing your tax files (like Cozby & Company) and personal notes.
+- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
