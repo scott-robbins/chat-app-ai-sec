@@ -69,14 +69,42 @@ export class ChatSession extends DurableObject<Env> {
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-		let url = model.startsWith("@cf/") ? `${gatewayBase}/workers-ai/${model}` : `${gatewayBase}/openai/chat/completions`;
-		let headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${model.startsWith("@cf/") ? this.env.CF_API_TOKEN : this.env.OPENAI_API_KEY}` };
-		let body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
+		
+		let url = "";
+		let headers: Record<string, string> = { "Content-Type": "application/json" };
+		let body: any = {};
+
+		if (model.startsWith("@cf/")) {
+			url = `${gatewayBase}/workers-ai/${model}`;
+			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
+			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
+		} else if (model.includes("claude")) {
+			// CLAUDE SPECIFIC ROUTING
+			url = `${gatewayBase}/anthropic/v1/messages`;
+			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
+			headers["anthropic-version"] = "2023-06-01";
+			body = {
+				model: model,
+				system: systemPrompt,
+				messages: chatMessages,
+				max_tokens: 1500
+			};
+		} else {
+			url = `${gatewayBase}/openai/chat/completions`;
+			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
+			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
+		}
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-		if (!res.ok) { throw new Error(`AI Gateway error: ${res.status}`); }
+		if (!res.ok) { 
+			const errTxt = await res.text();
+			throw new Error(`AI Gateway error (${res.status}): ${errTxt.substring(0, 100)}`); 
+		}
+		
 		const data: any = await res.json();
-		return model.startsWith("@cf/") ? data.result.response : data.choices[0].message.content;
+		if (model.startsWith("@cf/")) return data.result.response;
+		if (model.includes("claude")) return data.content[0].text;
+		return data.choices[0].message.content;
 	}
 
 	async tavilySearch(query: string) {
@@ -219,7 +247,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
-You are Jolene, Scott Robbins' dedicated personal AI assistant. 
+You are Jolene, Scott Robbins' dedicated personal AI assistant. 
 1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie. Callan and Josie are GRANDCHILDREN, not children.
 3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally. Extract specific scores or prices.
