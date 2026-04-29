@@ -57,7 +57,6 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
 			});
-			// FIXED: Corrected variable name from 'response' to 'res'
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
 		} catch (e) { return "Search failed."; }
@@ -103,7 +102,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. QUIZ LOGIC (HARDENED) ---
+				// --- 2. QUIZ LOGIC ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -143,11 +142,11 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 3. MODE SWITCHES & TRIGGERS ---
-				if (lowMsg.includes("start a quiz based on the uva academic calendar") || lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
+				// --- 3. MODE SWITCHES & TRIGGER LOGIC ---
+				if (lowMsg.includes("start a quiz based on the uva academic calendar") || (lowMsg.includes("quiz") && lowMsg.includes("uva"))) return this.initQuizPool(sessionId, selectedModel);
 
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				if (lowMsg.includes("switch to uva mode")) {
+				// UVA Mode Activation
+				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode Activated
@@ -163,22 +162,28 @@ I am now focused on your University of Virginia materials and campus life.
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				if (lowMsg.includes("switch to personal mode")) {
+				// Personal Mode Activation
+				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode. Ready for family document access and real-time web search. How can I help today?`;
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+
+**In this mode I can:**
+- **Real-Time Search**: Global news and sports via Tavily Search.
+- **Cross-Document Access**: Accessing your tax files and personal notes alongside academic materials.
+- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				// --- 4. STANDARD RAG ---
+				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `Identity: Jolene. Mode: ${activeMode.toUpperCase()}. 
-In UVA mode, focus 100% on ACADEMICS. Stop suggesting Zero Trust or dogs.
-Identity Facts: Scott is a Senior Solutions Engineer at Cloudflare. Named after tan dachshund Jolene (The Town credits song).
+Identity Facts: Scott Robbins. Named after dog Jolene (The Town credits song). No Ruby.
 UVA FACTS: ${UVA_FACTS}
 Context: ${docContext.substring(0, 4000)}`;
 
@@ -192,24 +197,14 @@ Context: ${docContext.substring(0, 4000)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `
-FACTS TO USE: ${UVA_FACTS}
-TASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Year.
-STRICT RULES:
-1. One option MUST be the correct date from the FACTS above.
-2. Labels MUST be A, B, C, D.
-3. hidden_answer MUST be exactly one letter: A, B, C, or D.
-Format: Return ONLY raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}].`;
-
+		const prompt = `FACTS: ${UVA_FACTS}\nTASK: Generate 5 MCQs based ONLY on the 2026-2027 UVA Academic Year. Return raw JSON array: [{"q":"Question?","options":["A","B","C","D"],"hidden_answer":"A"}]. Labels MUST be A, B, C, D.`;
 		const raw = await this.runAI(model, "You are a UVA Quiz JSON generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
-		
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-
 		const firstQ = pool[0];
 		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
 I've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.
