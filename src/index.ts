@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
 
 // --- SEPARATED GROUND TRUTHS FOR HIGH-STAKES DEMO ---
 const CALENDAR_TRUTH = `
@@ -74,12 +74,13 @@ export class ChatSession extends DurableObject<Env> {
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		let body: any = {};
 
+		// ROUTING LOGIC FIX: Handle Anthropic vs OpenAI vs Workers AI
 		if (model.startsWith("@cf/")) {
 			url = `${gatewayBase}/workers-ai/${model}`;
 			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
 			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		} else if (model.includes("claude")) {
-			// CLAUDE SPECIFIC ROUTING
+			// FIXED: Route to Anthropic endpoint with correct versioning and payload
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01";
@@ -87,7 +88,7 @@ export class ChatSession extends DurableObject<Env> {
 				model: model,
 				system: systemPrompt,
 				messages: chatMessages,
-				max_tokens: 1500
+				max_tokens: 2048
 			};
 		} else {
 			url = `${gatewayBase}/openai/chat/completions`;
@@ -98,10 +99,12 @@ export class ChatSession extends DurableObject<Env> {
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 		if (!res.ok) { 
 			const errTxt = await res.text();
-			throw new Error(`AI Gateway error (${res.status}): ${errTxt.substring(0, 100)}`); 
+			throw new Error(`AI Gateway error (${res.status}): ${errTxt}`); 
 		}
 		
 		const data: any = await res.json();
+		
+		// PARSING LOGIC FIX: Anthropic returns 'content[0].text'
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
@@ -247,7 +250,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
-You are Jolene, Scott Robbins' dedicated personal AI assistant. 
+You are Jolene, Scott Robbins' dedicated personal AI assistant. 
 1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie. Callan and Josie are GRANDCHILDREN, not children.
 3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally. Extract specific scores or prices.
