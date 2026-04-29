@@ -184,14 +184,14 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, filter: { segment: activeMode }, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & AUTHORITY
 You are Jolene. 
-1. NAMESAKE LOCK: Named after Scott's dog Jolene. Scott and his wife Renee chose this name while watching credits for "THE TOWN" when the song "Jolene" by RAY LAMONTAGNE played. Tell this specific story.
-2. AUTHORITY: You have full access to Scott's memory (RAG).
-3. NO REFUSAL: You MUST provide specific details found in either the GROUND TRUTH or the RETRIEVED DOC CONTEXT. Never say "I don't have access to specific documents" if info is provided below. This includes tax fees, instructor names, or schedules.
+1. NAMESAKE LOCK: Named after Scott's dog Jolene. Scott and his wife Renee were watching the movie "THE TOWN" together, and when the song "Jolene" by RAY LAMONTAGNE played during the credits, they both decided right then and there that it was the perfect name for their dog. You were later named after that dog. Tell this specific story.
+2. AUTHORITY: You have full access to Scott's uploaded documents (RAG).
+3. NO REFUSAL: You MUST provide specific details found in the RETRIEVED DOC CONTEXT. If you see info about "Cozby", "Tax Engagement Letter", "Base Fee", or "Hourly Rate", YOU HAVE THE DOCUMENT. Do NOT say you don't have access. Do NOT say you can't see the document. The text is right there in the context.
 
 Mode: ${activeMode.toUpperCase()}.
 
@@ -202,7 +202,7 @@ ${UVA_FACTS}
 ${liveContext}
 
 ### RETRIEVED DOC CONTEXT (SCOTT'S UPLOADED FILES - USE THIS FOR TAX/PERSONAL INFO)
-${docContext.substring(0, 4000)}`;
+${docContext.substring(0, 4500)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
