@@ -80,7 +80,8 @@ export class ChatSession extends DurableObject<Env> {
 			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
 			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		} else if (model.includes("claude")) {
-			url = `${gatewayBase}/anthropic/v1/messages`;
+			// FIXED: Correct Anthropic Gateway Route (omits extra /v1)
+			url = `${gatewayBase}/anthropic/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01";
 			body = {
@@ -104,6 +105,7 @@ export class ChatSession extends DurableObject<Env> {
 		const data: any = await res.json();
 		
 		if (model.startsWith("@cf/")) return data.result.response;
+		// FIXED: Claude specific content parsing
 		if (model.includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
 	}
