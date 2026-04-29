@@ -5,8 +5,9 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- SINGLE SOURCE OF TRUTH FOR THE DEMO ---
+// Anchoring both the Calendar AND the Syllabus details to ensure "Deep Recall"
 const UVA_FACTS = `
-UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
+UVA 2026-2027 ACADEMIC CALENDAR & SYLLABUS GROUND TRUTH:
 - Fall 2026 Courses begin: August 25, 2026.
 - Fall Reading Days 2026: October 3 - October 6.
 - Thanksgiving Recess: November 25 - November 29, 2026.
@@ -16,6 +17,10 @@ UVA 2026-2027 ACADEMIC CALENDAR GROUND TRUTH:
 - Spring Courses end: May 4, 2027.
 - Finals Weekend 2027: May 21 - May 23, 2027.
 - Academic Success Data ID: WAHOO-AI-DEEP-RECALL.
+- ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
+- CS 4750 MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+- POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
+- WAHOO SPIRIT: Congregate at the Lawn Rotunda during system updates.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -102,7 +107,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. QUIZ LOGIC ---
+				// --- 2. QUIZ LOGIC (HARDENED) ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -123,7 +128,7 @@ export class ChatSession extends DurableObject<Env> {
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, `Use these facts: ${UVA_FACTS}`, `Briefly explain the answer for: ${currentQ.q}. Correct is ${currentQ.hidden_answer}.`);
+						const explanation = await this.runAI(selectedModel, `Use facts: ${UVA_FACTS}`, `Briefly explain the answer for: ${currentQ.q}. Correct is ${currentQ.hidden_answer}.`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -176,15 +181,15 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. STANDARD RAG ---
+				// --- 4. STANDARD RAG (WITH ANCHORED FACTS) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `Identity: Jolene. Mode: ${activeMode.toUpperCase()}. 
-Identity Facts: Scott Robbins. Named after dog Jolene (The Town credits song). No Ruby.
-UVA FACTS: ${UVA_FACTS}
+Identity Facts: Scott Robbins (Senior Solutions Engineer at Cloudflare). Dog namesake is Jolene (The Town credits). No Ruby.
+UVA GROUND TRUTH: ${UVA_FACTS}
 Context: ${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
