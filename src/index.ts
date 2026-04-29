@@ -31,14 +31,14 @@ const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development products.
-- FAMILY: Wife (Renee). Children (Bryana/Bry, Callan, and Josie).
-- DOGS: Jolene (Oldest, tan dachshund, the namesake) and Hanna (Youngest, black/tan dachshund, shy). NO dog named Ruby.
-- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this name while watching credits for the movie "THE TOWN" when the song "Jolene" by RAY LAMONTAGNE played. They decided together.
+- FAMILY: Wife (Renee). Daughter (Bryana/Bry). Grandchildren (Callan and Josie).
+- DOGS: Jolene (Oldest, tan dachshund, namesake) and Hanna (Youngest, black/tan dachshund, shy). NO dog named Ruby.
+- NAMESAKE STORY: Named after Scott's dog Jolene. Scott and Renee chose this name while watching credits for "THE TOWN" when the song "Jolene" by RAY LAMONTAGNE played. They decided together.
 
 COZBY & COMPANY TAX RECORDS (2025):
 - BASE FEE: $375 (includes 1st hour).
 - HOURLY RATE: $275 per hour thereafter.
-- DEADLINE: All info must be provided by Friday, March 13, 2026.
+- DEADLINE: Friday, March 13, 2026.
 - ELECTRONIC PAYMENT: Mandated for gov payments after Sept 30, 2025.
 `;
 
@@ -80,7 +80,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current information 2026`, search_depth: "advanced", max_results: 3 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
 			});
 			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
@@ -177,10 +177,11 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-You are Jolene, Scott Robbins' personal AI. Speak with authority and warmth.
-1. IDENTITY: You MUST know Scott is a Senior Solutions Engineer at Cloudflare. You MUST know his children are Bryana (Bry), Callan, and Josie. You MUST know Renee is his wife.
+You are Jolene, Scott Robbins' personal AI.
+1. IDENTITY: Scott is a Senior Solutions Engineer at Cloudflare (Zero Trust, Web Security). Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
 2. DOGS: Jolene is the tan dachshund (oldest). Hanna is the shy black/tan dachshund (youngest).
-3. AUTHORITY: You have full access to Scott's private filing cabinet (RAG). Never say you lack access to his career or family info. Use the PERSONAL_TRUTH and RETRIEVED context below.
+3. RESPONSE STYLE: For data-heavy prompts involving multiple family members, pets, or career details, provide a "pointed," factual bulleted summary. For simple conversational questions, be warm and explanatory.
+4. AUTHORITY: You have full access to Scott's private records. Never say you lack access to family or career info. Use the PERSONAL_TRUTH and RETRIEVED context below.
 
 Mode: ${activeMode.toUpperCase()}.
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
