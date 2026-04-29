@@ -5,7 +5,6 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- SINGLE SOURCE OF TRUTH FOR THE DEMO ---
-// Anchoring both the Calendar AND the Syllabus details to ensure "Deep Recall"
 const UVA_FACTS = `
 UVA 2026-2027 ACADEMIC CALENDAR & SYLLABUS GROUND TRUTH:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -19,6 +18,8 @@ UVA 2026-2027 ACADEMIC CALENDAR & SYLLABUS GROUND TRUTH:
 - Academic Success Data ID: WAHOO-AI-DEEP-RECALL.
 - ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
 - CS 4750 MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+- PRIMARY INSTRUCTOR: Professor Scott.
+- MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
 - POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
 - WAHOO SPIRIT: Congregate at the Lawn Rotunda during system updates.
 `;
@@ -47,7 +48,10 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = model.startsWith("@cf/") ? `${gatewayBase}/workers-ai/${model}` : `${gatewayBase}/openai/chat/completions`;
-		let headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${model.startsWith("@cf/") ? this.env.CF_API_TOKEN : this.env.OPENAI_API_KEY}` };
+		let headers: Record<string, string> = { 
+			"Content-Type": "application/json", 
+			"Authorization": `Bearer ${model.startsWith("@cf/") ? this.env.CF_API_TOKEN : this.env.OPENAI_API_KEY}` 
+		};
 		let body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
@@ -102,12 +106,12 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const newsContext = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "You are Jolene. Provide a concise, professional summary of current UVA news based on search results.", `NEWS CONTEXT:\n${newsContext}`);
+					const res = await this.runAI(selectedModel, "You are Jolene. Provide a concise summary of UVA news. No training cutoff talk.", `NEWS CONTEXT:\n${newsContext}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 2. QUIZ LOGIC (HARDENED) ---
+				// --- 2. QUIZ LOGIC ---
 				if (lowMsg.includes("stop quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
@@ -128,7 +132,7 @@ export class ChatSession extends DurableObject<Env> {
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, `Use facts: ${UVA_FACTS}`, `Briefly explain the answer for: ${currentQ.q}. Correct is ${currentQ.hidden_answer}.`);
+						const explanation = await this.runAI(selectedModel, `Facts: ${UVA_FACTS}`, `Explain why the answer for: ${currentQ.q} is ${currentQ.hidden_answer}.`);
 
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
@@ -138,7 +142,7 @@ export class ChatSession extends DurableObject<Env> {
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset. How else can I help your UVA studies?`;
+							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset. How else can I help?`;
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
 							await this.saveMsg(sessionId, 'assistant', final);
@@ -147,15 +151,13 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// --- 3. MODE SWITCHES & TRIGGER LOGIC ---
+				// --- 3. MODE SWITCHES ---
 				if (lowMsg.includes("start a quiz based on the uva academic calendar") || (lowMsg.includes("quiz") && lowMsg.includes("uva"))) return this.initQuizPool(sessionId, selectedModel);
 
-				// UVA Mode Activation
 				if (lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated
-I am now focused on your University of Virginia materials and campus life.
+					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.
 
 **Capabilities in this mode:**
 - **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
@@ -167,11 +169,9 @@ I am now focused on your University of Virginia materials and campus life.
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Personal Mode Activation
 				if (lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("go to") || lowMsg.includes("change"))) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
+					const res = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.
 
 **In this mode I can:**
 - **Real-Time Search**: Global news and sports via Tavily Search.
@@ -181,16 +181,23 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- 4. STANDARD RAG (WITH ANCHORED FACTS) ---
+				// --- 4. STANDARD RAG (WITH ANCHORED FACTS & NO-REFUSAL DIRECTIVE) ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `Identity: Jolene. Mode: ${activeMode.toUpperCase()}. 
-Identity Facts: Scott Robbins (Senior Solutions Engineer at Cloudflare). Dog namesake is Jolene (The Town credits). No Ruby.
-UVA GROUND TRUTH: ${UVA_FACTS}
-Context: ${docContext.substring(0, 4000)}`;
+				const systemPrompt = `### PRIMARY DIRECTIVE
+You are Jolene. Mode: ${activeMode.toUpperCase()}. 
+1. IDENTITY: Scott Robbins (Senior Solutions Engineer at Cloudflare). Wife: Renee. Dogs: Jolene and Hanna. 
+2. AUTHORITY: When in UVA mode, you are the official academic assistant for CS 4750. 
+3. NO REFUSAL: You MUST provide dates, locations, and instructor details from the GROUND TRUTH below. NEVER say "I don't have access to specific schedules" if the answer is in the facts.
+
+### GROUND TRUTH DATA
+${UVA_FACTS}
+
+### RETRIEVED CONTEXT
+${docContext.substring(0, 4000)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -211,15 +218,7 @@ Context: ${docContext.substring(0, 4000)}`;
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
-I've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.
-
----\n### 📝 Question 1 of 5
-**${firstQ.q}**
-
-${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}
-
-*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
