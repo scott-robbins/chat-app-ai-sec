@@ -57,7 +57,8 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} current events 2026`, search_depth: "advanced", max_results: 3 })
 			});
-			const data: any = await response.json();
+			// FIXED: Use 'res' instead of 'response'
+			const data: any = await res.json();
 			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live data found.";
 		} catch (e) { return "Search failed."; }
 	}
