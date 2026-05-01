@@ -183,9 +183,10 @@ export class ChatSession extends DurableObject<Env> {
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
+							// FIX: Clear state BEFORE sending final response so UI updates and interceptor stops
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
+							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
 							await this.saveMsg(sessionId, 'assistant', final);
 							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 						}
@@ -232,6 +233,14 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				
+				// SOVEREIGN CONTEXT LOCK: CELTICS CHECK IN UVA MODE
+				if (activeMode === "uva" && lowMsg.includes("celtics") && lowMsg.includes("score")) {
+					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now to ensure you stay on track for Finals Weekend. Would you like to check for UVA basketball scores or news from the Lawn instead?";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
 				let liveContext = "";
 				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
 				if (activeMode === "personal" && internetKeywords.some(kw => lowMsg.includes(kw))) {
