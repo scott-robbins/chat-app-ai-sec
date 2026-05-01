@@ -183,8 +183,12 @@ export class ChatSession extends DurableObject<Env> {
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
+							// FIX: Explicitly clear storage keys so Command Center (api/profile) sees ActiveQuiz: false immediately
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
+							await this.ctx.storage.delete("current_q_idx");
+							await this.ctx.storage.delete("quiz_score");
+							
 							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
 							await this.saveMsg(sessionId, 'assistant', final);
 							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
@@ -195,7 +199,6 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					// FIX: Specific signature and format instructions for UVA news
 					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -234,7 +237,6 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// SOVEREIGN CONTEXT LOCK: CELTICS/PERSONAL CHECK IN UVA MODE
 				if (activeMode === "uva" && lowMsg.includes("celtics")) {
 					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now to ensure you stay on track for Finals Weekend. Would you like to check for UVA basketball scores or news from the Lawn instead?";
 					await this.saveMsg(sessionId, 'assistant', res);
@@ -244,7 +246,6 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				let liveContext = "";
 				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
 				
-				// FIX: Restrict internet searches in UVA mode to UVA-related content only
 				const isUvaSpecificSearch = lowMsg.includes("uva") || lowMsg.includes("virginia") || lowMsg.includes("academic");
 				if ((activeMode === "personal" || (activeMode === "uva" && isUvaSpecificSearch)) && internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
