@@ -32,7 +32,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
-- WIFE: Renee (married 2010, met 1993). 
+- WIFE: Renee (married 2010, met 1993). Met in 1993. 
 - NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest, tan mini-dachshund, named after the Ray LaMontagne song) and Hanna (Youngest, black/tan mini-dachshund, shy).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
@@ -183,7 +183,6 @@ export class ChatSession extends DurableObject<Env> {
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
-							// FIX: Clear state BEFORE sending final response so UI updates and interceptor stops
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
 							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
@@ -196,7 +195,8 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a concise summary of current UVA news. Talk to Scott warmly.", `NEWS CONTEXT:\n${context}`);
+					// FIX: Specific signature and format instructions for UVA news
+					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -234,8 +234,8 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
-				// SOVEREIGN CONTEXT LOCK: CELTICS CHECK IN UVA MODE
-				if (activeMode === "uva" && lowMsg.includes("celtics") && lowMsg.includes("score")) {
+				// SOVEREIGN CONTEXT LOCK: CELTICS/PERSONAL CHECK IN UVA MODE
+				if (activeMode === "uva" && lowMsg.includes("celtics")) {
 					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now to ensure you stay on track for Finals Weekend. Would you like to check for UVA basketball scores or news from the Lawn instead?";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -243,7 +243,10 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 
 				let liveContext = "";
 				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
-				if (activeMode === "personal" && internetKeywords.some(kw => lowMsg.includes(kw))) {
+				
+				// FIX: Restrict internet searches in UVA mode to UVA-related content only
+				const isUvaSpecificSearch = lowMsg.includes("uva") || lowMsg.includes("virginia") || lowMsg.includes("academic");
+				if ((activeMode === "personal" || (activeMode === "uva" && isUvaSpecificSearch)) && internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
