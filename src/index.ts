@@ -127,6 +127,33 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- NEW UPLOAD/MEMORIZE HANDLER ---
+		if (url.pathname === "/api/upload" && request.method === "POST") {
+			try {
+				const formData = await request.formData();
+				const file = formData.get("file") as File;
+				if (!file) return new Response("No file", { status: 400 });
+
+				const key = `uploads/${sessionId}/${file.name}`;
+				const content = await file.text();
+				
+				// Store in R2
+				await this.env.DOCUMENTS.put(key, content);
+
+				// Vectorize the content
+				const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [content.substring(0, 3000)] });
+				await this.env.VECTORIZE.insert([{
+					id: `${sessionId}-${file.name}`,
+					values: embedding.data[0],
+					metadata: { text: content, segment: "personal", filename: file.name }
+				}]);
+
+				return new Response(JSON.stringify({ success: true, key }), { headers });
+			} catch (e: any) {
+				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
+			}
+		}
+
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
