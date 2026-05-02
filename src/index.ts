@@ -172,6 +172,17 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
+				// --- 🛑 GLOBAL RESET / STOP LOGIC ---
+				if (lowMsg === "stop quiz" || lowMsg.includes("reset quiz") || lowMsg.includes("stop the quiz")) {
+					await this.ctx.storage.delete("quiz_pool");
+					await this.ctx.storage.delete("session_state");
+					await this.ctx.storage.delete("current_q_idx");
+					await this.ctx.storage.delete("quiz_score");
+					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. How can I help you now, Scott?";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
 					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. Refresh the page to see the update!";
@@ -180,14 +191,6 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("plain mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
 					const res = "Understood. I've switched your profile to **Plain Mode**.";
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (lowMsg === "stop quiz" || lowMsg.includes("stop the quiz")) {
-					await this.ctx.storage.delete("quiz_pool");
-					await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. How can I help you now, Scott?";
-					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
@@ -203,19 +206,19 @@ export class ChatSession extends DurableObject<Env> {
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
 						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly and concisely.", `Question: ${currentQ.q}\nCorrect Answer Info: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
+						
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
 							const nextQ = pool[qIdx + 1];
-							const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+							// FIX: Removed index letter prefixing to stop "A. A. August..."
+							const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.join('\n')}\n\n*Reply A, B, C, or D! (Type 'stop quiz' to end)*`;
 							const combined = `${feedback}\n\n${explanation}${nextUi}`;
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
-							await this.ctx.storage.delete("current_q_idx");
-							await this.ctx.storage.delete("quiz_score");
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
+							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset. How can I help you next?`;
 							await this.saveMsg(sessionId, 'assistant', final);
 							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 						}
@@ -299,6 +302,7 @@ Treat the ADVISOR name and ROOM NUMBER above as absolute facts. Do not say you d
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
+		// Task instruction modified to force correct format
 		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. \nFORMAT: Return raw JSON array: [{"q":"Question?","options":["A. Choice","B. Choice","C. Choice","D. Choice"],"hidden_answer":"A"}].`;
 		const raw = await this.runAI(model, "Structure-Strict Quiz Generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
@@ -308,7 +312,16 @@ Treat the ADVISOR name and ROOM NUMBER above as absolute facts. Do not say you d
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		// FIX: Removed letter mapping prefixing to stop double letters
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
+I've generated 5 questions based on the verified dates. Type **'stop quiz'** at any time to reset.
+
+---\n### 📝 Question 1 of 5
+**${firstQ.q}**
+
+${firstQ.options.join('\n')}
+
+*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
