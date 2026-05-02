@@ -327,6 +327,15 @@
 					}
 
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins | Senior Solutions Engineer";
+					
+					// --- THEME SYNC LOGIC ---
+					// Check if "Plain Mode" is stored in the profile string
+					if (data.profile.includes("Plain Mode")) {
+						document.body.classList.remove('theme-fancy');
+					} else {
+						document.body.classList.add('theme-fancy');
+					}
+
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
 					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
