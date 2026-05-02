@@ -84,12 +84,7 @@ export class ChatSession extends DurableObject<Env> {
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01";
-			body = {
-				model: model,
-				system: systemPrompt,
-				messages: chatMessages,
-				max_tokens: 2048
-			};
+			body = { model: model, system: systemPrompt, messages: chatMessages, max_tokens: 2048 };
 		} else {
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
@@ -101,9 +96,7 @@ export class ChatSession extends DurableObject<Env> {
 			const errTxt = await res.text();
 			throw new Error(`AI Gateway error (${res.status}): ${errTxt}`); 
 		}
-		
 		const data: any = await res.json();
-		
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.toLowerCase().includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
@@ -111,14 +104,22 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const enhancedQuery = `${query} April 2026 current facts results scores`;
+			// FIX: Inject Dynamic Current Date to prevent hallucinating old Game 7 schedules
+			const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+			const enhancedQuery = `${query} Current results for ${today}`;
+			
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: enhancedQuery, search_depth: "advanced", max_results: 5 })
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: enhancedQuery, 
+					search_depth: "advanced", 
+					max_results: 5 
+				})
 			});
 			const data: any = await res.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live web data found.";
+			return `CURRENT DATE: ${today}\n\n` + (data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live web data found.");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -142,9 +143,7 @@ export class ChatSession extends DurableObject<Env> {
 					metadata: { text: content, segment: "personal", filename: file.name }
 				}]);
 				return new Response(JSON.stringify({ success: true, key }), { headers });
-			} catch (e: any) {
-				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
-			}
+			} catch (e: any) { return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); }
 		}
 
 		if (url.pathname === "/api/profile") {
@@ -153,7 +152,6 @@ export class ChatSession extends DurableObject<Env> {
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
-			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
@@ -251,17 +249,14 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				
 				if (activeMode === "uva" && lowMsg.includes("celtics")) {
 					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now. Would you like to check for UVA basketball scores or news from the Lawn instead?";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- REFINED INTERNET SEARCH TRIGGER ---
 				let liveContext = "";
 				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play next", "schedule", "standings"];
-				
 				const isUvaSpecificSearch = lowMsg.includes("uva") || lowMsg.includes("virginia") || lowMsg.includes("academic");
 				if ((activeMode === "personal" || (activeMode === "uva" && isUvaSpecificSearch)) && internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
@@ -286,7 +281,6 @@ If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEV
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "System Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
