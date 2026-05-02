@@ -40,6 +40,12 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
 - LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
 - UI PREFERENCES: Supports "Fancy Mode" (full graphics/animations) and "Plain Mode" (text-only/minimalist).
+
+COZBY & COMPANY TAX RECORDS (INTERNAL):
+- BASE FEE: $375 (includes 1st hour).
+- HOURLY RATE: $275 thereafter.
+- DEADLINE: Friday, March 13, 2026.
+- ELECTRONIC MANDATE: After Sept 30, 2025.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -149,7 +155,6 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- HARD-CODED UI PREFERENCE OVERRIDES ---
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
 					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. You'll see my full UI animations and graphics again. Just refresh the page to see the update!";
@@ -239,7 +244,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 
 **Capabilities in this mode:**
 - **Real-Time Search**: Global news, stocks, and sports via Tavily Search.
-- **Cross-Document Access**: Accessing your tax files and personal notes.
+- **Cross-Document Access**: Accessing your tax files (like Cozby & Company) and personal notes.
 - **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -270,14 +275,14 @@ You are Jolene, Scott Robbins' dedicated personal AI assistant.
 1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
 3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally.
-4. AUTHORITY: Use the PERSONAL_TRUTH and RETRIEVED context as absolute truth.
+4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact. If a question is about fees, dates, or technical specs, ONLY use the provided contexts.
 
 Mode: ${activeMode.toUpperCase()}.
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
 CALENDAR: ${CALENDAR_TRUTH}
 SYLLABUS: ${SYLLABUS_TRUTH}
 LIVE_WEB: ${liveContext}
-RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
+RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
