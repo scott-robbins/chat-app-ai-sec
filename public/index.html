@@ -304,15 +304,22 @@
 				updateDashboard();
 			};
 
-			async function deleteFile(filename) {
-				if (!confirm(`Permanently remove ${filename}?`)) return;
+			async function deleteFile(fullKey) {
+				if (!confirm(`Permanently remove ${fullKey}?`)) return;
 				try {
+					// FIX: Pass the full key (path) to ensure the Worker finds it in R2
 					const res = await fetch('/api/delete', {
 						method: 'DELETE',
 						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ filename })
+						body: JSON.stringify({ filename: fullKey })
 					});
-					if (res.ok) updateDashboard();
+					if (res.ok) {
+						appendMessage('system-indicator', `System: Deleted ${fullKey}`);
+						updateDashboard();
+					} else {
+						const err = await res.text();
+						console.error("Deletion failed:", err);
+					}
 				} catch (e) { console.error("Deletion failed", e); }
 			}
 
@@ -328,8 +335,6 @@
 
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins | Senior Solutions Engineer";
 					
-					// --- THEME SYNC LOGIC ---
-					// Check if "Plain Mode" is stored in the profile string
 					if (data.profile.includes("Plain Mode")) {
 						document.body.classList.remove('theme-fancy');
 					} else {
