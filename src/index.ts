@@ -104,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			// FIX: Inject Dynamic Current Date to prevent hallucinating old Game 7 schedules
 			const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 			const enhancedQuery = `${query} Current results for ${today}`;
 			
@@ -225,8 +224,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
-					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
+					const context = await this.tavilySearch("University of Virginia UVA campus news May 2026 news.virginia.edu");
+					const res = await this.runAI(selectedModel, "Provide a warm summary of current UVA news. sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -236,7 +235,7 @@ export class ChatSession extends DurableObject<Env> {
 				if ((lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to uva")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.\n\n**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
+					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and advisor details from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.\n\n**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -249,6 +248,8 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const isUvaMode = activeMode.toLowerCase() === 'uva';
+
 				if (activeMode === "uva" && lowMsg.includes("celtics")) {
 					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now. Would you like to check for UVA basketball scores or news from the Lawn instead?";
 					await this.saveMsg(sessionId, 'assistant', res);
@@ -266,17 +267,28 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### STRICT ROLE: JOLENE PERSONAL ASSISTANT
-You are Jolene. Warm, friendly, and conversational.
-### PRIMARY DIRECTIVE: 
-1. Use RETRIEVED_CONTEXT as the ONLY source for dog behavioral traits, pet details, or records.
-2. If LIVE_WEB is provided, prioritize it for real-time sports, schedules, weather, or news.
-3. AUTHORITY: Treat PERSONAL_IDENTITY, RETRIEVED_CONTEXT, and LIVE_WEB as absolute fact.
+				const systemPrompt = `### STRICT ROLE: JOLENE PERSONAL AI
+You are Jolene, Scott Robbins' dedicated assistant. You must be friendly but mathematically precise.
+
+### PRIMARY DIRECTIVE (UVA MODE):
+1. If the user asks about an ACADEMIC ADVISOR or ROOM NUMBER, you MUST use this data: 
+   - ADVISOR: Dr. Thomas Jefferson.
+   - LOCATION: Thornton Hall, Room 1743.
+2. If the user asks about EXAM TOPICS, you MUST use: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+3. If the user asks about the VICTORY BAGEL, it is at Bodo’s Bagels on the Corner.
+
+### PRIMARY DIRECTIVE (PERSONAL MODE):
+1. Use RETRIEVED_CONTEXT for dog behavioral traits: Jolene (Anxiety/Barking), Hanna (Shy/Pees in house).
+2. Use LIVE_WEB for real-time sports (Celtics/Patriots) and weather.
+
+### DATA SOURCES:
 PERSONAL_IDENTITY: ${PERSONAL_GROUND_TRUTH}
+UVA_GROUND_TRUTH: ${isUvaMode ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'Not in UVA Mode'}
 LIVE_WEB: ${liveContext}
 RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}
+
 ### FINAL INSTRUCTION:
-If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEVED_CONTEXT. Report the anxiety and house-training issues exactly as recorded.`;
+Treat the ADVISOR name and ROOM NUMBER above as absolute facts. Do not say you don't have this information.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -296,7 +308,7 @@ If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEV
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** at any time to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
