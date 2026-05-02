@@ -127,27 +127,20 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- NEW UPLOAD/MEMORIZE HANDLER ---
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
 				const file = formData.get("file") as File;
 				if (!file) return new Response("No file", { status: 400 });
-
 				const key = `uploads/${sessionId}/${file.name}`;
 				const content = await file.text();
-				
-				// Store in R2
 				await this.env.DOCUMENTS.put(key, content);
-
-				// Vectorize the content
 				const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [content.substring(0, 3000)] });
 				await this.env.VECTORIZE.insert([{
 					id: `${sessionId}-${file.name}`,
 					values: embedding.data[0],
 					metadata: { text: content, segment: "personal", filename: file.name }
 				}]);
-
 				return new Response(JSON.stringify({ success: true, key }), { headers });
 			} catch (e: any) {
 				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
@@ -182,7 +175,6 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- HARD-CODED UI PREFERENCE OVERRIDES ---
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
 					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. Refresh the page to see the update!";
@@ -210,13 +202,10 @@ export class ChatSession extends DurableObject<Env> {
 						let score = await this.ctx.storage.get("quiz_score") as number || 0;
 						const currentQ = pool[qIdx];
 						const userChoice = answerMatch[0].toUpperCase();
-						
 						const isCorrect = userChoice === currentQ.hidden_answer.toUpperCase() || lowMsg.includes(currentQ.hidden_answer.toLowerCase());
 						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
-						
 						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
 						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly and concisely.", `Question: ${currentQ.q}\nCorrect Answer Info: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
-
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
 							const nextQ = pool[qIdx + 1];
@@ -229,7 +218,6 @@ export class ChatSession extends DurableObject<Env> {
 							await this.ctx.storage.delete("session_state");
 							await this.ctx.storage.delete("current_q_idx");
 							await this.ctx.storage.delete("quiz_score");
-							
 							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
 							await this.saveMsg(sessionId, 'assistant', final);
 							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
@@ -240,7 +228,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
+					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -250,28 +238,14 @@ export class ChatSession extends DurableObject<Env> {
 				if ((lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to uva")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated
-I am now focused on your University of Virginia materials and campus life.
-
-**Capabilities in this mode:**
-- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
-- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
-- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
-
-**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
+					const res = `### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.\n\n**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if ((lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to personal")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
-
-**Capabilities in this mode:**
-- **Real-Time Search**: Global news, stocks, and sports via Tavily Search.
-- **Cross-Document Access**: Accessing your tax files (like Cozby & Company) and personal notes.
-- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
+					const res = `### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**Capabilities in this mode:**\n- **Real-Time Search**: Global news, stocks, and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files (like Cozby & Company) and personal notes.\n- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -284,8 +258,9 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- REFINED INTERNET SEARCH TRIGGER ---
 				let liveContext = "";
-				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
+				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play next", "schedule", "standings"];
 				
 				const isUvaSpecificSearch = lowMsg.includes("uva") || lowMsg.includes("virginia") || lowMsg.includes("academic");
 				if ((activeMode === "personal" || (activeMode === "uva" && isUvaSpecificSearch)) && internetKeywords.some(kw => lowMsg.includes(kw))) {
@@ -298,21 +273,15 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				
 				const systemPrompt = `### STRICT ROLE: JOLENE PERSONAL ASSISTANT
 You are Jolene. Warm, friendly, and conversational.
-
 ### PRIMARY DIRECTIVE: 
-1. Use RETRIEVED_CONTEXT as the ONLY source for dog behavioral traits. 
-2. EXTREME PRECISION REQUIRED: Jolene and Hanna have DIFFERENT behaviors. Do not mix them up.
-3. ABSOLUTE TRUTH FROM RECORDS: 
-   - JOLENE (Dog): Barks frequently and has ANXIETY.
-   - HANNA (Dog): Very shy and PEES IN THE HOUSE. 
-   - NEVER attribute house-peeing to Jolene.
-4. IDENTITY: Renee is the wife. Bryana is the daughter. Grandchildren are Callan and Josie.
-
+1. Use RETRIEVED_CONTEXT as the ONLY source for dog behavioral traits, pet details, or records.
+2. If LIVE_WEB is provided, prioritize it for real-time sports, schedules, weather, or news.
+3. AUTHORITY: Treat PERSONAL_IDENTITY, RETRIEVED_CONTEXT, and LIVE_WEB as absolute fact.
 PERSONAL_IDENTITY: ${PERSONAL_GROUND_TRUTH}
-RETRIEVED_CONTEXT: ${docContext.substring(0, 5000)}
-
+LIVE_WEB: ${liveContext}
+RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}
 ### FINAL INSTRUCTION:
-If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEVED_CONTEXT. Report the exact anxiety for Jolene and the exact house-training issues for Hanna as they are written.`;
+If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEVED_CONTEXT. Report the anxiety and house-training issues exactly as recorded.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -333,15 +302,7 @@ If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEV
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
-I've generated 5 questions based on the verified dates. Type **'stop quiz'** at any time to reset.
-
----\n### 📝 Question 1 of 5
-**${firstQ.q}**
-
-${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}
-
-*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\nI've generated 5 questions based on the verified dates. Type **'stop quiz'** at any time to reset.\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
