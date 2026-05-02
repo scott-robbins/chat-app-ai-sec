@@ -194,7 +194,8 @@ export class ChatSession extends DurableObject<Env> {
 						if (qIdx + 1 < pool.length) {
 							await this.ctx.storage.put("current_q_idx", qIdx + 1);
 							const nextQ = pool[qIdx + 1];
-							const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
+							// FIX: Removed index mapping to stop double letters (A. A. August...)
+							const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
 							const combined = `${feedback}\n\n${explanation}${nextUi}`;
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
@@ -204,7 +205,7 @@ export class ChatSession extends DurableObject<Env> {
 							await this.ctx.storage.delete("current_q_idx");
 							await this.ctx.storage.delete("quiz_score");
 							
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
+							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset. How else can I assist you today, Scott?`;
 							await this.saveMsg(sessionId, 'assistant', final);
 							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 						}
@@ -303,13 +304,14 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
+		// FIX: Removed letter mapping prefixing to stop double letters (A. A. August...)
 		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
 I've generated 5 questions based on the verified dates. Type **'stop quiz'** at any time to reset.
 
 ---\n### 📝 Question 1 of 5
 **${firstQ.q}**
 
-${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}
+${firstQ.options.join('\n')}
 
 *Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
