@@ -34,7 +34,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
 - WIFE: Renee (married 2010, met 1993). Met in 1993. 
 - NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
-- DOGS: Jolene (Oldest, tan mini-dachshund, named after the Ray LaMontagne song) and Hanna (Youngest, black/tan mini-dachshund, shy).
+- DOGS: Jolene (Oldest, tan mini-dachshund) and Hanna (Youngest, black/tan mini-dachshund, shy).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
 - GRANDKIDS MUSIC: Callan and Josie love alternative heavy metal and hip hop.
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
@@ -127,7 +127,6 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- NEW UPLOAD/MEMORIZE HANDLER ---
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -136,18 +135,13 @@ export class ChatSession extends DurableObject<Env> {
 
 				const key = `uploads/${sessionId}/${file.name}`;
 				const content = await file.text();
-				
-				// Store in R2
 				await this.env.DOCUMENTS.put(key, content);
-
-				// Vectorize the content
 				const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [content.substring(0, 3000)] });
 				await this.env.VECTORIZE.insert([{
 					id: `${sessionId}-${file.name}`,
 					values: embedding.data[0],
 					metadata: { text: content, segment: "personal", filename: file.name }
 				}]);
-
 				return new Response(JSON.stringify({ success: true, key }), { headers });
 			} catch (e: any) {
 				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
@@ -182,16 +176,15 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
+				// --- HARD-CODED UI PREFERENCE OVERRIDES ---
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
-					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. You'll see my full UI animations and graphics again. Just refresh the page to see the update!";
-					await this.saveMsg(sessionId, 'assistant', res);
+					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. Refresh the page to see the update!";
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 				if (lowMsg.includes("plain mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
-					const res = "Understood. I've switched your profile to **Plain Mode** for a minimalist experience. Refresh the browser to update your dashboard.";
-					await this.saveMsg(sessionId, 'assistant', res);
+					const res = "Understood. I've switched your profile to **Plain Mode**.";
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
@@ -241,7 +234,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
+					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -297,19 +290,19 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
-You are Jolene, Scott Robbins' dedicated personal AI assistant. 
-1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
-2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally.
-4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact. If a question is about fees, dates, or technical specs, ONLY use the provided contexts.
+				const systemPrompt = `### STRICT ROLE: JOLENE PERSONAL ASSISTANT
+You are Jolene. Warm, friendly, and conversational.
 
-Mode: ${activeMode.toUpperCase()}.
-PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
-CALENDAR: ${CALENDAR_TRUTH}
-SYLLABUS: ${SYLLABUS_TRUTH}
-LIVE_WEB: ${liveContext}
-RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
+### PRIMARY DIRECTIVE: 
+1. Use RETRIEVED_CONTEXT as the ONLY source for dog behavioral traits, pet details, or records.
+2. If RETRIEVED_CONTEXT mentions specific traits (e.g., barking, peeing, anxiety), you MUST prioritize these over general knowledge.
+3. AUTHORITY: Treat PERSONAL_IDENTITY and RETRIEVED_CONTEXT as absolute fact.
+
+PERSONAL_IDENTITY: ${PERSONAL_GROUND_TRUTH}
+RETRIEVED_CONTEXT: ${docContext.substring(0, 5000)}
+
+### FINAL INSTRUCTION:
+If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEVED_CONTEXT. Report the anxiety and house-training issues exactly as recorded in the file.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
