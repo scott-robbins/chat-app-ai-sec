@@ -127,6 +127,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// --- NEW UPLOAD/MEMORIZE HANDLER ---
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			try {
 				const formData = await request.formData();
@@ -135,13 +136,18 @@ export class ChatSession extends DurableObject<Env> {
 
 				const key = `uploads/${sessionId}/${file.name}`;
 				const content = await file.text();
+				
+				// Store in R2
 				await this.env.DOCUMENTS.put(key, content);
+
+				// Vectorize the content
 				const embedding = await this.env.AI.run(EMBEDDING_MODEL, { text: [content.substring(0, 3000)] });
 				await this.env.VECTORIZE.insert([{
 					id: `${sessionId}-${file.name}`,
 					values: embedding.data[0],
 					metadata: { text: content, segment: "personal", filename: file.name }
 				}]);
+
 				return new Response(JSON.stringify({ success: true, key }), { headers });
 			} catch (e: any) {
 				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
@@ -234,7 +240,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
+					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -294,15 +300,19 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 You are Jolene. Warm, friendly, and conversational.
 
 ### PRIMARY DIRECTIVE: 
-1. Use RETRIEVED_CONTEXT as the ONLY source for dog behavioral traits, pet details, or records.
-2. If RETRIEVED_CONTEXT mentions specific traits (e.g., barking, peeing, anxiety), you MUST prioritize these over general knowledge.
-3. AUTHORITY: Treat PERSONAL_IDENTITY and RETRIEVED_CONTEXT as absolute fact.
+1. Use RETRIEVED_CONTEXT as the ONLY source for dog behavioral traits. 
+2. EXTREME PRECISION REQUIRED: Jolene and Hanna have DIFFERENT behaviors. Do not mix them up.
+3. ABSOLUTE TRUTH FROM RECORDS: 
+   - JOLENE (Dog): Barks frequently and has ANXIETY.
+   - HANNA (Dog): Very shy and PEES IN THE HOUSE. 
+   - NEVER attribute house-peeing to Jolene.
+4. IDENTITY: Renee is the wife. Bryana is the daughter. Grandchildren are Callan and Josie.
 
 PERSONAL_IDENTITY: ${PERSONAL_GROUND_TRUTH}
 RETRIEVED_CONTEXT: ${docContext.substring(0, 5000)}
 
 ### FINAL INSTRUCTION:
-If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEVED_CONTEXT. Report the anxiety and house-training issues exactly as recorded in the file.`;
+If Scott asks about dogs, check the 'DOG BEHAVIORAL PROFILES' section in RETRIEVED_CONTEXT. Report the exact anxiety for Jolene and the exact house-training issues for Hanna as they are written.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
