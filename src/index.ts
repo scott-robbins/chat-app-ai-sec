@@ -39,6 +39,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - GRANDKIDS MUSIC: Callan and Josie love alternative heavy metal and hip hop.
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
 - LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
+- UI PREFERENCES: Supports "Fancy Mode" (full graphics/animations) and "Plain Mode" (text-only/minimalist).
 
 COZBY & COMPANY TAX RECORDS (2025):
 - BASE FEE: $375 (includes 1st hour).
@@ -128,11 +129,14 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
+			
+			// UI UPDATE: Returns name, title, AND current UI mode to Command Center
 			return new Response(JSON.stringify({
-				profile: "Scott E Robbins | Senior Solutions Engineer",
+				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
@@ -151,6 +155,20 @@ export class ChatSession extends DurableObject<Env> {
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
+
+				// --- UI VIEW PREFERENCE TRIGGER ---
+				if (lowMsg.includes("fancy mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
+					const res = "Of course, Scott! I've updated your profile. **Fancy Mode** is now active, so you'll see all my enhanced UI features and animations. Refresh the page to see the update in the Command Center!";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+				if (lowMsg.includes("plain mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
+					const res = "Understood. I've switched your profile to **Plain Mode** for a cleaner, minimalist experience. Just refresh the browser to update your dashboard.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
 
 				if (lowMsg === "stop quiz" || lowMsg.includes("stop the quiz")) {
 					await this.ctx.storage.delete("quiz_pool");
@@ -183,7 +201,6 @@ export class ChatSession extends DurableObject<Env> {
 							await this.saveMsg(sessionId, 'assistant', combined);
 							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 						} else {
-							// FIX: Explicitly clear storage keys so Command Center (api/profile) sees ActiveQuiz: false immediately
 							await this.ctx.storage.delete("quiz_pool");
 							await this.ctx.storage.delete("session_state");
 							await this.ctx.storage.delete("current_q_idx");
