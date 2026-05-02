@@ -191,8 +191,10 @@
 					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
 					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
 					<div id="kv-mode-container" style="margin-top: 10px; font-size: 0.7rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
-						<span style="color: var(--text-light)">Session Context:</span> 
-						<span id="kv-mode-display" style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+							<span style="color: var(--text-light)">Session Context:</span> 
+							<span id="kv-mode-display" style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
+						</div>
 					</div>
 				</div>
 
@@ -248,7 +250,6 @@
 			const modelSelector = document.getElementById('model-selector');
 			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
 
-			// UI INDICATOR FOR MODEL SWITCH
 			modelSelector.onchange = () => {
 				localStorage.setItem('jolene_selected_model', modelSelector.value);
 				const modelName = modelSelector.options[modelSelector.selectedIndex].text;
