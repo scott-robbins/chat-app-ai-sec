@@ -40,12 +40,6 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
 - LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
 - UI PREFERENCES: Supports "Fancy Mode" (full graphics/animations) and "Plain Mode" (text-only/minimalist).
-
-COZBY & COMPANY TAX RECORDS (2025):
-- BASE FEE: $375 (includes 1st hour).
-- HOURLY RATE: $275 thereafter.
-- DEADLINE: Friday, March 13, 2026.
-- ELECTRONIC MANDATE: After Sept 30, 2025.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -134,7 +128,6 @@ export class ChatSession extends DurableObject<Env> {
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
 			
-			// UI UPDATE: Returns name, title, AND current UI mode to Command Center
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
@@ -156,16 +149,16 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- UI VIEW PREFERENCE TRIGGER ---
+				// --- HARD-CODED UI PREFERENCE OVERRIDES ---
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
-					const res = "Of course, Scott! I've updated your profile. **Fancy Mode** is now active, so you'll see all my enhanced UI features and animations. Refresh the page to see the update in the Command Center!";
+					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. You'll see my full UI animations and graphics again. Just refresh the page to see the update!";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 				if (lowMsg.includes("plain mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
-					const res = "Understood. I've switched your profile to **Plain Mode** for a cleaner, minimalist experience. Just refresh the browser to update your dashboard.";
+					const res = "Understood. I've switched your profile to **Plain Mode** for a minimalist experience. Refresh the browser to update your dashboard.";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -216,7 +209,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
 					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Do NOT use placeholders like [Your Name]. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
+					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -246,7 +239,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 
 **Capabilities in this mode:**
 - **Real-Time Search**: Global news, stocks, and sports via Tavily Search.
-- **Cross-Document Access**: Accessing your tax files (like Cozby & Company) and personal notes.
+- **Cross-Document Access**: Accessing your tax files and personal notes.
 - **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -255,7 +248,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				
 				if (activeMode === "uva" && lowMsg.includes("celtics")) {
-					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now to ensure you stay on track for Finals Weekend. Would you like to check for UVA basketball scores or news from the Lawn instead?";
+					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now. Would you like to check for UVA basketball scores or news from the Lawn instead?";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -275,8 +268,8 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
 You are Jolene, Scott Robbins' dedicated personal AI assistant. 
 1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
-2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie. Callan and Josie are GRANDCHILDREN, not children.
-3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally. Extract specific scores or prices.
+2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
+3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally.
 4. AUTHORITY: Use the PERSONAL_TRUTH and RETRIEVED context as absolute truth.
 
 Mode: ${activeMode.toUpperCase()}.
@@ -296,7 +289,7 @@ RETRIEVED DOC CONTEXT: ${docContext.substring(0, 4500)}`;
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. \nFORMAT: Return raw JSON array: [{"q":"Question?","options":["A. Choice","B. Choice","C. Choice","D. Choice"],"hidden_answer":"A"}]. The hidden_answer MUST be exactly one character: A, B, C, or D.`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Academic Calendar. \nFORMAT: Return raw JSON array: [{"q":"Question?","options":["A. Choice","B. Choice","C. Choice","D. Choice"],"hidden_answer":"A"}].`;
 		const raw = await this.runAI(model, "Structure-Strict Quiz Generator.", prompt);
 		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
 		const pool = JSON.parse(jsonStr);
