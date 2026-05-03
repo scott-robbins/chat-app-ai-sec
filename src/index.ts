@@ -2,7 +2,7 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-const EMBEDDING_MODEL = "@cf/baai/get-base-en-v1.5";
+const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const CALENDAR_TRUTH = `
 UVA 2026-2027 ACADEMIC CALENDAR:
@@ -33,7 +33,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - FAMILY HIERARCHY: Only child Bryana. Grandchildren Callan and Josie. Wife: Renee.
 - NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest mini-dachshund) and Hanna (Youngest mini-dachshund).
-- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC.
+- SPORTS TEAMS: New England Patriots and MMA/UFC.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -86,10 +86,14 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} stock price and news results for ${today}`, search_depth: "advanced" })
+				body: JSON.stringify({ 
+                    api_key: this.env.TAVILY_API_KEY || "", 
+                    query: `${query} Friday closing stock price and latest news results for May 2026`, 
+                    search_depth: "advanced" 
+                })
 			});
 			const data: any = await res.json();
-			return `CURRENT_DATE: ${today} (Note: Markets are closed on weekends; prioritize Friday's close data for stocks).\n\n` + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
+			return `CURRENT_DATE: ${today}. NOTE: It is the weekend; use Friday's market close data for stocks.\n\n` + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -108,4 +112,113 @@ export class ChatSession extends DurableObject<Env> {
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.
+				knowledgeAssets: storage.objects.map(o => o.key),
+				mode: activeMode,
+				activeQuiz: !!activePool,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
+		}
+
+		if (url.pathname === "/api/chat" && request.method === "POST") {
+			try {
+				const body = await request.json() as any;
+				const userMsg = body.messages[body.messages.length - 1].content;
+				const selectedModel = body.model || DEFAULT_CF_MODEL;
+				const lowMsg = userMsg.toLowerCase().trim();
+				await this.saveMsg(sessionId, 'user', userMsg);
+				const sessionState = await this.ctx.storage.get("session_state");
+
+				if (lowMsg.includes("fancy mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
+					const res = "I've updated your profile to **Fancy Mode**. Refresh to see the update!";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+				if (lowMsg.includes("plain mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
+					const res = "I've switched your profile to **Plain Mode**.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+				if (lowMsg.includes("stop quiz") || lowMsg === "reset") {
+					await this.ctx.storage.delete("quiz_pool");
+					await this.ctx.storage.delete("session_state");
+					return new Response(`data: ${JSON.stringify({ response: "### 🛑 Reset Successful" })}\n\ndata: [DONE]\n\n`);
+				}
+				if (sessionState === "WAITING_FOR_ANSWER") {
+					const pool = await this.ctx.storage.get("quiz_pool") as any[];
+					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
+					const currentQ = pool[qIdx];
+					const isCorrect = lowMsg.startsWith(currentQ.hidden_answer.toLowerCase());
+					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** Answer: ${currentQ.hidden_answer}`;
+					if (qIdx + 1 < pool.length) {
+						await this.ctx.storage.put("current_q_idx", qIdx + 1);
+						const next = pool[qIdx + 1];
+						const res = `${feedback}\n\n### Question ${qIdx + 2}\n${next.q}\n\n${next.options.join('\n')}`;
+						await this.saveMsg(sessionId, 'assistant', res);
+						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+					} else {
+						await this.ctx.storage.delete("quiz_pool");
+						await this.ctx.storage.delete("session_state");
+						const res = `${feedback}\n\n### 🏁 Quiz Complete!`;
+						await this.saveMsg(sessionId, 'assistant', res);
+						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
+
+				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
+				let liveContext = "";
+				const searchKeywords = ["weather", "stock", "price", "news", "latest", "status"];
+				if (searchKeywords.some(kw => lowMsg.includes(kw))) {
+					liveContext = await this.tavilySearch(userMsg);
+				}
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
+				
+				const systemPrompt = `### STRICT PERSONA: JOLENE
+You are Scott's dedicated assistant. Warm, concise, and professional.
+- NAMESAKE: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song "Jolene" from the movie "THE TOWN." 
+- **FORBIDDEN**: DO NOT mention Dolly Parton. Only reference Ray LaMontagne.
+
+### OPERATIONAL RULES:
+1. BREVITY: Be concise. Avoid bullet points for simple responses.
+2. STATED FACTS: Base Fee $375, Hourly $275, Deadline Friday March 13, 2026.
+3. DOGS: Name Jolene and Hanna during walks.
+
+### CONTEXT:
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
+UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
+LIVE_WEB: ${liveContext}
+DOCUMENTS: ${docContext.substring(0, 4500)}`;
+
+				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
+				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, historyRes.results?.reverse() || []);
+				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		}
+		return new Response("OK");
+	}
+
+	async initQuizPool(sessionId: string, model: string) {
+		const prompt = `Generate 5 MCQs about the UVA Calendar. Return ONLY raw JSON array: [{"q":"Q?","options":["A. Choice","B. Choice"],"hidden_answer":"A"}]`;
+		const raw = await this.runAI(model, "JSON ONLY.", prompt);
+		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
+		await this.ctx.storage.put("quiz_pool", pool);
+		await this.ctx.storage.put("current_q_idx", 0);
+		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
+		const res = `### 🎓 UVA Quiz Started\n${pool[0].q}\n\n${pool[0].options.join('\n')}`;
+		await this.saveMsg(sessionId, 'assistant', res);
+		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
