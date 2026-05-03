@@ -81,7 +81,6 @@ export class ChatSession extends DurableObject<Env> {
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 		const data: any = await res.json();
 		
-		// FIXED: Restored model-specific response extraction
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.toLowerCase().includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
@@ -133,7 +132,6 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- RESTORED: KV PREFERENCE SWITCHES ---
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
 					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. Refresh the page to see the update!";
@@ -177,25 +175,26 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
 
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
 				if (lowMsg.includes("weather") || lowMsg.includes("celtics") || lowMsg.includes("play") || lowMsg.includes("schedule")) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
+				// FIX: Increased topK to 12 for better coverage of Tax Engagement Letter PDF segments
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
 You are Scott Robbins' assistant. Friendly, technical, and precise.
 
 ### CORE IDENTITY:
-- MANDATORY: When asked about your name, you MUST mention Scott and Renee named the dog Jolene after the Ray LaMontagne song heard in the movie "THE TOWN."
+- MANDATORY: Mention Scott and Renee named the dog Jolene after the Ray LaMontagne song heard in the movie "THE TOWN" when asked about your namesake.
 
 ### OPERATIONAL DIRECTIVES:
 1. DOGS: Always name Jolene and Hanna when discussing walks or weather.
-2. MODE SEPARATION: In PERSONAL mode, do NOT mention UVA or Syllabus. In UVA mode, do NOT mention Celtics.
+2. MODE SEPARATION: In PERSONAL mode, do NOT mention UVA. In UVA mode, do NOT mention Celtics.
 3. JOURNAL: Use history to recall session-specific notes.
 
 ### DATA SOURCES:
@@ -203,7 +202,7 @@ MODE: ${activeMode.toUpperCase()}
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
 UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
 LIVE_WEB: ${liveContext}
-RETRIEVED: ${docContext.substring(0, 3000)}`;
+RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, historyRes.results?.reverse() || []);
@@ -218,7 +217,8 @@ RETRIEVED: ${docContext.substring(0, 3000)}`;
 	async initQuizPool(sessionId: string, model: string) {
 		const prompt = `Generate 5 MCQs about the UVA Calendar. Return ONLY raw JSON array: [{"q":"Q?","options":["A. Choice","B. Choice"],"hidden_answer":"A"}]`;
 		const raw = await this.runAI(model, "JSON ONLY.", prompt);
-		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
+		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
+		const pool = JSON.parse(jsonStr);
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
