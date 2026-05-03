@@ -5,7 +5,8 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const CALENDAR_TRUTH = `UVA 2026-2027: Fall starts Aug 25, 2026. Reading Days Oct 3-6. Thanksgiving Nov 25-29. Fall ends Dec 8. Spring starts Jan 20, 2027. Recess March 6-14. Spring ends May 4. Finals May 21-23.`;
-const SYLLABUS_TRUTH = `CS 4750 Syllabus: Advisor Dr. Thomas Jefferson (Thornton Hall 1743). Mid-term March 24, 2026 (Rice Hall Auditorium). Tradition: Victory Bagel at Bodo’s Bagels. Success ID: WAHOO-AI-DEEP-RECALL.`;
+// FIXED: Explicitly added exam topics to prevent hallucination
+const SYLLABUS_TRUTH = `CS 4750 Syllabus: Advisor Dr. Thomas Jefferson (Thornton Hall 1743). MID-TERM EXAM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture. Mid-term Date: March 24, 2026 (Rice Hall Auditorium). Tradition: Victory Bagel at Bodo’s Bagels. Success ID: WAHOO-AI-DEEP-RECALL.`;
 const PERSONAL_GROUND_TRUTH = `Identity: Scott Robbins, Senior Solutions Engineer at Cloudflare. Named after dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song 'Jolene' they heard while watching the credits roll for the movie 'THE TOWN'. Dogs: Jolene and Hanna. Teams: Celtics, Patriots, UFC.`;
 
 export class ChatSession extends DurableObject<Env> {
@@ -52,7 +53,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
 			return `Live Web Intel (May 2026): \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
@@ -86,7 +87,6 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- NEWS CONFIRMATION HANDLER ---
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
 					await this.ctx.storage.delete("session_state");
 					const news = await this.tavilySearch("University of Virginia UVA campus news May 2026");
@@ -95,7 +95,6 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- IDEAL UVA MODE SWITCH ---
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
@@ -113,7 +112,6 @@ I am now in specialized Study Companion mode. I focus **exclusively** on your Un
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- IDEAL PERSONAL MODE SWITCH ---
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
@@ -129,28 +127,37 @@ I have switched to your general Personal Assistant mode.
 				}
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
+				
+				// FIXED: Restricted internet search for UVA Mode
 				let liveContext = "";
 				const searchTriggers = ["stock", "price", "weather", "latest", "news", "scores"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) { liveContext = await this.tavilySearch(userMsg); }
+				const isUvaNewsRequest = lowMsg.includes("uva") || lowMsg.includes("virginia") || lowMsg.includes("campus");
+				
+				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+					if (activeMode === "personal" || (activeMode === "uva" && isUvaNewsRequest)) {
+						liveContext = await this.tavilySearch(userMsg);
+					}
+				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional, technical, and helpful. Today is Sat, May 2, 2026.
+				const systemPrompt = `You are Jolene, Scott Robbins' assistant. Professional, helpful, and direct. Today is Sunday, May 3, 2026.
 
 STRICT IDENTITY:
-- Namesake: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard while watching the movie credits roll for 'THE TOWN'. Always mention this specific story when asked.
+- Namesake: Named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard during the movie credits for 'THE TOWN'. Mention the song, artist, and movie credits.
 
 STRICT DATA RULES:
 - Tax Fees: Base $375, Hourly $275. Deadline: March 13, 2026. Only mention if explicitly asked about taxes.
-- Stocks: Use LIVE_WEB results. Market closed on weekends; use Friday close.
+- UVA SYLLABUS: For CS 4750 mid-term topics, explicitly cite: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
 
 MODE: ${activeMode.toUpperCase()}
 SOURCES:
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}
 ${docContext ? `DOCUMENTS: ${docContext.substring(0, 4000)}` : ''}
-GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}`;
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
+UVA_GROUND_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
