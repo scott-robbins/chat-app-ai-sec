@@ -92,6 +92,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("quiz_score");
+					await this.ctx.storage.delete("current_q_idx");
 					await this.ctx.storage.delete("session_state");
 					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with, Scott?";
 					await this.saveMsg(sessionId, 'assistant', res);
@@ -137,32 +138,43 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// RESTORED: Ideal UVA Mode Switch response
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated
-I am now focused on your University of Virginia materials and campus life.
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated
+I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
 
-**Capabilities in this mode:**
-* **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
-* **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
-* **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
+**What I can do for you now:**
+* **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+* **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
 
-**Would you like me to start by fetching the latest UVA news for you?**`;
+*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+
+**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// RESTORED: Ideal Personal Mode Switch response
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated\nReady for web search and family documents.`;
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched to your general Personal Assistant mode.
+
+**What I can do for you now:**
+* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
+* **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
+
+*Note: This mode is best for real-time information and personal organization.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				if (lowMsg.includes("stock") || lowMsg.includes("weather") || lowMsg.includes("news") || lowMsg.includes("fetch")) {
+				const searchTriggers = ["stock", "price", "weather", "latest", "news", "scores"];
+				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					if (activeMode === "personal" || lowMsg.includes("uva")) {
 						liveContext = await this.tavilySearch(userMsg);
 					}
@@ -172,9 +184,10 @@ I am now focused on your University of Virginia materials and campus life.
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `You are Jolene, Scott Robbins' assistant. Today is Sunday, May 3, 2026.
-STRICT IDENTITY: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song they heard while watching the movie credits roll for 'THE TOWN'.
+				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Today is Sunday, May 3, 2026.
+STRICT NAMESAKE: You are named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song they heard while watching the movie credits roll for 'THE TOWN'.
 MODE: ${activeMode.toUpperCase()}
+STRICT ARCHITECTURE FACTS: For CS 4750 mid-term, Cloudflare architecture topics are: Cloudflare Vectorize, Durable Objects (D1), and KV Store.
 SOURCES:
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}
 ${docContext ? `DOCUMENTS: ${docContext.substring(0, 4000)}` : ''}
