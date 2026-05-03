@@ -87,11 +87,11 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
-					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with?";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				if (lowMsg.includes("stop quiz") || lowMsg === "stop") { 
+					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state"); 
+					const stopRes = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with?";
+					await this.saveMsg(sessionId, 'assistant', stopRes);
+					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`); 
 				}
 
 				if (sessionState === "WAITING_FOR_ANSWER") {
@@ -143,7 +143,11 @@ I am now in specialized Study Companion mode. I focus **exclusively** on your Un
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode. Ready for real-time search and document access.`;
+I have switched to your general Personal Assistant mode.
+
+**What I can do for you now:**
+* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
+* **Cross-Document Access**: Access to personal documents (tax info, family notes).`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -155,7 +159,7 @@ I have switched to your general Personal Assistant mode. Ready for real-time sea
 					if (activeMode === "personal" || lowMsg.includes("uva")) {
 						liveContext = await this.tavilySearch(userMsg);
 					} else {
-						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. If you would like to access stock prices or scores, please let me know and we can switch back to Personal Mode!";
+						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. If you would like to access live web features, please switch back to Personal Mode!";
 						await this.saveMsg(sessionId, 'assistant', denial);
 						return new Response(`data: ${JSON.stringify({ response: denial })}\n\ndata: [DONE]\n\n`);
 					}
