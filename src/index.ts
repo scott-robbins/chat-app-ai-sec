@@ -32,13 +32,9 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY: Only child Bryana. Grandchildren Callan and Josie. Wife: Renee.
-- NAMESAKE: Jolene AI is named after Scott's dog Jolene (Ray LaMontagne song).
+- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest mini-dachshund) and Hanna (Youngest mini-dachshund).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC.
-- UI PREFERENCES: Supports "Fancy Mode" and "Plain Mode".
-
-COZBY & COMPANY TAX RECORDS (INTERNAL):
-- BASE FEE: $375. HOURLY: $275. DEADLINE: March 13, 2026.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -53,7 +49,6 @@ export class ChatSession extends DurableObject<Env> {
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
-		// Filter history to ensure we include the recent 'Journal' entries for D1 demo
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant').slice(-6);
 		
 		for (const msg of sanitizedHistory) {
@@ -62,7 +57,6 @@ export class ChatSession extends DurableObject<Env> {
 		}
 		
 		chatMessages.push({ role: "user", content: userQuery });
-
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
@@ -72,20 +66,20 @@ export class ChatSession extends DurableObject<Env> {
 			body: JSON.stringify({ messages: [{ role: "system", content: systemPrompt }, ...chatMessages] })
 		});
 		
-		if (!res.ok) throw new Error(`AI Gateway error: ${res.status}`);
 		const data: any = await res.json();
 		return data.result.response;
 	}
 
 	async tavilySearch(query: string) {
 		try {
+			const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026 results`, search_depth: "advanced", max_results: 5 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} results for ${today}`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
-			return data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "No live web data found.";
+			return `DATE: ${today}\n\n` + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -96,19 +90,13 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
-			const activePool = await this.ctx.storage.get("quiz_pool");
-			
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
+				profile: `Scott E Robbins | Senior Solutions Engineer`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: !!activePool,
-				durableObject: { id: sessionId, state: "Active" }
+				knowledgeAssets: storage.objects.map(o => o.key)
 			}), { headers });
 		}
 
@@ -121,81 +109,62 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- UI PREFERENCE AND STOP LOGIC ---
-				if (lowMsg.includes("fancy mode")) {
-					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
-					const res = "I've updated your profile to **Fancy Mode**. Refresh to see the update!";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-				if (lowMsg === "stop quiz" || lowMsg.includes("stop the quiz")) {
+				if (lowMsg.includes("stop quiz") || lowMsg === "reset") {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped. Resetting your state now, Scott.";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+					return new Response(`data: ${JSON.stringify({ response: "### 🛑 Reset Successful" })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- QUIZ HANDLER ---
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
-					const answerMatch = lowMsg.match(/^[a-d]/i);
-					if (pool && answerMatch) {
-						const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
-						let score = await this.ctx.storage.get("quiz_score") as number || 0;
-						const currentQ = pool[qIdx];
-						const userChoice = answerMatch[0].toUpperCase();
-						const isCorrect = userChoice === currentQ.hidden_answer.toUpperCase();
-						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
-						
-						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** Answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(DEFAULT_CF_MODEL, "Explain accurately.", `Q: ${currentQ.q} Facts: ${CALENDAR_TRUTH}`);
-
-						if (qIdx + 1 < pool.length) {
-							await this.ctx.storage.put("current_q_idx", qIdx + 1);
-							const nextQ = pool[qIdx + 1];
-							const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
-							const combined = `${feedback}\n\n${explanation}${nextUi}`;
-							await this.saveMsg(sessionId, 'assistant', combined);
-							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
-						} else {
-							await this.ctx.storage.delete("quiz_pool");
-							await this.ctx.storage.delete("session_state");
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset. How else can I assist you today, Scott?`;
-							await this.saveMsg(sessionId, 'assistant', final);
-							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
-						}
+					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
+					const currentQ = pool[qIdx];
+					const isCorrect = lowMsg.startsWith(currentQ.hidden_answer.toLowerCase());
+					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** Answer: ${currentQ.hidden_answer}`;
+					
+					if (qIdx + 1 < pool.length) {
+						await this.ctx.storage.put("current_q_idx", qIdx + 1);
+						const next = pool[qIdx + 1];
+						const res = `${feedback}\n\n### Question ${qIdx + 2}\n${next.q}\n\n${next.options.join('\n')}`;
+						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+					} else {
+						await this.ctx.storage.delete("quiz_pool");
+						await this.ctx.storage.delete("session_state");
+						return new Response(`data: ${JSON.stringify({ response: `${feedback}\n\n### 🏁 Quiz Complete!` })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
-				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, DEFAULT_CF_MODEL);
+				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId);
 
-				// --- RAG AND TAVILY LOGIC ---
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let liveContext = "";
-				if (lowMsg.includes("weather") || lowMsg.includes("celtics")) {
+				if (lowMsg.includes("weather") || lowMsg.includes("celtics") || lowMsg.includes("play")) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 8, filter: { segment: activeMode }, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
-You are Scott's dedicated assistant. Warm and precise.
+You are Scott Robbins' assistant. Friendly, technical, and precise.
 
-### MANDATORY INSTRUCTIONS:
-1. DOGS: When weather is mentioned for a walk, you MUST mention Jolene and Hanna by name.
-2. JOURNAL RECALL: If Scott asks to be reminded of a note or technical topic from earlier, check the provided chat messages carefully.
-3. ADVISOR: Dr. Thomas Jefferson (Thornton Hall 1743).
+### CORE IDENTITY (STRICT):
+- Your namesake: You are named after Scott's dog Jolene. 
+- **MANDATORY**: Mention that Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 
-### DATA:
+### OPERATIONAL DIRECTIVES:
+1. DOGS: Always name Jolene and Hanna when discussing walks or weather.
+2. MODE SEPARATION: In PERSONAL mode, do NOT mention UVA or Syllabus. In UVA mode, do NOT mention Celtics or Personal tax files.
+3. JOURNAL: Use the provided history to recall meeting notes or technical topics.
+
+### DATA SOURCES:
+MODE: ${activeMode.toUpperCase()}
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
-UVA_SYLLABUS: ${SYLLABUS_TRUTH}
+UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
 LIVE_WEB: ${liveContext}
-RETRIEVED_DOCS: ${docContext.substring(0, 3000)}`;
+RETRIEVED: ${docContext.substring(0, 3000)}`;
 
-				// Fetch history from D1 to ensure Journal recall works for the demo
 				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(DEFAULT_CF_MODEL, systemPrompt, userMsg, history.results?.reverse() || []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -206,17 +175,14 @@ RETRIEVED_DOCS: ${docContext.substring(0, 3000)}`;
 		return new Response("OK");
 	}
 
-	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs. Return JSON array: [{"q":"Q?","options":["A. Choice","B. Choice"],"hidden_answer":"A"}].`;
-		const raw = await this.runAI(model, "JSON ONLY.", prompt);
-		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
-		const pool = JSON.parse(jsonStr);
+	async initQuizPool(sessionId: string) {
+		const prompt = `Generate 5 MCQs about the UVA Calendar. Return ONLY raw JSON array: [{"q":"Q?","options":["A. Choice","B. Choice"],"hidden_answer":"A"}]`;
+		const raw = await this.runAI(DEFAULT_CF_MODEL, "JSON ONLY.", prompt);
+		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-		const firstQ = pool[0];
-		const res = `### 🎓 UVA Quiz\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n${firstQ.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
-		await this.saveMsg(sessionId, 'assistant', res);
+		const res = `### 🎓 UVA Quiz Started\n${pool[0].q}\n\n${pool[0].options.join('\n')}`;
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
 }
