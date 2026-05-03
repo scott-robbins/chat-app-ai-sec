@@ -73,8 +73,8 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
+				messageCount: history.results?.length || 0, // Restored D1 Counter
+				knowledgeAssets: storage.objects.map(o => o.key), // Restored R2 Scan
 				mode: activeMode,
 				activeQuiz: !!activePool,
 				durableObject: { id: sessionId, state: "Active" }
@@ -89,33 +89,47 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-                // restored Quiz Handler
+				// --- RESTORED STOP QUIZ ---
+				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
+					await this.ctx.storage.delete("quiz_pool");
+					await this.ctx.storage.delete("session_state");
+					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with, Scott?";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- FIXED QUIZ HANDLER ---
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
 					const currentQ = pool[qIdx];
-					const res = await this.runAI(body.model || DEFAULT_CF_MODEL, "Explain why the calendar date is correct.", `Question: ${currentQ.q} Answer: ${userMsg} Context: ${CALENDAR_TRUTH}`);
+					
+					const isCorrect = lowMsg.startsWith(currentQ.hidden_answer.toLowerCase());
+					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
+					
+					const explanation = await this.runAI(body.model || DEFAULT_CF_MODEL, "Briefly explain the correct UVA calendar date.", `Question: ${currentQ.q} Answer: ${currentQ.hidden_answer} Context: ${CALENDAR_TRUTH}`);
+
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const next = pool[qIdx + 1];
-						const combined = `${res}\n\n### Next Question\n${next.q}\n\n${next.options.join('\n')}`;
+						const combined = `${feedback}\n\n${explanation}\n\n---\n### Question ${qIdx + 2}\n**${next.q}**\n\n${next.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
-						const final = `${res}\n\n### Quiz Complete!`;
+						const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\nHow else can I assist your studies today?`;
 						await this.saveMsg(sessionId, 'assistant', final);
 						return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
-				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, body.model || DEFAULT_CF_MODEL);
+				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, body.model || DEFAULT_CF_MODEL);
 
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
 					await this.ctx.storage.delete("session_state");
 					const news = await this.tavilySearch("University of Virginia UVA campus news May 2026");
-					const res = await this.runAI(body.model || DEFAULT_CF_MODEL, "You are Jolene. Summarize UVA news warmly.", news);
+					const res = await this.runAI(body.model || DEFAULT_CF_MODEL, "Summarize UVA news warmly.", news);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -123,7 +137,7 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated\nI focus **exclusively** on your UVA materials.\n\n**Capabilities:**\n* **Quiz**: Say **'Start a quiz'**.\n* **Syllabus**: Context on CS 4750.\n\n**Fetch latest UVA news?**`;
+					const res = `### 🎓 UVA Mode Activated\nI am now focused on your UVA academic materials.\n\n**Capabilities:**\n* **Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'**.\n* **Syllabus**: Context on mid-term topics (Cloudflare architecture).\n\n**Fetch latest UVA news?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -137,8 +151,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				const searchTriggers = ["stock", "price", "weather", "latest", "news"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+				if (lowMsg.includes("stock") || lowMsg.includes("weather") || lowMsg.includes("news")) {
 					if (activeMode === "personal" || lowMsg.includes("uva")) {
 						liveContext = await this.tavilySearch(userMsg);
 					}
@@ -166,13 +179,13 @@ GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `Generate 5 MCQs about the UVA Calendar. Return ONLY raw JSON array: [{"q":"Q?","options":["A. Choice","B. Choice"],"hidden_answer":"A"}]`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Calendar dates. Return ONLY raw JSON array: [{"q":"Question?","options":["A. Date","B. Date","C. Date","D. Date"],"hidden_answer":"A"}]`;
 		const raw = await this.runAI(model, "JSON ONLY.", prompt);
 		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-		const res = `### 🎓 UVA Quiz Started\n${pool[0].q}\n\n${pool[0].options.join('\n')}`;
+		const res = `### 🎓 UVA Quiz Started (Type 'Stop Quiz' to exit)\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
