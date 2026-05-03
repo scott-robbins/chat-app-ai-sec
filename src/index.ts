@@ -31,7 +31,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY: Only child Bryana. Grandchildren Callan and Josie. Wife: Renee.
-- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
+- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest mini-dachshund) and Hanna (Youngest mini-dachshund).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC.
 `;
@@ -49,20 +49,16 @@ export class ChatSession extends DurableObject<Env> {
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
-		
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
-		
 		chatMessages.push({ role: "user", content: userQuery });
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-		
 		let url = "";
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		let body: any = {};
-
 		if (model.startsWith("@cf/")) {
 			url = `${gatewayBase}/workers-ai/${model}`;
 			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
@@ -77,10 +73,8 @@ export class ChatSession extends DurableObject<Env> {
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
 			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		}
-
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 		const data: any = await res.json();
-		
 		if (model.startsWith("@cf/")) return data.result.response;
 		if (model.toLowerCase().includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
@@ -110,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			const activePool = await this.ctx.storage.get("quiz_pool");
-			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
@@ -128,7 +121,6 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
-
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
@@ -144,20 +136,17 @@ export class ChatSession extends DurableObject<Env> {
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
-
 				if (lowMsg.includes("stop quiz") || lowMsg === "reset") {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("session_state");
 					return new Response(`data: ${JSON.stringify({ response: "### 🛑 Reset Successful" })}\n\ndata: [DONE]\n\n`);
 				}
-
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
 					const currentQ = pool[qIdx];
 					const isCorrect = lowMsg.startsWith(currentQ.hidden_answer.toLowerCase());
 					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** Answer: ${currentQ.hidden_answer}`;
-					
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const next = pool[qIdx + 1];
@@ -172,7 +161,6 @@ export class ChatSession extends DurableObject<Env> {
 						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 					}
 				}
-
 				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
@@ -182,22 +170,19 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				// FIX: Increased topK to 12 for better coverage of Tax Engagement Letter PDF segments
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
+				// CORE FIX: Increased topK and ensured metadata filtering matches upload segment
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
 You are Scott Robbins' assistant. Friendly, technical, and precise.
+- IDENTITY: Scott Robbins (Cloudflare Solutions Engineer).
+- NAMESAKE: Named after dog Jolene. MANDATORY: Mention Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
+- DOGS: Always name Jolene and Hanna when discussing walks or weather.
+- JOURNAL: Use history to recall session notes.
+- RETRIEVAL: Use RETRIEVED_CONTEXT below for any questions about tax engagement letters, fees, or document contents.
 
-### CORE IDENTITY:
-- MANDATORY: Mention Scott and Renee named the dog Jolene after the Ray LaMontagne song heard in the movie "THE TOWN" when asked about your namesake.
-
-### OPERATIONAL DIRECTIVES:
-1. DOGS: Always name Jolene and Hanna when discussing walks or weather.
-2. MODE SEPARATION: In PERSONAL mode, do NOT mention UVA. In UVA mode, do NOT mention Celtics.
-3. JOURNAL: Use history to recall session-specific notes.
-
-### DATA SOURCES:
+DATA SOURCES:
 MODE: ${activeMode.toUpperCase()}
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
 UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
@@ -208,7 +193,6 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, historyRes.results?.reverse() || []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
@@ -217,8 +201,7 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 	async initQuizPool(sessionId: string, model: string) {
 		const prompt = `Generate 5 MCQs about the UVA Calendar. Return ONLY raw JSON array: [{"q":"Q?","options":["A. Choice","B. Choice"],"hidden_answer":"A"}]`;
 		const raw = await this.runAI(model, "JSON ONLY.", prompt);
-		const jsonStr = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);
-		const pool = JSON.parse(jsonStr);
+		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
