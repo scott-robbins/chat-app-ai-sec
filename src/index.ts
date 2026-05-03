@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const CALENDAR_TRUTH = `UVA 2026-2027: Fall starts Aug 25, 2026. Reading Days Oct 3-6. Thanksgiving Nov 25-29. Fall ends Dec 8. Spring starts Jan 20, 2027. Recess March 6-14. Spring ends May 4. Finals May 21-23.`;
 const SYLLABUS_TRUTH = `CS 4750 Syllabus: Advisor Dr. Thomas Jefferson (Thornton Hall 1743). MID-TERM EXAM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture. Mid-term Date: March 24, 2026. Tradition: Victory Bagel at Bodo’s. Success ID: WAHOO-AI-DEEP-RECALL.`;
-const PERSONAL_GROUND_TRUTH = `Identity: Scott Robbins, Cloudflare Senior Solutions Engineer. Named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard during 'THE TOWN' credits. Dogs: Jolene and Hanna. Teams: Celtics, Patriots, UFC.`;
+const PERSONAL_GROUND_TRUTH = `Identity: Scott Robbins, Cloudflare Senior Solutions Engineer. Dogs: Jolene and Hanna. Namesake decided by Scott and his wife Renee after hearing the Ray LaMontagne song 'Jolene' during the credits of 'THE TOWN'. Teams: Celtics, Patriots, UFC.`;
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -49,10 +49,10 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest weather news scores May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
-			return `LIVE WEB INTEL: \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
+			return `LIVE WEB INTEL (May 2026): \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -64,20 +64,19 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
-			// FIXED: Real-time D1 count for dashboard metrics
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			// FIXED: Use explicit COUNT for D1 dashboard sync
 			const countRes = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			const state = await this.ctx.storage.get("session_state");
 			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
-				messageCount: countRes?.total || 0,
+				messageCount: `${countRes?.total || 0} messages synced with D1`,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: state === "WAITING_FOR_ANSWER",
-				durableObject: { id: sessionId, status: "Active" }
+				activeQuiz: state === "WAITING_FOR_ANSWER"
 			}), { headers });
 		}
 
@@ -91,12 +90,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
-					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with?";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
+				if (lowMsg.includes("stop quiz")) { await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state"); return new Response(`data: ${JSON.stringify({ response: "### 🛑 Quiz Stopped\nI've reset your learning state. What's next?" })}\n\ndata: [DONE]\n\n`); }
 
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
@@ -133,25 +127,13 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode: Full Study Companion Activated
-I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents.
-
-**What I can do for you now:**
-* **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
-* **Syllabus Analysis**: Extracting exam dates and grading policies.
-
-**Would you like me to fetch the latest UVA campus news and events for you?**`;
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated\nI focus **exclusively** on your UVA materials.\n\n**Capabilities:**\n* **Practice Quizzes**: Grounded in your UVA documents.\n* **Syllabus Analysis**: Extracting exam dates and grading policies.\n\n**Would you like me to fetch the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode. Ready for real-time search and document access.
-
-**What I can do for you now:**
-* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
-* **Cross-Document Access**: Access to personal documents (tax info, family notes).`;
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated\nI have switched to your general Personal Assistant mode.\n\n**What I can do for you now:**\n* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.\n* **Cross-Document Access**: Access to personal documents (tax info, family notes).`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -163,7 +145,7 @@ I have switched to your general Personal Assistant mode. Ready for real-time sea
 					if (activeMode === "personal" || lowMsg.includes("uva")) {
 						liveContext = await this.tavilySearch(userMsg);
 					} else {
-						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. If you would like to access live web features like stock prices or sports scores, please let me know and we can switch back to Personal Mode!";
+						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. Switch to Personal Mode for stocks or scores!";
 						await this.saveMsg(sessionId, 'assistant', denial);
 						return new Response(`data: ${JSON.stringify({ response: denial })}\n\ndata: [DONE]\n\n`);
 					}
@@ -173,13 +155,18 @@ I have switched to your general Personal Assistant mode. Ready for real-time sea
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
+				const systemPrompt = `You are Jolene, Scott's assistant. Warm, professional, and friendly. 
+
+### IDENTITY RULES:
+- Dogs: You recognize Scott's dogs are **Jolene and Hanna**. Always mention them by name if Scott asks about dog walks or weather.
+- Namesake: Scott and his wife Renee heard the Ray LaMontagne song 'Jolene' during the credits of 'THE TOWN' and decided that was the name.
+
+### KNOWLEDGE LOCK:
+RETRIEVED_DOCS: ${docContext.substring(0, 4500)}
+TAX: Base $375 fee. Hourly $275. Deadline: March 13, 2026.
 MODE: ${activeMode.toUpperCase()}
-MANDATORY: RETRIEVED_DOCS: ${docContext.substring(0, 4500)}
-FACTS: Tax fee: $375 base. Hourly $275. Deadline: March 13, 2026.
-STRICT NAMESAKE: ONLY share Ray LaMontagne song credits story if specifically asked about your name.
 GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'UVA DISABLED'}
-${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
+${liveContext ? `LIVE WEB DATA: ${liveContext}` : ''}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
