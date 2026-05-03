@@ -73,7 +73,7 @@ export class ChatSession extends DurableObject<Env> {
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: state === "WAITING_FOR_ANSWER" // FIXED: Syncs Command Center Green Light
+				activeQuiz: state === "WAITING_FOR_ANSWER"
 			}), { headers });
 		}
 
@@ -87,11 +87,11 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("stop quiz")) { 
-					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state"); 
-					const stopRes = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with, Scott?";
-					await this.saveMsg(sessionId, 'assistant', stopRes);
-					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`); 
+				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
+					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
+					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with?";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (sessionState === "WAITING_FOR_ANSWER") {
@@ -110,7 +110,7 @@ export class ChatSession extends DurableObject<Env> {
 						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
-						const final = `${feedback}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nHow else can I assist your studies today? We could look at the CS 4750 syllabus or check for more campus news.`;
+						const final = `${feedback}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nHow else can I assist your studies today?`;
 						await this.saveMsg(sessionId, 'assistant', final);
 						return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 					}
@@ -130,27 +130,73 @@ export class ChatSession extends DurableObject<Env> {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
 					const res = `### 🎓 UVA Mode: Full Study Companion Activated
-I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
+I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents.
 
 **What I can do for you now:**
 * **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
-* **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
+* **Syllabus Analysis**: Extracting exam dates and grading policies.
 
-*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
-
-**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
+**Would you like me to fetch the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode. Ready for search and document access.`;
+I have switched to your general Personal Assistant mode. Ready for real-time search and document access.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
+				const searchTriggers = ["stock", "price", "weather", "news", "score"];
+				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+					if (activeMode === "personal" || lowMsg.includes("uva")) {
+						liveContext = await this.tavilySearch(userMsg);
+					} else {
+						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. If you would like to access stock prices or scores, please let me know and we can switch back to Personal Mode!";
+						await this.saveMsg(sessionId, 'assistant', denial);
+						return new Response(`data: ${JSON.stringify({ response: denial })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// FIXED: Restored denial response for non-academic searches
+				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
+MODE: ${activeMode.toUpperCase()}
+MANDATORY: RETRIEVED_DOCS: ${docContext.substring(0, 4500)}
+FACTS: Tax fee: $375 base. Hourly $275. Deadline: March 13, 2026.
+STRICT NAMESAKE: ONLY share Ray LaMontagne song credits story if asked about your name.
+GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'UVA DISABLED'}
+${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
+
+				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
+				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
+				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		}
+		return new Response("OK");
+	}
+
+	async initQuizPool(sessionId: string, model: string) {
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs. JSON ONLY: [{"q":"?","options":["A.","B.","C.","D."],"hidden_answer":"A"}]`;
+		const raw = await this.runAI(model, "JSON ONLY.", prompt);
+		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
+		await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0);
+		await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
+		const res = `### 🎓 UVA Quiz Started *(Type 'Stop Quiz' to exit)*\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}`;
+		await this.saveMsg(sessionId, 'assistant', res);
+		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
