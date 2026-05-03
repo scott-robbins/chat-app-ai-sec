@@ -33,7 +33,7 @@ export class ChatSession extends DurableObject<Env> {
 		if (model.toLowerCase().includes("claude")) {
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-			body = { model, system: systemPrompt, messages: chatMessages, max_tokens: 2048 };
+			body = { model: model, system: systemPrompt, messages: chatMessages, max_tokens: 2048 };
 		} else if (!model.startsWith("@cf/")) {
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers = { "Content-Type": "application/json", "Authorization": `Bearer ${this.env.OPENAI_API_KEY}` };
@@ -89,11 +89,16 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// UI PREFERENCE RESTORED
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
+				if (lowMsg.includes("stop quiz")) { 
+					await this.ctx.storage.delete("quiz_pool"); 
+					await this.ctx.storage.delete("session_state"); 
+					const stopRes = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with, Scott?";
+					await this.saveMsg(sessionId, 'assistant', stopRes);
+					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`); 
+				}
 
-				// QUIZ RESTORED
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
@@ -105,12 +110,12 @@ export class ChatSession extends DurableObject<Env> {
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const next = pool[qIdx + 1];
-						const res = `${feedback}\n\n### Next Question\n${next.q}\n\n${next.options.join('\n')}`;
+						const res = `${feedback}\n\n### Question ${qIdx + 2}\n**${next.q}**\n\n${next.options.join('\n')}`;
 						await this.saveMsg(sessionId, 'assistant', res);
 						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
-						const final = `${feedback}\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**`;
+						const final = `${feedback}\n\n### 🏁 Quiz Complete!\n**Score: ${score}/5**\n\nHow else can I assist your studies today? We could look at the CS 4750 syllabus or check for campus news.`;
 						await this.saveMsg(sessionId, 'assistant', final);
 						return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 					}
@@ -126,7 +131,6 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// IDEAL MODE SWITCH ACTIVATION
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
@@ -164,20 +168,13 @@ I have switched to your general Personal Assistant mode.
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### MANDATORY KNOWLEDGE BASE
 RETRIEVED_DOCUMENTS: ${docContext.substring(0, 4500)}
-FACT: Tax preparation base fee: $375. Hourly rate after 1st hour: $275. 
-FACT: Tax information submission deadline: Friday, March 13, 2026.
-
-### ROLE: JOLENE PERSONAL AI
-You are Scott's dedicated assistant. Warm, concise, and professional. 
-
-### CONDITION-BASED RULES:
-1. NAMESAKE: ONLY share the Ray LaMontagne / 'THE TOWN' credits namesake story if Scott specifically asks about your name or namesake. Do NOT include it in tax or business responses.
-
+FACT: Tax base fee: $375. Hourly: $275. Deadline: Friday, March 13, 2026.
+STRICT NAMESAKE: ONLY share the Ray LaMontagne / 'THE TOWN' namesake story if specifically asked about your name.
 MODE: ${activeMode.toUpperCase()}
 GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
@@ -197,7 +194,7 @@ ${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
 		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 		await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-		const res = `### 🎓 UVA Quiz Started\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}`;
+		const res = `### 🎓 UVA Quiz Started *(Type 'Stop Quiz' to exit at any time)*\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
