@@ -31,7 +31,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY: Only child Bryana. Grandchildren Callan and Josie. Wife: Renee.
-- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
+- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest mini-dachshund) and Hanna (Youngest mini-dachshund).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC.
 `;
@@ -165,7 +165,6 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				
-				// CORE FIX: Expanded internet search triggers
 				let liveContext = "";
 				const searchKeywords = ["weather", "celtics", "stock", "price", "news", "latest", "play", "schedule", "status"];
 				if (searchKeywords.some(kw => lowMsg.includes(kw))) {
@@ -176,17 +175,26 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				// CORE FIX: Reprioritized RAG Context at the top of the prompt
-				const systemPrompt = `### PRIMARY AUTHORITY: RETRIEVED_CONTEXT
-Use the following RETRIEVED_CONTEXT for all questions regarding tax engagement letters, base fees, hourly rates, and specific dates. Do NOT hallucinate fees.
-RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}
+				// RESTRUCTURED SYSTEM PROMPT:
+				const systemPrompt = `### MANDATORY SOURCE HIERARCHY
+1. RETRIEVED_CONTEXT: Use this for ALL specific fees, dates, or tax document questions. 
+2. PERSONAL_IDENTITY: Use this for Scott's job, dogs, and family details.
+3. LIVE_WEB: Use this ONLY for current sports scores or news.
+
+### STATED FACTS (DO NOT ALTER):
+- Base Fee for tax preparation: $375.
+- Hourly Rate after first hour: $275.
+- Tax Information Deadline: Friday, March 13, 2026.
 
 ### ROLE: JOLENE PERSONAL AI
 You are Scott Robbins' dedicated assistant. Friendly, technical, and precise.
 - NAMESAKE: Named after dog Jolene. MANDATORY: Mention Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 - DOGS: Always name Jolene and Hanna when discussing walks or weather.
 - MODE: ${activeMode.toUpperCase()}
-PERSONAL_IDENTITY: ${PERSONAL_GROUND_TRUTH}
+
+### DATA SOURCES:
+RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
 UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
 LIVE_WEB: ${liveContext}`;
 
