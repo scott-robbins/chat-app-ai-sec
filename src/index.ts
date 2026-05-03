@@ -52,7 +52,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest market data and scores May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
 			return `Live Web Intel (May 2026): \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
@@ -84,40 +84,67 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
 				await this.saveMsg(sessionId, 'user', userMsg);
+				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- RESTORED: MODE SWITCHING LOGIC ---
-				if (lowMsg.includes("uva mode")) {
-					await this.env.SETTINGS.put(`active_mode`, "uva");
-					const res = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **Academic Calendar Quiz**: Say 'Start a quiz' to test key dates.\n- **Syllabus Analysis**: I have full context on CS 4750.\n- **Campus News**: I can fetch latest events from the Lawn.\n\n**Would you like me to start by fetching the latest UVA news for you?**";
+				// --- NEWS CONFIRMATION HANDLER ---
+				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
+					await this.ctx.storage.delete("session_state");
+					const news = await this.tavilySearch("University of Virginia UVA campus news May 2026");
+					const res = await this.runAI(body.model || DEFAULT_CF_MODEL, "You are Jolene. Summarize UVA news warmly.", news);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
+				// --- IDEAL UVA MODE SWITCH ---
+				if (lowMsg.includes("uva mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated
+I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
+
+**What I can do for you now:**
+* **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+* **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
+
+*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+
+**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				// --- IDEAL PERSONAL MODE SWITCH ---
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = "### 🏠 Personal Mode Activated\nI've switched back to your general assistant mode. Ready for web search and family document access.";
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched to your general Personal Assistant mode.
+
+**What I can do for you now:**
+* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
+* **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
+
+*Note: This mode is best for real-time information and personal organization.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				const searchTriggers = ["stock", "price", "weather", "latest", "news", "play"];
+				const searchTriggers = ["stock", "price", "weather", "latest", "news", "scores"];
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) { liveContext = await this.tavilySearch(userMsg); }
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional, technical, and helpful.
+				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional, technical, and helpful. Today is Sat, May 2, 2026.
 
 STRICT IDENTITY:
-- Namesake: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard while watching the credits roll for the movie 'THE TOWN'. Always mention this specific credits story when asked.
-- Dogs: Jolene and Hanna. Give advice, do not pretend to walk them.
+- Namesake: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard while watching the movie credits roll for 'THE TOWN'. Always mention this specific story when asked.
 
 STRICT DATA RULES:
-- Tax Fees (ONLY use if asked about taxes): Base $375, Hourly $275. Deadline: March 13, 2026.
-- Stocks: Use LIVE_WEB data only. Today is Sat, May 2, 2026. Markets are closed; use Friday closing data from search results.
+- Tax Fees: Base $375, Hourly $275. Deadline: March 13, 2026. Only mention if explicitly asked about taxes.
+- Stocks: Use LIVE_WEB results. Market closed on weekends; use Friday close.
 
 MODE: ${activeMode.toUpperCase()}
 SOURCES:
