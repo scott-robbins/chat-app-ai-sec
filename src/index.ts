@@ -49,7 +49,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
 			return `LIVE WEB INTEL: \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
@@ -64,16 +64,20 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
+			// FIXED: Real-time D1 count for dashboard metrics
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const countRes = await this.env.jolene_db.prepare("SELECT COUNT(*) as total FROM messages WHERE session_id = ?").bind(sessionId).first();
 			const storage = await this.env.DOCUMENTS.list();
 			const state = await this.ctx.storage.get("session_state");
+			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
+				messageCount: countRes?.total || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: state === "WAITING_FOR_ANSWER"
+				activeQuiz: state === "WAITING_FOR_ANSWER",
+				durableObject: { id: sessionId, status: "Active" }
 			}), { headers });
 		}
 
@@ -87,11 +91,11 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("stop quiz") || lowMsg === "stop") { 
-					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state"); 
-					const stopRes = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with?";
-					await this.saveMsg(sessionId, 'assistant', stopRes);
-					return new Response(`data: ${JSON.stringify({ response: stopRes })}\n\ndata: [DONE]\n\n`); 
+				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
+					await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
+					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with?";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				if (sessionState === "WAITING_FOR_ANSWER") {
@@ -143,7 +147,7 @@ I am now in specialized Study Companion mode. I focus **exclusively** on your Un
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode.
+I have switched to your general Personal Assistant mode. Ready for real-time search and document access.
 
 **What I can do for you now:**
 * **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
@@ -159,7 +163,7 @@ I have switched to your general Personal Assistant mode.
 					if (activeMode === "personal" || lowMsg.includes("uva")) {
 						liveContext = await this.tavilySearch(userMsg);
 					} else {
-						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. If you would like to access live web features, please switch back to Personal Mode!";
+						const denial = "I currently don't have access to live web searching in UVA Mode unless it is for academic news. If you would like to access live web features like stock prices or sports scores, please let me know and we can switch back to Personal Mode!";
 						await this.saveMsg(sessionId, 'assistant', denial);
 						return new Response(`data: ${JSON.stringify({ response: denial })}\n\ndata: [DONE]\n\n`);
 					}
@@ -173,7 +177,7 @@ I have switched to your general Personal Assistant mode.
 MODE: ${activeMode.toUpperCase()}
 MANDATORY: RETRIEVED_DOCS: ${docContext.substring(0, 4500)}
 FACTS: Tax fee: $375 base. Hourly $275. Deadline: March 13, 2026.
-STRICT NAMESAKE: ONLY share Ray LaMontagne song credits story if asked about your name.
+STRICT NAMESAKE: ONLY share Ray LaMontagne song credits story if specifically asked about your name.
 GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'UVA DISABLED'}
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
 
