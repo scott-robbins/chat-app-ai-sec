@@ -89,11 +89,11 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// Preference Toggles
+				// UI PREFERENCE RESTORED
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
 
-				// Quiz Logic
+				// QUIZ RESTORED
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
@@ -126,17 +126,33 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Mode Switching
+				// IDEAL MODE SWITCH ACTIVATION
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode: Full Study Companion Activated\nI focus exclusively on academic materials. Ready for quizzes and syllabus analysis.\n\n**Fetch UVA news?**`;
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated
+I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
+
+**What I can do for you now:**
+* **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
+* **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
+
+*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
+
+**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated\nReady for search and document access.`;
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
+I have switched to your general Personal Assistant mode.
+
+**What I can do for you now:**
+* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
+* **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
+
+*Note: This mode is best for real-time information and personal organization.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -151,7 +167,7 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### MANDATORY KNOWLEDGE BASE (USE FIRST)
+				const systemPrompt = `### MANDATORY KNOWLEDGE BASE
 RETRIEVED_DOCUMENTS: ${docContext.substring(0, 4500)}
 FACT: Tax preparation base fee: $375. Hourly rate after 1st hour: $275. 
 FACT: Tax information submission deadline: Friday, March 13, 2026.
@@ -161,7 +177,6 @@ You are Scott's dedicated assistant. Warm, concise, and professional.
 
 ### CONDITION-BASED RULES:
 1. NAMESAKE: ONLY share the Ray LaMontagne / 'THE TOWN' credits namesake story if Scott specifically asks about your name or namesake. Do NOT include it in tax or business responses.
-2. BREVITY: Do not offer unprompted trivia. 
 
 MODE: ${activeMode.toUpperCase()}
 GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
