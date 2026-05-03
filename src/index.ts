@@ -73,8 +73,8 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0, // Restored D1 Counter
-				knowledgeAssets: storage.objects.map(o => o.key), // Restored R2 Scan
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
 				activeQuiz: !!activePool,
 				durableObject: { id: sessionId, state: "Active" }
@@ -89,36 +89,39 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// --- RESTORED STOP QUIZ ---
 				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
 					await this.ctx.storage.delete("quiz_pool");
+					await this.ctx.storage.delete("quiz_score");
 					await this.ctx.storage.delete("session_state");
 					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. What else can I help you with, Scott?";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// --- FIXED QUIZ HANDLER ---
 				if (sessionState === "WAITING_FOR_ANSWER") {
 					const pool = await this.ctx.storage.get("quiz_pool") as any[];
 					const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
+					let score = await this.ctx.storage.get("quiz_score") as number || 0;
 					const currentQ = pool[qIdx];
 					
 					const isCorrect = lowMsg.startsWith(currentQ.hidden_answer.toLowerCase());
-					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
+					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 					
-					const explanation = await this.runAI(body.model || DEFAULT_CF_MODEL, "Briefly explain the correct UVA calendar date.", `Question: ${currentQ.q} Answer: ${currentQ.hidden_answer} Context: ${CALENDAR_TRUTH}`);
+					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
+					const explanation = await this.runAI(body.model || DEFAULT_CF_MODEL, "Briefly explain the calendar fact.", `Question: ${currentQ.q} Answer: ${currentQ.hidden_answer} Context: ${CALENDAR_TRUTH}`);
 
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const next = pool[qIdx + 1];
-						const combined = `${feedback}\n\n${explanation}\n\n---\n### Question ${qIdx + 2}\n**${next.q}**\n\n${next.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
+						const combined = `${feedback}\n\n${explanation}\n\n---\n### Question ${qIdx + 2} of 5\n**${next.q}**\n\n${next.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool");
+						await this.ctx.storage.delete("current_q_idx");
 						await this.ctx.storage.delete("session_state");
-						const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\nHow else can I assist your studies today?`;
+						await this.ctx.storage.delete("quiz_score");
+						const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nHow else can I assist your studies today?`;
 						await this.saveMsg(sessionId, 'assistant', final);
 						return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 					}
@@ -137,7 +140,15 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated\nI am now focused on your UVA academic materials.\n\n**Capabilities:**\n* **Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'**.\n* **Syllabus**: Context on mid-term topics (Cloudflare architecture).\n\n**Fetch latest UVA news?**`;
+					const res = `### 🎓 UVA Mode Activated
+I am now focused on your University of Virginia materials and campus life.
+
+**Capabilities in this mode:**
+* **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
+* **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
+* **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
+
+**Would you like me to start by fetching the latest UVA news for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -151,7 +162,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				if (lowMsg.includes("stock") || lowMsg.includes("weather") || lowMsg.includes("news")) {
+				if (lowMsg.includes("stock") || lowMsg.includes("weather") || lowMsg.includes("news") || lowMsg.includes("fetch")) {
 					if (activeMode === "personal" || lowMsg.includes("uva")) {
 						liveContext = await this.tavilySearch(userMsg);
 					}
@@ -161,8 +172,8 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Today is Sunday, May 3, 2026.
-STRICT NAMESAKE: You are named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song they heard while watching the movie credits roll for 'THE TOWN'.
+				const systemPrompt = `You are Jolene, Scott Robbins' assistant. Today is Sunday, May 3, 2026.
+STRICT IDENTITY: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song they heard while watching the movie credits roll for 'THE TOWN'.
 MODE: ${activeMode.toUpperCase()}
 SOURCES:
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}
@@ -179,11 +190,12 @@ GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH
 	}
 
 	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about the UVA Calendar dates. Return ONLY raw JSON array: [{"q":"Question?","options":["A. Date","B. Date","C. Date","D. Date"],"hidden_answer":"A"}]`;
+		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs about specific UVA Calendar dates. Return ONLY raw JSON array: [{"q":"Question?","options":["A. Date","B. Date","C. Date","D. Date"],"hidden_answer":"A"}]`;
 		const raw = await this.runAI(model, "JSON ONLY.", prompt);
 		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
 		await this.ctx.storage.put("quiz_pool", pool);
 		await this.ctx.storage.put("current_q_idx", 0);
+		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const res = `### 🎓 UVA Quiz Started (Type 'Stop Quiz' to exit)\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
