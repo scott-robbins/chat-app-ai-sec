@@ -164,30 +164,31 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("quiz")) return this.initQuizPool(sessionId, selectedModel);
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
+				
+				// CORE FIX: Expanded internet search triggers
 				let liveContext = "";
-				if (lowMsg.includes("weather") || lowMsg.includes("celtics") || lowMsg.includes("play") || lowMsg.includes("schedule")) {
+				const searchKeywords = ["weather", "celtics", "stock", "price", "news", "latest", "play", "schedule", "status"];
+				if (searchKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				// CORE FIX: Increased topK and ensured metadata filtering matches upload segment
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
-You are Scott Robbins' assistant. Friendly, technical, and precise.
-- IDENTITY: Scott Robbins (Cloudflare Solutions Engineer).
+				// CORE FIX: Reprioritized RAG Context at the top of the prompt
+				const systemPrompt = `### PRIMARY AUTHORITY: RETRIEVED_CONTEXT
+Use the following RETRIEVED_CONTEXT for all questions regarding tax engagement letters, base fees, hourly rates, and specific dates. Do NOT hallucinate fees.
+RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}
+
+### ROLE: JOLENE PERSONAL AI
+You are Scott Robbins' dedicated assistant.
 - NAMESAKE: Named after dog Jolene. MANDATORY: Mention Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 - DOGS: Always name Jolene and Hanna when discussing walks or weather.
-- JOURNAL: Use history to recall session notes.
-- RETRIEVAL: Use RETRIEVED_CONTEXT below for any questions about tax engagement letters, fees, or document contents.
-
-DATA SOURCES:
-MODE: ${activeMode.toUpperCase()}
-IDENTITY: ${PERSONAL_GROUND_TRUTH}
+- MODE: ${activeMode.toUpperCase()}
+PERSONAL_IDENTITY: ${PERSONAL_GROUND_TRUTH}
 UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
-LIVE_WEB: ${liveContext}
-RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
+LIVE_WEB: ${liveContext}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, historyRes.results?.reverse() || []);
