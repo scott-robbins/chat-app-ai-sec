@@ -52,10 +52,10 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest stock price May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest market data and scores May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
-			return `Market Context (May 2026): Markets closed on weekends. \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
+			return `Live Web Intel (May 2026): \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -85,33 +85,45 @@ export class ChatSession extends DurableObject<Env> {
 				const lowMsg = userMsg.toLowerCase().trim();
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Fancy Mode enabled. Refresh to see the UI!" })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to Plain Mode." })}\n\ndata: [DONE]\n\n`); }
+				// --- RESTORED: MODE SWITCHING LOGIC ---
+				if (lowMsg.includes("uva mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "uva");
+					const res = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **Academic Calendar Quiz**: Say 'Start a quiz' to test key dates.\n- **Syllabus Analysis**: I have full context on CS 4750.\n- **Campus News**: I can fetch latest events from the Lawn.\n\n**Would you like me to start by fetching the latest UVA news for you?**";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				if (lowMsg.includes("personal mode")) {
+					await this.env.SETTINGS.put(`active_mode`, "personal");
+					const res = "### 🏠 Personal Mode Activated\nI've switched back to your general assistant mode. Ready for web search and family document access.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				const searchTriggers = ["stock", "price", "weather", "latest", "news"];
+				const searchTriggers = ["stock", "price", "weather", "latest", "news", "play"];
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) { liveContext = await this.tavilySearch(userMsg); }
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional, helpful, and direct.
+				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional, technical, and helpful.
 
 STRICT IDENTITY:
-- Namesake: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard while watching the movie credits roll for 'THE TOWN'. Always mention this specific story when asked.
-- Dogs: Jolene and Hanna. Give Scott advice, but do not pretend you are taking them for a walk.
+- Namesake: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard while watching the credits roll for the movie 'THE TOWN'. Always mention this specific credits story when asked.
+- Dogs: Jolene and Hanna. Give advice, do not pretend to walk them.
 
 STRICT DATA RULES:
 - Tax Fees (ONLY use if asked about taxes): Base $375, Hourly $275. Deadline: March 13, 2026.
-- Stocks: Use LIVE_WEB data only. Today is Sat, May 2, 2026. Markets are closed; use Friday's data.
+- Stocks: Use LIVE_WEB data only. Today is Sat, May 2, 2026. Markets are closed; use Friday closing data from search results.
 
+MODE: ${activeMode.toUpperCase()}
 SOURCES:
-${liveContext ? `LIVE_WEB: ${liveContext}` : ''}
+${liveContext ? `LIVE WEB: ${liveContext}` : ''}
 ${docContext ? `DOCUMENTS: ${docContext.substring(0, 4000)}` : ''}
-IDENTITY: ${PERSONAL_GROUND_TRUTH}
-UVA: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}`;
+GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
