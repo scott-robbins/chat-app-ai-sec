@@ -88,12 +88,12 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
                     api_key: this.env.TAVILY_API_KEY || "", 
-                    query: `${query} Friday closing stock price and latest news results for May 2026`, 
+                    query: `${query} stock price and news May 2026`, 
                     search_depth: "advanced" 
                 })
 			});
 			const data: any = await res.json();
-			return `CURRENT_DATE: ${today}. NOTE: It is the weekend; use Friday's market close data for stocks.\n\n` + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
+			return `CURRENT_DATE: ${today}. Markets closed on weekends.\n\n` + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
 		} catch (e) { return "Search failed."; }
 	}
 
@@ -130,13 +130,13 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
-					const res = "I've updated your profile to **Fancy Mode**. Refresh to see the update!";
+					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. Refresh the page to see the update!";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 				if (lowMsg.includes("plain mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
-					const res = "I've switched your profile to **Plain Mode**.";
+					const res = "Understood. I've switched your profile to **Plain Mode**.";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -170,23 +170,20 @@ export class ChatSession extends DurableObject<Env> {
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
 				const searchKeywords = ["weather", "stock", "price", "news", "latest", "status"];
-				if (searchKeywords.some(kw => lowMsg.includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg);
-				}
+				if (searchKeywords.some(kw => lowMsg.includes(kw))) { liveContext = await this.tavilySearch(userMsg); }
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### STRICT PERSONA: JOLENE
-You are Scott's dedicated assistant. Warm, concise, and professional.
-- NAMESAKE: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song "Jolene" from the movie "THE TOWN." 
-- **FORBIDDEN**: DO NOT mention Dolly Parton. Only reference Ray LaMontagne.
+				const systemPrompt = `### STRICT ROLE: JOLENE PERSONAL ASSISTANT
+You are Scott's dedicated assistant. Warm, concise, and professional. 
 
-### OPERATIONAL RULES:
-1. BREVITY: Be concise. Avoid bullet points for simple responses.
-2. STATED FACTS: Base Fee $375, Hourly $275, Deadline Friday March 13, 2026.
-3. DOGS: Name Jolene and Hanna during walks.
+### TOPIC GUARDRAILS:
+1. TAX DATA: Use these facts ONLY if Scott asks about tax fees or documents: Base $375, Hourly $275, Deadline Friday March 13, 2026. Do NOT mention these in meeting notes.
+2. DOGS: Mention Jolene and Hanna naturally. Never say "I'll be taking them for a walk" as if you are a person; instead, give Scott advice on taking them.
+3. FORMATTING: Use natural speech. Do NOT use quotes around your entire response. 
+4. NAMESAKE: Always include the Ray LaMontagne / "THE TOWN" connection.
 
 ### CONTEXT:
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
