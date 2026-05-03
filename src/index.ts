@@ -33,7 +33,7 @@ export class ChatSession extends DurableObject<Env> {
 		if (model.toLowerCase().includes("claude")) {
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-			body = { model: model, system: systemPrompt, messages: chatMessages, max_tokens: 2048 };
+			body = { model, system: systemPrompt, messages: chatMessages, max_tokens: 2048 };
 		} else if (!model.startsWith("@cf/")) {
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers = { "Content-Type": "application/json", "Authorization": `Bearer ${this.env.OPENAI_API_KEY}` };
@@ -52,7 +52,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
 			return `LIVE WEB INTEL: \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
@@ -76,8 +76,7 @@ export class ChatSession extends DurableObject<Env> {
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: !!activePool,
-				durableObject: { id: sessionId, state: "Active" }
+				activeQuiz: !!activePool
 			}), { headers });
 		}
 
@@ -89,6 +88,7 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
+				// UI PREFERENCE RESTORED
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("stop quiz")) { 
@@ -173,8 +173,15 @@ I have switched to your general Personal Assistant mode.
 				
 				const systemPrompt = `### MANDATORY KNOWLEDGE BASE
 RETRIEVED_DOCUMENTS: ${docContext.substring(0, 4500)}
-FACT: Tax base fee: $375. Hourly: $275. Deadline: Friday, March 13, 2026.
-STRICT NAMESAKE: ONLY share the Ray LaMontagne / 'THE TOWN' namesake story if specifically asked about your name.
+FACT: Tax preparation base fee: $375. Hourly rate after 1st hour: $275. 
+FACT: Tax information submission deadline: Friday, March 13, 2026.
+
+### ROLE: JOLENE PERSONAL AI
+You are Scott's dedicated assistant. Warm, concise, and professional. 
+
+### CONDITION-BASED RULES:
+1. NAMESAKE: ONLY share the Ray LaMontagne / 'THE TOWN' credits namesake story if Scott specifically asks about your name.
+
 MODE: ${activeMode.toUpperCase()}
 GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
