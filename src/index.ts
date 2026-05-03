@@ -5,8 +5,8 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const CALENDAR_TRUTH = `UVA 2026-2027: Fall starts Aug 25, 2026. Reading Days Oct 3-6. Thanksgiving Nov 25-29. Fall ends Dec 8. Spring starts Jan 20, 2027. Recess March 6-14. Spring ends May 4. Finals May 21-23.`;
-const SYLLABUS_TRUTH = `CS 4750 Syllabus: Advisor Dr. Thomas Jefferson (Thornton Hall 1743). Mid-term March 24, 2026 (Rice Hall). Tradition: Victory Bagel at Bodo’s. Success ID: WAHOO-AI-DEEP-RECALL.`;
-const PERSONAL_GROUND_TRUTH = `Identity: Scott Robbins, Senior Solutions Engineer at Cloudflare (Zero Trust/Security). Named after dog Jolene (Ray LaMontagne song from 'THE TOWN' credits). Dogs: Jolene and Hanna (mini-dachshunds). Teams: Celtics, Patriots, UFC.`;
+const SYLLABUS_TRUTH = `CS 4750 Syllabus: Advisor Dr. Thomas Jefferson (Thornton Hall 1743). Mid-term March 24, 2026 (Rice Hall Auditorium). Tradition: Victory Bagel at Bodo’s Bagels. Success ID: WAHOO-AI-DEEP-RECALL.`;
+const PERSONAL_GROUND_TRUTH = `Identity: Scott Robbins, Senior Solutions Engineer at Cloudflare. Named after dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song 'Jolene' they heard while watching the credits roll for the movie 'THE TOWN'. Dogs: Jolene and Hanna. Teams: Celtics, Patriots, UFC.`;
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -52,11 +52,11 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest stock price May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
-			return `DATE: May 2026. Markets closed on weekends.\n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
-		} catch (e) { return "Web search currently unavailable."; }
+			return `Market Context (May 2026): Markets closed on weekends. \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
+		} catch (e) { return "Search unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -85,9 +85,8 @@ export class ChatSession extends DurableObject<Env> {
 				const lowMsg = userMsg.toLowerCase().trim();
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// UI Toggles
-				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "I've enabled Fancy Mode. Refresh to see the UI!" })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "I've switched to Plain Mode." })}\n\ndata: [DONE]\n\n`); }
+				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Fancy Mode enabled. Refresh to see the UI!" })}\n\ndata: [DONE]\n\n`); }
+				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to Plain Mode." })}\n\ndata: [DONE]\n\n`); }
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
@@ -101,18 +100,18 @@ export class ChatSession extends DurableObject<Env> {
 				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional, helpful, and direct.
 
 STRICT IDENTITY:
-- Named after Scott's dog Jolene (Ray LaMontagne song from 'THE TOWN' credits). Mention this movie whenever asked about your name.
-- Dogs are Jolene and Hanna. Give Scott advice about them, but do not pretend to take them for a walk yourself.
+- Namesake: You are named after Scott's dog Jolene. Scott and Renee named her after the Ray LaMontagne song 'Jolene' they heard while watching the movie credits roll for 'THE TOWN'. Always mention this specific story when asked.
+- Dogs: Jolene and Hanna. Give Scott advice, but do not pretend you are taking them for a walk.
 
-CORE DATA:
+STRICT DATA RULES:
 - Tax Fees (ONLY use if asked about taxes): Base $375, Hourly $275. Deadline: March 13, 2026.
-- Job: Scott is a Senior Solutions Engineer at Cloudflare.
-- Mode: ${activeMode.toUpperCase()}.
+- Stocks: Use LIVE_WEB data only. Today is Sat, May 2, 2026. Markets are closed; use Friday's data.
 
 SOURCES:
-${liveContext ? `LIVE WEB: ${liveContext}` : ''}
+${liveContext ? `LIVE_WEB: ${liveContext}` : ''}
 ${docContext ? `DOCUMENTS: ${docContext.substring(0, 4000)}` : ''}
-GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'UVA INFO DISABLED'}`;
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
+UVA: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
