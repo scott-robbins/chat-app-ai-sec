@@ -52,7 +52,7 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} latest May 2026`, search_depth: "advanced" })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} May 2026`, search_depth: "advanced" })
 			});
 			const data: any = await res.json();
 			return `Live Web Intel (May 2026): \n\n` + data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n\n");
@@ -89,6 +89,20 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
+				// --- RESTORED: KV PREFERENCE Toggles ---
+				if (lowMsg.includes("fancy mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
+					const res = "I've updated your profile to **Fancy Mode**. Refresh the page to see the UI update!";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+				if (lowMsg.includes("plain mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
+					const res = "Understood. I've switched your profile to **Plain Mode**. Refresh to see the dashboard change.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
 				if (lowMsg.includes("stop quiz") || lowMsg === "stop") {
 					await this.ctx.storage.delete("quiz_pool");
 					await this.ctx.storage.delete("quiz_score");
@@ -109,20 +123,19 @@ export class ChatSession extends DurableObject<Env> {
 					if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
 					
 					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-					const explanation = await this.runAI(body.model || DEFAULT_CF_MODEL, "Briefly explain the calendar fact.", `Question: ${currentQ.q} Answer: ${currentQ.hidden_answer} Context: ${CALENDAR_TRUTH}`);
+					const explanation = await this.runAI(body.model || DEFAULT_CF_MODEL, "Explain the calendar date.", `Question: ${currentQ.q} Answer: ${currentQ.hidden_answer} Context: ${CALENDAR_TRUTH}`);
 
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const next = pool[qIdx + 1];
-						const combined = `${feedback}\n\n${explanation}\n\n---\n### Question ${qIdx + 2} of 5\n**${next.q}**\n\n${next.options.join('\n')}\n\n*Reply A, B, C, or D!*`;
+						const combined = `${feedback}\n\n${explanation}\n\n---\n### Question ${qIdx + 2} of 5\n**${next.q}**\n\n${next.options.join('\n')}`;
 						await this.saveMsg(sessionId, 'assistant', combined);
 						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool");
-						await this.ctx.storage.delete("current_q_idx");
 						await this.ctx.storage.delete("session_state");
 						await this.ctx.storage.delete("quiz_score");
-						const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nHow else can I assist your studies today?`;
+						const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**`;
 						await this.saveMsg(sessionId, 'assistant', final);
 						return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
 					}
@@ -138,56 +151,35 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// RESTORED: Ideal UVA Mode Switch response
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode: Full Study Companion Activated
-I am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia documents and academic materials.
-
-**What I can do for you now:**
-* **Practice Quizzes**: Grounded in your UVA documents. Say **'Start the UVA Academic Calendar Quiz'** to begin.
-* **Syllabus Analysis**: Extracting exam dates and grading policies from your uploads.
-
-*Note: In this mode, I generally do not access the live web, as I am tailored for focused study.*
-
-**Would you like me to fetch the latest UVA campus news and events for you before we dive into your materials?**`;
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated\nI am now in specialized Study Companion mode. I focus **exclusively** on your University of Virginia materials.\n\n**What I can do for you now:**\n* **Practice Quizzes**: Grounded in your UVA documents.\n* **Syllabus Analysis**: Extracting exam dates and grading policies.\n\n**Would you like me to fetch the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// RESTORED: Ideal Personal Mode Switch response
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated
-I have switched to your general Personal Assistant mode.
-
-**What I can do for you now:**
-* **Real-Time Web Search**: I use **Tavily Search** for current sports scores and news.
-* **Cross-Document Access**: I can access your personal documents (tax info, family notes) in addition to academic files.
-
-*Note: This mode is best for real-time information and personal organization.*`;
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated\nI have switched to your general Personal Assistant mode.\n\n**What I can do for you now:**\n* **Real-Time Web Search**: I use **Tavily Search** for news and stocks.\n* **Cross-Document Access**: Access to personal documents (tax, family notes).\n\n*Note: This mode is best for real-time information.*`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				const searchTriggers = ["stock", "price", "weather", "latest", "news", "scores"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
-					if (activeMode === "personal" || lowMsg.includes("uva")) {
-						liveContext = await this.tavilySearch(userMsg);
-					}
+				if (lowMsg.includes("stock") || lowMsg.includes("weather") || lowMsg.includes("news")) {
+					if (activeMode === "personal" || lowMsg.includes("uva")) liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Today is Sunday, May 3, 2026.
-STRICT NAMESAKE: You are named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song they heard while watching the movie credits roll for 'THE TOWN'.
+				const systemPrompt = `You are Jolene, Scott Robbins' dedicated assistant. Professional and helpful. Today is Sunday, May 3, 2026.
+STRICT NAMESAKE: Named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song they heard while watching the movie credits roll for 'THE TOWN'.
+STRICT ARCHITECTURE: Mid-term topics are: Cloudflare Vectorize, Durable Objects (D1), and KV Store.
 MODE: ${activeMode.toUpperCase()}
-STRICT ARCHITECTURE FACTS: For CS 4750 mid-term, Cloudflare architecture topics are: Cloudflare Vectorize, Durable Objects (D1), and KV Store.
 SOURCES:
 ${liveContext ? `LIVE WEB: ${liveContext}` : ''}
 ${docContext ? `DOCUMENTS: ${docContext.substring(0, 4000)}` : ''}
@@ -210,7 +202,7 @@ GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-		const res = `### 🎓 UVA Quiz Started (Type 'Stop Quiz' to exit)\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}\n\n*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Quiz Started (Type 'Stop Quiz' to exit)\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
