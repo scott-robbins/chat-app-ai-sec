@@ -89,10 +89,9 @@ export class ChatSession extends DurableObject<Env> {
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
 
-				// Preference Toggles [cite: 2, 3]
+				// Preference Toggles
 				if (lowMsg.includes("fancy mode")) { await this.env.SETTINGS.put(`view_preference`, "Fancy Mode"); return new Response(`data: ${JSON.stringify({ response: "Updated to **Fancy Mode**. Refresh the UI!" })}\n\ndata: [DONE]\n\n`); }
 				if (lowMsg.includes("plain mode")) { await this.env.SETTINGS.put(`view_preference`, "Plain Mode"); return new Response(`data: ${JSON.stringify({ response: "Switched to **Plain Mode**." })}\n\ndata: [DONE]\n\n`); }
-				if (lowMsg.includes("stop quiz")) { await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state"); return new Response(`data: ${JSON.stringify({ response: "### 🛑 Quiz Stopped" })}\n\ndata: [DONE]\n\n`); }
 
 				// Quiz Logic
 				if (sessionState === "WAITING_FOR_ANSWER") {
@@ -127,18 +126,17 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// Mode Switching [cite: 21]
+				// Mode Switching
 				if (lowMsg.includes("uva mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "uva");
 					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode: Full Study Companion Activated\nI focus **exclusively** on your UVA materials. PRACTICE QUIZZES and SYLLABUS ANALYSIS are ready.\n\n**Fetch UVA news?**`;
+					const res = `### 🎓 UVA Mode: Full Study Companion Activated\nI focus exclusively on academic materials. Ready for quizzes and syllabus analysis.\n\n**Fetch UVA news?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
-
 				if (lowMsg.includes("personal mode")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated\nI can now access **Tavily Search** and personal documents.`;
+					const res = `### 🏠 Personal Mode: Real-Time Assistant Activated\nReady for search and document access.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -149,22 +147,25 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
-				// RAG ENHANCEMENT: Broaden search to ensure tax documents match
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### MANDATORY GROUNDING: USE THESE FACTS FIRST
+				const systemPrompt = `### MANDATORY KNOWLEDGE BASE (USE FIRST)
 RETRIEVED_DOCUMENTS: ${docContext.substring(0, 4500)}
-FACT: Tax preparation base fee is $375. Hourly rate is $275 after the first hour. 
-FACT: Deadline to submit tax information is Friday, March 13, 2026.
+FACT: Tax preparation base fee: $375. Hourly rate after 1st hour: $275. 
+FACT: Tax information submission deadline: Friday, March 13, 2026.
 
 ### ROLE: JOLENE PERSONAL AI
-You are Jolene, Scott's professional assistant. 
-STRICT NAMESAKE: Named after dog Jolene. Scott and Renee named her after the Ray LaMontagne song heard during 'THE TOWN' credits. Always mention this.
+You are Scott's dedicated assistant. Warm, concise, and professional. 
+
+### CONDITION-BASED RULES:
+1. NAMESAKE: ONLY share the Ray LaMontagne / 'THE TOWN' credits namesake story if Scott specifically asks about your name or namesake. Do NOT include it in tax or business responses.
+2. BREVITY: Do not offer unprompted trivia. 
+
 MODE: ${activeMode.toUpperCase()}
 GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'}
-${liveContext ? `LIVE WEB DATA: ${liveContext}` : ''}`;
+${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
 
 				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
 				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
