@@ -4,7 +4,6 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- SEPARATED GROUND TRUTHS FOR HIGH-STAKES DEMO ---
 const CALENDAR_TRUTH = `
 UVA 2026-2027 ACADEMIC CALENDAR:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -32,7 +31,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY: Only child Bryana. Grandchildren Callan and Josie. Wife: Renee.
-- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
+- NAMESAKE: Jolene AI is named after Scott's dog Jolene. Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest mini-dachshund) and Hanna (Youngest mini-dachshund).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC.
 `;
@@ -50,22 +49,18 @@ export class ChatSession extends DurableObject<Env> {
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant').slice(-6);
-		
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
-		
 		chatMessages.push({ role: "user", content: userQuery });
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-		
 		const res = await fetch(`${gatewayBase}/workers-ai/${model}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.env.CF_API_TOKEN}` },
 			body: JSON.stringify({ messages: [{ role: "system", content: systemPrompt }, ...chatMessages] })
 		});
-		
 		const data: any = await res.json();
 		return data.result.response;
 	}
@@ -90,13 +85,19 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/profile") {
 			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
+			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
+			const activePool = await this.ctx.storage.get("quiz_pool");
+			
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Senior Solutions Engineer`,
+				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				knowledgeAssets: storage.objects.map(o => o.key)
+				activeQuiz: !!activePool,
+				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
 		}
 
@@ -104,10 +105,25 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
+				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const sessionState = await this.ctx.storage.get("session_state");
+
+				// --- KV PREFERENCE OVERRIDES ---
+				if (lowMsg.includes("fancy mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
+					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. Refresh to see the UI update!";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+				if (lowMsg.includes("plain mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
+					const res = "Understood. I've switched your profile to **Plain Mode**. Refresh to see the dashboard change.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
 
 				if (lowMsg.includes("stop quiz") || lowMsg === "reset") {
 					await this.ctx.storage.delete("quiz_pool");
@@ -126,11 +142,14 @@ export class ChatSession extends DurableObject<Env> {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
 						const next = pool[qIdx + 1];
 						const res = `${feedback}\n\n### Question ${qIdx + 2}\n${next.q}\n\n${next.options.join('\n')}`;
+						await this.saveMsg(sessionId, 'assistant', res);
 						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool");
 						await this.ctx.storage.delete("session_state");
-						return new Response(`data: ${JSON.stringify({ response: `${feedback}\n\n### 🏁 Quiz Complete!` })}\n\ndata: [DONE]\n\n`);
+						const res = `${feedback}\n\n### 🏁 Quiz Complete!`;
+						await this.saveMsg(sessionId, 'assistant', res);
+						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
@@ -149,14 +168,12 @@ export class ChatSession extends DurableObject<Env> {
 				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
 You are Scott Robbins' assistant. Friendly, technical, and precise.
 
-### CORE IDENTITY (STRICT):
-- Your namesake: You are named after Scott's dog Jolene. 
-- **MANDATORY**: Mention that Scott and Renee named the dog after the Ray LaMontagne song "Jolene" heard in the credits of the movie "THE TOWN."
+### CORE IDENTITY:
+- Scott and Renee named the dog Jolene after the Ray LaMontagne song heard in the movie "THE TOWN." You MUST mention this movie connection when asked about your name.
 
 ### OPERATIONAL DIRECTIVES:
 1. DOGS: Always name Jolene and Hanna when discussing walks or weather.
-2. MODE SEPARATION: In PERSONAL mode, do NOT mention UVA or Syllabus. In UVA mode, do NOT mention Celtics or Personal tax files.
-3. JOURNAL: Use the provided history to recall meeting notes or technical topics.
+2. JOURNAL: Use the provided history to recall meeting notes or technical topics.
 
 ### DATA SOURCES:
 MODE: ${activeMode.toUpperCase()}
@@ -165,8 +182,8 @@ UVA_TRUTH: ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'DISABLED'
 LIVE_WEB: ${liveContext}
 RETRIEVED: ${docContext.substring(0, 3000)}`;
 
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
-				const chatTxt = await this.runAI(DEFAULT_CF_MODEL, systemPrompt, userMsg, history.results?.reverse() || []);
+				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
+				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, historyRes.results?.reverse() || []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
@@ -183,6 +200,7 @@ RETRIEVED: ${docContext.substring(0, 3000)}`;
 		await this.ctx.storage.put("current_q_idx", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const res = `### 🎓 UVA Quiz Started\n${pool[0].q}\n\n${pool[0].options.join('\n')}`;
+		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
 }
