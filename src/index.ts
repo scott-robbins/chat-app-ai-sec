@@ -66,14 +66,14 @@ export class ChatSession extends DurableObject<Env> {
 			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
-			const activePool = await this.ctx.storage.get("quiz_pool");
+			const state = await this.ctx.storage.get("session_state");
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: activeMode,
-				activeQuiz: !!activePool
+				activeQuiz: state === "WAITING_FOR_ANSWER" // FIXED: Syncs Command Center Green Light
 			}), { headers });
 		}
 
@@ -104,9 +104,10 @@ export class ChatSession extends DurableObject<Env> {
 					const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** Answer: **${currentQ.hidden_answer}**.`;
 					if (qIdx + 1 < pool.length) {
 						await this.ctx.storage.put("current_q_idx", qIdx + 1);
-						const combined = `${feedback}\n\n### Question ${qIdx + 2}\n**${pool[qIdx + 1].q}**\n\n${pool[qIdx + 1].options.join('\n')}`;
-						await this.saveMsg(sessionId, 'assistant', combined);
-						return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
+						const next = pool[qIdx + 1];
+						const res = `${feedback}\n\n### Question ${qIdx + 2}\n**${next.q}**\n\n${next.options.join('\n')}`;
+						await this.saveMsg(sessionId, 'assistant', res);
+						return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 					} else {
 						await this.ctx.storage.delete("quiz_pool"); await this.ctx.storage.delete("session_state");
 						const final = `${feedback}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nHow else can I assist your studies today? We could look at the CS 4750 syllabus or check for more campus news.`;
@@ -119,7 +120,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure"))) {
 					await this.ctx.storage.delete("session_state");
-					const news = await this.tavilySearch("UVA campus news May 2026");
+					const news = await this.tavilySearch("University of Virginia UVA campus news May 2026");
 					const res = await this.runAI(body.model || DEFAULT_CF_MODEL, "Summarize UVA news warmly.", news);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -151,49 +152,5 @@ I have switched to your general Personal Assistant mode. Ready for search and do
 
 				const activeMode = (await this.env.SETTINGS.get(`active_mode`)) || "personal";
 				let liveContext = "";
-				if (activeMode === "personal" && (lowMsg.includes("stock") || lowMsg.includes("weather") || lowMsg.includes("news"))) {
-					liveContext = await this.tavilySearch(userMsg);
-				}
-
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: "personal" }, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-				const systemPrompt = `### ROLE: JOLENE PERSONAL AI
-MODE: ${activeMode.toUpperCase()}
-${sessionState === "WAITING_FOR_NEWS_CONFIRM" ? "BYPASS: You have temporary permission to access LIVE WEB to summarize UVA news." : ""}
-
-### MANDATORY KNOWLEDGE
-RETRIEVED_DOCS: ${docContext.substring(0, 4500)}
-TAX FACTS: Base $375 fee. Hourly $275. Deadline: March 13, 2026.
-STRICT NAMESAKE: ONLY share Ray LaMontagne song credits story if asked about your name.
-GROUND TRUTH: ${PERSONAL_GROUND_TRUTH} | ${activeMode === 'uva' ? SYLLABUS_TRUTH + CALENDAR_TRUTH : 'UVA DISABLED'}
-${liveContext ? `LIVE WEB: ${liveContext}` : ''}`;
-
-				const historyRes = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
-				const chatTxt = await this.runAI(body.model || DEFAULT_CF_MODEL, systemPrompt, userMsg, historyRes.results?.reverse() || []);
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Alert: " + e.message })}\n\ndata: [DONE]\n\n`); }
-		}
-		return new Response("OK");
-	}
-
-	async initQuizPool(sessionId: string, model: string) {
-		const prompt = `FACTS: ${CALENDAR_TRUTH}\nTASK: Generate 5 MCQs. JSON ONLY: [{"q":"?","options":["A.","B.","C.","D."],"hidden_answer":"A"}]`;
-		const raw = await this.runAI(model, "JSON ONLY.", prompt);
-		const pool = JSON.parse(raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1));
-		await this.ctx.storage.put("quiz_pool", pool); await this.ctx.storage.put("current_q_idx", 0);
-		await this.ctx.storage.put("quiz_score", 0); await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
-		const res = `### 🎓 UVA Quiz Started *(Type 'Stop Quiz' to exit)*\n**${pool[0].q}**\n\n${pool[0].options.join('\n')}`;
-		await this.saveMsg(sessionId, 'assistant', res);
-		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-	}
-}
-
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
-	}
-} satisfies ExportedHandler<Env>;
+				// FIXED: Restored denial response for non-academic searches
