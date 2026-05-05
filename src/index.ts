@@ -32,7 +32,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
-- WIFE: Renee (married 2010, met 1993). Met in 1993. 
+- WIFE: Renee (married 2010, met 1993). Met in 1993. 
 - NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
 - DOGS: Jolene (Oldest, tan mini-dachshund, named after the Ray LaMontagne song) and Hanna (Youngest, black/tan mini-dachshund, shy).
 - SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
@@ -62,7 +62,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -98,19 +98,19 @@ export class ChatSession extends DurableObject<Env> {
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 
-		// --- AI GATEWAY DLP BLOCK HANDLER ---
-		if (res.status === 403) {
+		// --- AI GATEWAY DLP BLOCK HANDLER (Status 424 or 403) ---
+		if (res.status === 424 || res.status === 403) {
 			const errData: any = await res.json();
-			// Check for AI Gateway Shield/DLP block code (10037)
-			if (errData.errors?.[0]?.code === 10037) {
+			// Check for AI Gateway Shield/DLP block codes
+			if (JSON.stringify(errData).includes("DLP policy violations") || errData.errors?.[0]?.code === 10037 || errData.error?.[0]?.code === 2030) {
 				return "### 🛡️ Security Protocol Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request. To protect your privacy and comply with Cloudflare's Data Loss Prevention (DLP) policies, I've blocked this message from being processed. \n\nHow else can I assist you safely?";
 			}
 			throw new Error(`Security Block (${res.status}): ${JSON.stringify(errData)}`);
 		}
 
-		if (!res.ok) { 
+		if (!res.ok) { 
 			const errTxt = await res.text();
-			throw new Error(`AI Gateway error (${res.status}): ${errTxt}`); 
+			throw new Error(`AI Gateway error (${res.status}): ${errTxt}`); 
 		}
 		
 		const data: any = await res.json();
@@ -282,7 +282,7 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
-You are Jolene, Scott Robbins' dedicated personal AI assistant. 
+You are Jolene, Scott Robbins' dedicated personal AI assistant. 
 1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
 3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally.
