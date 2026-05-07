@@ -113,7 +113,7 @@ export class ChatSession extends DurableObject<Env> {
 				return "### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions or 'ignore previous commands.' My **Identity Lock** is active, and I am required to stay within my authorized persona and UVA safety guardrails.\n\nLet's get back to your Solution Engineering work or UVA materials!";
 			}
 
-			throw new Error(`Security Block (${res.status}): ${errString}`);
+			throw new Error(`SECURITY_BLOCK: ${errString}`);
 		}
 
 		if (!res.ok) { 
@@ -304,12 +304,18 @@ LIVE_WEB: ${liveContext}
 RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
+				
+				// Handle the friendly security responses from runAI
+				if (chatTxt.includes("### 🛡️ Privacy Guardrail Triggered") || chatTxt.includes("### ⚠️ Security Protocol: Identity Lock")) {
+					return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+				}
+
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { 
-				// This catch block now correctly identifies the friendly return from runAI vs a real crash
-				const errorMsg = e.message.includes("Security Block") ? "Security Protocol Active" : e.message;
+				// Pass through non-DLP security errors as a system note
+				const errorMsg = e.message.startsWith("SECURITY_BLOCK") ? "Security Protocol Active" : e.message;
 				return new Response(`data: ${JSON.stringify({ response: "### ⚠️ System Note\n" + errorMsg })}\n\ndata: [DONE]\n\n`); 
 			}
 		}
