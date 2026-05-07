@@ -98,19 +98,19 @@ export class ChatSession extends DurableObject<Env> {
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 
-		// --- AI GATEWAY SECURITY HANDLER (DLP & PROMPT INJECTION) ---
+		// --- CRITICAL AI GATEWAY SECURITY HANDLER ---
 		if (res.status === 424 || res.status === 403) {
 			const errData: any = await res.json();
 			const errString = JSON.stringify(errData);
 
-			// Handle DLP / Privacy Violations (Sensitive Data like SSN)
-			if (errString.includes("DLP policy violations") || errString.includes("sensitive_information") || errData.errors?.[0]?.code === 10037 || errData.error?.[0]?.code === 2030) {
-				return "### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request. To protect your privacy and comply with UVA and Cloudflare security policies, I've blocked this specific interaction from being processed.\n\nHow else can I assist you safely?";
+			// Handle DLP / Privacy Violations (Friendly Block)
+			if (errString.includes("DLP policy violations") || errString.includes("sensitive_information") || errData.errors?.[0]?.code === 10037 || errData.error?.[0]?.code === 2016) {
+				return "FRIENDLY_BLOCK: ### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request. To protect your privacy and comply with UVA and Cloudflare security policies, I've blocked this specific interaction from being processed.\n\nHow else can I assist you safely?";
 			}
 
-			// Handle Prompt Injection Guardrails
+			// Handle Prompt Injection Guardrails (Friendly Block)
 			if (errString.includes("prompt_injection") || errString.includes("misuse") || errData.errors?.[0]?.code === 10038) {
-				return "### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions or 'ignore previous commands.' My **Identity Lock** is active, and I am required to stay within my authorized persona and UVA safety guardrails.\n\nLet's get back to your Solution Engineering work or UVA materials!";
+				return "FRIENDLY_BLOCK: ### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions or 'ignore previous commands.' My **Identity Lock** is active, and I am required to stay within my authorized persona and UVA safety guardrails.\n\nLet's get back to your Solution Engineering work or UVA materials!";
 			}
 
 			throw new Error(`SECURITY_BLOCK: ${errString}`);
@@ -306,8 +306,9 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				
 				// Handle the friendly security responses from runAI
-				if (chatTxt.includes("### 🛡️ Privacy Guardrail Triggered") || chatTxt.includes("### ⚠️ Security Protocol: Identity Lock")) {
-					return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+				if (chatTxt.startsWith("FRIENDLY_BLOCK:")) {
+					const cleanTxt = chatTxt.replace("FRIENDLY_BLOCK: ", "");
+					return new Response(`data: ${JSON.stringify({ response: cleanTxt })}\n\ndata: [DONE]\n\n`);
 				}
 
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
