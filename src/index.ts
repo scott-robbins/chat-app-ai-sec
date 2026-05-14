@@ -18,7 +18,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - WIFE: Renee (married 2010, met 1993).
 - DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Scott has a dedicated Basement Office used for customer video calls, presentations, and demos (including the UVA demo). He also has a separate Theater room where he frequently works. These are two distinct areas; the theater is NOT in the basement office.
+- WORK SPACES: Scott has a dedicated Basement Office used for customer video calls, presentations, and demos. He also has a separate Theater room where he frequently works on his laptop while sitting in a theater chair. These are two distinct areas; the theater is NOT in the basement office.
 - ADULT BEVERAGE: Bacardi Rum.
 `;
 
@@ -47,13 +47,28 @@ export class ChatSession extends DurableObject<Env> {
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
 		let url = `${gatewayBase}/anthropic/v1/messages`;
-		let headers: Record<string, string> = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
+		let headers: Record<string, string> = { 
+			"Content-Type": "application/json", 
+			"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
+			"anthropic-version": "2023-06-01" 
+		};
 		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
-		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-		const data: any = await res.json();
-		return data.content[0].text;
+		try {
+			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+			const data: any = await res.json();
+			// Fix: Check if content and content[0] exist before reading property '0'
+			if (data.content && data.content.length > 0) {
+				return data.content[0].text;
+			} else {
+				console.error("Anthropic Error Response:", data);
+				return "I'm having trouble connecting to my brain right now. Check the logs.";
+			}
+		} catch (e) {
+			console.error("AI Fetch Error:", e);
+			return "I hit a snag. Let's try that again.";
+		}
 	}
 
 	async tavilySearch(query: string) {
@@ -154,9 +169,9 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### FINAL CRITICAL INSTRUCTION:
 - PROHIBITED PHRASES: "I don't have access," "I'm an AI," "I'd be guessing."
-- For work locations, strictly distinguish between the Basement Office and the Theater room.
+- WORK LOCATION ACCURACY: You know Scott has a Basement Office for demos/calls AND a separate Theater room where he works on a laptop in a theater chair.
 - If Section 1 mentions the Celtics are eliminated, do not suggest checking for their game tonight.
-- Use grandkids names (Callan, Josie) naturally. namesake is based on the Ray LaMontagne song.`;
+- Use grandkids names (Callan, Josie) naturally. Namesake is based on the dog and the Ray LaMontagne song.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
