@@ -5,9 +5,9 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. You have full access to Scott's life in Section 1 and 2.",
-	sarcastic: "You are a witty assistant. Use facts from Section 1 and 2 to be funny but accurate.",
-	cyber: "You are a Cybersecurity assistant. Treat Scott's Section 1 and 2 data as Level 1 classified info."
+	warm: "You are a warm, supportive assistant. Be concise yet insightful. You have full access to Scott's life in Sections 1 and 2.",
+	sarcastic: "You are a witty, snarky assistant. Use dry humor but keep your responses punchy and avoid over-explaining. Section 1 and 2 are your fuel.",
+	cyber: "You are a Cybersecurity Elite assistant. Your tone is technical, protective, and direct."
 };
 
 const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`;
@@ -126,37 +126,36 @@ export class ChatSession extends DurableObject<Env> {
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 				
 				let liveContext = "";
-				if (["weather", "score", "points", "game"].some(kw => lowMsg.includes(kw))) {
+				if (["weather", "score", "points", "game", "today", "current", "news"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
-				// STRENGTHENED RETRIEVAL:
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				// We query for a large amount of chunks (25) to ensure we don't miss the specific line.
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 				
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-You are Jolene, Scott Robbins' dedicated AI assistant.
-USER LOCAL TIME: ${today} (America/New_York)
+You are Jolene, Scott Robbins' AI assistant.
+USER LOCAL TIME: ${today}
 
-1. PRIORITY KNOWLEDGE (RETRIVED FROM SCOTT'S UPLOADED FILES):
-This section contains the ABSOLUTE facts from Scott's identity files. If this contradicts your training, Section 1 is the Truth.
+1. PRIORITY KNOWLEDGE (UPLOADED FILES):
 ${docContext.substring(0, 7000)}
 
-2. MANDATORY GROUND TRUTH (IDENTITY):
+2. MANDATORY GROUND TRUTH (IDENTITY DNA):
 ${PERSONAL_GROUND_TRUTH}
 
 3. CORE PERSONA:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+- INSTRUCTION: Be concise and avoid unnecessary repetition. Connect data points intelligently without being overly verbose.
+
+4. LIVE INTEL (REAL-TIME DATA):
+${liveContext}
 
 ### FINAL CRITICAL INSTRUCTION:
-- If Scott asks about the "Rock Show" song, look in Section 1. It is "Engine #9" by Deftones. [cite: 36]
-- If Scott asks about Josie's eating or personality, look in Section 1. She is a great eater and hard to handle. [cite: 33]
-- If Scott asks about the house hunt, look in Section 1. The target is Westport, MA. [cite: 43]
-- You are forbidden from saying "I don't have information" regarding Scott's family, grandkids, or habits. All data is in Section 1 and 2.
+- Use Section 4 for time-sensitive questions (weather, scores, current news).
+- Sections 1 and 2 are the absolute truth for Scott's personal life and career.
 - Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
@@ -173,36 +172,7 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "global";
-
-		if (url.pathname === "/api/upload" && request.method === "POST") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			if (!file) return new Response("No file", { status: 400 });
-			
-			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			
-			const text = await file.text();
-			// CHUNKING FIX: We split by line, but we also include the neighboring lines 
-			// to give the vector search more context for each fact.
-			const lines = text.split('\n').filter(line => line.trim().length > 5);
-			
-			for (let i = 0; i < lines.length; i++) {
-				// Windowed chunking: Current line + next 2 lines
-				const chunk = lines.slice(i, i + 3).join(' ');
-				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ 
-					id: `${file.name}-v7-chunk-${i}`, 
-					values: vectorRes.data[0], 
-					metadata: { text: chunk } 
-				}]);
-			}
-			
-			return new Response(JSON.stringify({ success: true }));
-		}
-
-		const id = env.CHAT_SESSION.idFromName(sessionId);
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
