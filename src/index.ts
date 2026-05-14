@@ -81,11 +81,15 @@ export class ChatSession extends DurableObject<Env> {
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01"; // Required Anthropic Header
+			
+			// FIX: Strip the provider prefix (e.g., "anthropic/") for the payload body
+			const cleanModel = model.replace("anthropic/", "");
+			
 			body = {
-				model: model,
+				model: cleanModel,
 				system: systemPrompt,
 				messages: chatMessages,
-				max_tokens: 4096 // Updated for Opus 4.7 capabilities
+				max_tokens: 4096 
 			};
 		} else if (model.startsWith("@cf/")) {
 			url = `${gatewayBase}/workers-ai/${model}`;
