@@ -5,20 +5,21 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm, supportive assistant. Be concise yet insightful. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use dry humor but keep your responses punchy. Section 1 and 2 are your Absolute Truth.",
+	warm: "You are a warm, supportive assistant. Be concise. Section 1 and 2 are your Absolute Truth.",
+	sarcastic: "You are a witty, snarky assistant. Use dry humor but keep your responses punchy and short. No long lists unless asked.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
+- IDENTITY: You are an AI named Jolene. You are named AFTER Scott's tan dachshund, but you are NOT the dog.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - BIRTH YEAR: 1974.
 - FAMILY: Daughter (Bryana), Grandkids (Callan & Josie).
 - WIFE: Renee (married 2010, met 1993).
 - DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Scott has a dedicated Basement Office used for customer video calls, presentations, and demos. He also has a separate Theater room where he frequently works on his laptop while sitting in a theater chair. These are two distinct areas; the theater is NOT in the basement office.
+- WORK SPACES: Scott has a dedicated Basement Office for demos/calls and a separate Theater room where he works on a laptop in a theater chair. These are two distinct areas.
 - ADULT BEVERAGE: Bacardi Rum.
 `;
 
@@ -47,59 +48,29 @@ export class ChatSession extends DurableObject<Env> {
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
 		let url = `${gatewayBase}/anthropic/v1/messages`;
-		let headers: Record<string, string> = { 
-			"Content-Type": "application/json", 
-			"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
-			"anthropic-version": "2023-06-01" 
-		};
+		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
 		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			// Fix: Check if content and content[0] exist before reading property '0'
-			if (data.content && data.content.length > 0) {
-				return data.content[0].text;
-			} else {
-				console.error("Anthropic Error Response:", data);
-				return "I'm having trouble connecting to my brain right now. Check the logs.";
-			}
-		} catch (e) {
-			console.error("AI Fetch Error:", e);
-			return "I hit a snag. Let's try that again.";
-		}
+			if (data.content && data.content.length > 0) return data.content[0].text;
+			return "Brain blip. Try again.";
+		} catch (e) { return "I hit a snag. Let's try that again."; }
 	}
 
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			
-			let enhancedQuery = query;
-			if (query.toLowerCase().match(/nba|playoff|celtics|score|game/)) {
-				enhancedQuery = `${query} scores standings eliminated teams ${dateStr}`;
-			}
-
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${enhancedQuery} live now`, 
-					search_depth: "advanced", 
-					include_answer: true,
-					max_results: 10
-				})
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} live now ${dateStr}`, search_depth: "advanced", include_answer: true, max_results: 6 })
 			});
 			const data: any = await res.json();
-			return `
-[AGENT LIVE DATA FEED]
-TIMESTAMP: ${dateStr}
-DIRECT_ANSWER: ${data.answer || "No direct answer."}
-DATA_POINTS:
-${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).join("\n")}
-[/END FEED]`;
-		} catch (e) { return "SEARCH_ERROR"; }
+			return `[LIVE DATA FEED ${dateStr}]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+		} catch (e) { return "Search unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -112,10 +83,8 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Senior Solutions Engineer | Fancy Mode`,
+				profile: `Scott E Robbins | Senior Solutions Engineer`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: "personal",
 				personality: personality,
 				durableObject: { id: sessionId, state: "Active" }
@@ -129,49 +98,50 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 				const lowMsg = userMsg.toLowerCase().trim();
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
+				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 				await this.saveMsg(sessionId, 'user', userMsg);
 
+				// Step 1: Mode-Based Internet Trigger
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk", "radar", "stock", "price", "ticker", "market", "celtics", "red sox"];
-				
+				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "market"];
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					let searchQuery = userMsg;
-					if (!lowMsg.match(/stock|ticker|price/)) {
-						searchQuery = `${userMsg} in Plymouth MA`;
-					}
+					if (!lowMsg.match(/stock|ticker|price/)) searchQuery = `${userMsg} in Plymouth MA`;
 					liveContext = await this.tavilySearch(searchQuery);
 				}
 
+				// Step 2: Mode-Based RAG (Filtering out UVA in personal mode)
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 				
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+				// CRITICAL MODE GATING:
+				const docContext = matches.matches
+					.filter(m => !m.metadata.text.toLowerCase().includes("uva") && !m.metadata.text.toLowerCase().includes("syllabus"))
+					.map(m => m.metadata.text).join("\n---\n");
+				
+				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
-You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS via Section 1. 
+You are Jolene, an AI Agent. You are NOT the dog. 
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. AGENT LIVE DATA FEED (YOUR EYES):
+1. LIVE INTEL (VERIFIED DATA):
 ${liveContext}
-- CRITICAL: Section 1 IS the current reality. If Section 1 shows a team is ELIMINATED or a game is over, you MUST state that. No guessing.
 
-2. PRIORITY KNOWLEDGE (UPLOADED FILES):
-${docContext.substring(0, 6000)}
+2. PERSONAL KNOWLEDGE (UPLOADED):
+${docContext.substring(0, 5000)}
 
-3. MANDATORY GROUND TRUTH:
+3. IDENTITY DNA:
 ${PERSONAL_GROUND_TRUTH}
 
 4. CORE PERSONA:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
-### FINAL CRITICAL INSTRUCTION:
-- PROHIBITED PHRASES: "I don't have access," "I'm an AI," "I'd be guessing."
-- WORK LOCATION ACCURACY: You know Scott has a Basement Office for demos/calls AND a separate Theater room where he works on a laptop in a theater chair.
-- If Section 1 mentions the Celtics are eliminated, do not suggest checking for their game tonight.
-- Use grandkids names (Callan, Josie) naturally. Namesake is based on the dog and the Ray LaMontagne song.`;
+### STYLE & MODE GUARD:
+- MODE: You are currently in PERSONAL mode. You are a Senior Solutions Engineer at Cloudflare. Do NOT mention UVA, Bodo's Bagels, or academic assignments unless Scott specifically asks.
+- STYLE: Use natural, conversational prose. Avoid excessive bullet points. If you can say it in one short paragraph, do so.
+- IDENTITY: You are a smart AI named after a dog. You do not bark and you do not follow Scott downstairs literally.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -185,8 +155,8 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "global";
 
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			const formData = await request.formData();
@@ -198,12 +168,11 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v7-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v8-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
 
-		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
