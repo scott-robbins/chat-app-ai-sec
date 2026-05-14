@@ -126,7 +126,7 @@ export class ChatSession extends DurableObject<Env> {
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 				
 				let liveContext = "";
-				if (["weather", "score", "points", "game", "today", "current", "news"].some(kw => lowMsg.includes(kw))) {
+				if (["weather", "score", "points", "game", "today", "current", "news", "win", "won", "playoff"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -137,8 +137,8 @@ export class ChatSession extends DurableObject<Env> {
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-You are Jolene, Scott Robbins' AI assistant.
-USER LOCAL TIME: ${today}
+You are Jolene, Scott Robbins' dedicated AI assistant.
+USER LOCAL TIME: ${today} (America/New_York)
 
 1. PRIORITY KNOWLEDGE (UPLOADED FILES):
 ${docContext.substring(0, 7000)}
@@ -150,11 +150,13 @@ ${PERSONAL_GROUND_TRUTH}
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 - INSTRUCTION: Be concise and avoid unnecessary repetition. Connect data points intelligently without being overly verbose.
 
-4. LIVE INTEL (REAL-TIME DATA):
+4. LIVE INTEL (VERIFIED REAL-TIME DATA):
 ${liveContext}
 
 ### FINAL CRITICAL INSTRUCTION:
-- Use Section 4 for time-sensitive questions (weather, scores, current news).
+- SECTION 4 IS THE HIGHEST PRIORITY FOR TIME-SENSITIVE TOPICS. 
+- FACT-CHECK: Before answering about sports scores, schedules, or weather, check Section 4. If Section 4 says a game was "last night" or is "tomorrow," you MUST ignore your internal training data and use that data.
+- If Scott asks about NBA games, strictly use the live search results in Section 4 to determine the current status of the series.
 - Sections 1 and 2 are the absolute truth for Scott's personal life and career.
 - Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
@@ -173,6 +175,22 @@ ${liveContext}
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+
+		if (url.pathname === "/api/upload" && request.method === "POST") {
+			const formData = await request.formData();
+			const file = formData.get("file") as File;
+			if (!file) return new Response("No file", { status: 400 });
+			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
+			const text = await file.text();
+			const lines = text.split('\n').filter(line => line.trim().length > 5);
+			for (let i = 0; i < lines.length; i++) {
+				const chunk = lines.slice(i, i + 3).join(' ');
+				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v7-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+			}
+			return new Response(JSON.stringify({ success: true }));
+		}
+
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
