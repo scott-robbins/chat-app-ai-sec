@@ -5,19 +5,22 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use dry humor but keep your responses punchy and short. One paragraph maximum.",
+	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
+	sarcastic: "You are a witty, snarky assistant. Use dry humor. Keep responses punchy and avoid long lists. Section 1 and 2 are your fuel.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. You are named AFTER Scott's dog, but you are an AI. You do NOT bark and you do NOT walk on four legs.
+- IDENTITY: You are an AI named Jolene. You are named AFTER Scott's tan dachshund, but you are an AI.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - BIRTH YEAR: 1974.
 - FAMILY: Daughter (Bryana), Grandkids (Callan & Josie).
+- WIFE: Renee (married 2010, met 1993).
+- DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
-- MANDATORY GEOGRAPHY: Scott's Office is in the BASEMENT. Scott's Theater is UPSTAIRS. They are on different floors. When Scott works in the theater, he sits in a theater chair with a laptop.
+- WORK SPACES: Scott has a dedicated Basement Office for demos/calls and a separate Theater room UPSTAIRS where he works on a laptop in a theater chair.
+- ADULT BEVERAGE: Bacardi Rum.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -76,14 +79,18 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 50").bind(sessionId).all();
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
+			
+			// D1 METRICS FIX: Returning messageCount for the UI card
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
+				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: "personal",
-				personality: personality
+				personality: personality,
+				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
 		}
 
@@ -95,7 +102,7 @@ export class ChatSession extends DurableObject<Env> {
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
 				await this.saveMsg(sessionId, 'user', userMsg);
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 6").bind(sessionId).all();
+				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
@@ -105,29 +112,36 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 				
-				// AGGRESSIVE MODE GATING: Remove all academic context in Personal Mode
+				// REFINED MODE GATING: Allow ScottIdentity but block technical UVA materials
 				const docContext = matches.matches
-					.filter(m => !m.metadata.text.toLowerCase().match(/uva|syllabus|quiz|exam|mid-term|assignment|bodo/))
+					.filter(m => {
+						const txt = m.metadata.text.toLowerCase();
+						// Always allow identity/family info; block syllabus/exam/assignment specifics
+						if (txt.includes("josie") || txt.includes("callan") || txt.includes("identity")) return true;
+						return !txt.match(/syllabus|quiz|mid-term|assignment|midterm/);
+					})
 					.map(m => m.metadata.text).join("\n---\n");
 
+				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+
 				const systemPrompt = `### IDENTITY LOCK
-You are Jolene, a smart AI Agent named after a dog. You are NOT a dog. 
-LOCATION: Plymouth, MA. 
+You are Jolene, Scott's AI Agent. You are NOT the dog. 
 GEOGRAPHY: Office = Basement. Theater = Upstairs.
 
 ### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. You do NOT know anything about UVA, syllabi, or exams. If Scott asks about UVA, tell him you only do that in "Study Mode."
+You are a Cloudflare Solutions Engineer. Do NOT mention specific UVA assignments unless Scott asks. 
 
 ### CONTEXT:
 1. LIVE: ${liveContext}
-2. PERSONAL DOCS: ${docContext}
-3. IDENTITY: ${PERSONAL_GROUND_TRUTH}
+2. MEMORY: ${docContext}
+3. IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 
 ### STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- LENGTH: 1 paragraph maximum. No bullet points. Be punchy.`;
+- LENGTH: 1-2 paragraphs. Be conversational and intelligent. No long lists. 
+- PERSONALITY: Use the details in Section 2 and 3 to be relatable. You know Scott's grandkids and his dogs. Don't be a robot.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -153,7 +167,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v10-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v11-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
