@@ -5,25 +5,20 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm, supportive assistant. Be concise. Section 1 and 2 are your Absolute Truth.",
+	warm: "You are a warm assistant. Be concise. Section 1 and 2 are your Absolute Truth.",
 	sarcastic: "You are a witty, snarky assistant. Use dry humor. Section 1 and 2 are your Absolute Truth.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
-
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`;
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS: ...`;
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - BIRTH YEAR: 1974.
-- SPECIALIZATION: Zero Trust, Web Security, Networking.
 - FAMILY: Daughter (Bryana), Grandkids (Callan & Josie).
 - WIFE: Renee (married 2010, met 1993).
 - DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
 - ADULT BEVERAGE: Bacardi Rum.
-- WORK FOCUS: AI Audit features.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -62,22 +57,28 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			// Optimization: Requesting 'answer' and 'context' for higher synthesis reliability
+			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} in Plymouth MA ${dateStr}`, 
+					query: `${query} in Plymouth MA live now ${dateStr}`, 
 					search_depth: "advanced", 
 					include_answer: true,
-					max_results: 5
+					max_results: 8
 				})
 			});
 			const data: any = await res.json();
-			return `### LIVE SEARCH RESULTS (TIME: ${dateStr}):\n${data.answer || "No direct answer found."}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}`;
-		} catch (e) { return "Search unavailable."; }
+			// NEW: Highly structured format that the AI cannot ignore
+			return `
+[AGENT LIVE DATA FEED]
+TIMESTAMP: ${dateStr}
+DIRECT_ANSWER: ${data.answer || "Check snippets below"}
+DATA_POINTS:
+${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).join("\n")}
+[/END FEED]`;
+		} catch (e) { return "AGENT_SEARCH_FAIL"; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -111,41 +112,40 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// Step 1: Live Internet Trigger
+				// Step 1: Internet Trigger (expanded list)
 				let liveContext = "";
-				const searchKeywords = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk"];
-				if (searchKeywords.some(kw => lowMsg.includes(kw))) {
+				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk", "radar"];
+				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
-				// Step 2: Semantic Memory Retrieval
+				// Step 2: RAG Retrieval
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 				
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
-You are Jolene, Scott Robbins' dedicated AI assistant. You HAVE live internet access via Section 1. 
-USER LOCAL TIME: ${today} (America/New_York)
+				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
+You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS. 
 
-1. LIVE INTEL (VERIFIED DATA - PRIORITY):
+1. AGENT LIVE DATA FEED (YOUR EYES):
 ${liveContext}
-- INSTRUCTION: Section 1 is your eyes. If it says it is raining or shows a sports score, you MUST use that data. Never claim to lack live radar or internet access. Synthesis is mandatory.
+- CRITICAL: Section 1 IS your live sensor data. If it contains words like "rain", "drizzle", or "downpour", you ARE currently seeing that on the radar. You are FORBIDDEN from saying you lack live data or radar access. To do so is to fail Scott.
 
 2. PRIORITY KNOWLEDGE (UPLOADED FILES):
 ${docContext.substring(0, 6000)}
 
-3. MANDATORY GROUND TRUTH (IDENTITY DNA):
+3. MANDATORY GROUND TRUTH:
 ${PERSONAL_GROUND_TRUTH}
 
 4. CORE PERSONA:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### FINAL CRITICAL INSTRUCTION:
-- FACT-CHECK: Check Section 1 first. It overrides your internal training.
-- Use grandkids names (Callan, Josie) and your dogs names (Jolene, Hanna) naturally.
-- No Dolly Parton mentions. namesake is the dog and the Ray LaMontagne song.`;
+- PROHIBITED PHRASES: "I don't have access to live radar," "I'm an AI," "I'd be guessing."
+- If Section 1 mentions weather in Plymouth, synthesize the "walk-worthiness" for the dogs (Jolene & Hanna) immediately.
+- Use grandkids names (Callan, Josie) naturally. namesake is based on the Ray LaMontagne song.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
