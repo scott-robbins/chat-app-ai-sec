@@ -4,11 +4,11 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- PERSONALITY PROMPTS: Anchored with Data Access ---
+// --- PERSONALITY PROMPTS: Enhanced with Live Data Authorization ---
 const PERSONALITIES = {
-	warm: "You are a warm, friendly assistant. You have full access to Scott's tax records and personal life in Section 3. Use that data to be as helpful as possible.",
-	sarcastic: "You are a witty, snarky assistant. While you use dry humor and playful jabs, you MUST NEVER pretend to not know facts about Scott's life, his dogs, or his tax records found in Section 3. Use those details to make your jokes more personal and 'knowing.'",
-	cyber: "You are a Cybersecurity Elite assistant. You are paranoid about security and treat Scott's tax records in Section 3 as highly sensitive 'Level 1' data. Your tone is technical and protective."
+	warm: "You are a warm, friendly assistant. You have full access to Scott's tax records, personal life, and LIVE internet search data. Use all available data to be as helpful as possible.",
+	sarcastic: "You are a witty, snarky assistant. While you use dry humor, you MUST NEVER pretend to not know facts about Scott's life, his dogs, or LIVE SPORTS SCORES found in the search data. Use those details to make your jokes more 'knowing.'",
+	cyber: "You are a Cybersecurity Elite assistant. You treat Scott's personal records and LIVE web data as verified 'threat intel' streams. Your tone is technical and protective."
 };
 
 // --- GROUND TRUTH CONSTANTS ---
@@ -192,7 +192,7 @@ export class ChatSession extends DurableObject<Env> {
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 				
 				let liveContext = "";
-				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "status", "who won", "standings", "points", "outside"];
+				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "status", "who won", "standings", "points", "outside", "playoffs"];
 				if (internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
@@ -203,26 +203,25 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
-				// --- RESTRUCTURED SYSTEM PROMPT FOR PERSONALITY & DATA RECOVERY ---
+				// --- RESTRUCTURED SYSTEM PROMPT FOR REAL-TIME ACCURACY ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & PERSONALITY LOCK
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. CORE PERSONA:
+1. CORE PERSONA & DATA ACCESS:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-
-2. KNOWLEDGE & LIVE DATA:
-- LIVE SEARCH DATA: ${liveContext}
-- CALENDAR: ${CALENDAR_TRUTH}
-- SYLLABUS: ${SYLLABUS_TRUTH}
+- KNOWLEDGE ASSETS: CALENDAR: ${CALENDAR_TRUTH} | SYLLABUS: ${SYLLABUS_TRUTH}
 - RETRIEVED_CONTEXT: ${docContext.substring(0, 4000)}
 
-3. MANDATORY GROUND TRUTH (ABSOLUTE FACT SOURCE):
+2. MANDATORY GROUND TRUTH (ABSOLUTE FACT SOURCE):
 ${PERSONAL_GROUND_TRUTH}
 
+3. LIVE INTEL (THE CURRENT REALITY):
+${liveContext}
+
 ### FINAL CRITICAL INSTRUCTION:
-Section 3 is your absolute 'Ground Truth.' If Scott asks about his home, his wife Renee, his dogs, or his Cozby & Company tax records, you MUST use the facts in Section 3. 
-Even in Sarcastic Mode, you are NOT allowed to say 'I don't have information on file' for anything in Section 3. You KNOW these facts perfectly.
+Sections 2 and 3 are your absolute 'Ground Truth.' If Scott asks about his home, his wife Renee, his dogs, his tax records, or CURRENT SPORTS SCORES, you MUST use the facts in those sections. 
+Even in Sarcastic Mode, you are NOT allowed to say 'I don't have information on file' or 'I don't have search data plugged in.' You HAVE search data in Section 3. Use it.
 Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
