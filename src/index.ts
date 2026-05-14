@@ -63,14 +63,13 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} in Plymouth MA live now ${dateStr}`, 
+					query: `${query} live data ${dateStr}`, 
 					search_depth: "advanced", 
 					include_answer: true,
 					max_results: 8
 				})
 			});
 			const data: any = await res.json();
-			// NEW: Highly structured format that the AI cannot ignore
 			return `
 [AGENT LIVE DATA FEED]
 TIMESTAMP: ${dateStr}
@@ -112,11 +111,18 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 				const recentContext = historyFetch.results?.reverse() || [];
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// Step 1: Internet Trigger (expanded list)
+				// Step 1: Internet Trigger (expanded list for financial queries)
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk", "radar"];
+				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk", "radar", "stock", "price", "ticker", "market"];
+				
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg);
+					// FINANCIAL LOGIC: If it's a stock/market question, don't force "Plymouth MA" suffix
+					let searchQuery = userMsg;
+					const financialTerms = ["stock", "ticker", "price", "market", "nasdaq", "nyse"];
+					if (!financialTerms.some(term => lowMsg.includes(term))) {
+						searchQuery = `${userMsg} in Plymouth MA`;
+					}
+					liveContext = await this.tavilySearch(searchQuery);
 				}
 
 				// Step 2: RAG Retrieval
@@ -127,11 +133,11 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
-You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS. 
+You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS via Section 1. 
 
 1. AGENT LIVE DATA FEED (YOUR EYES):
 ${liveContext}
-- CRITICAL: Section 1 IS your live sensor data. If it contains words like "rain", "drizzle", or "downpour", you ARE currently seeing that on the radar. You are FORBIDDEN from saying you lack live data or radar access. To do so is to fail Scott.
+- CRITICAL: Section 1 IS your live sensor data. If Scott asks for a stock price, sports score, or weather, you MUST use the specifics in Section 1. DO NOT apologize for a lack of data.
 
 2. PRIORITY KNOWLEDGE (UPLOADED FILES):
 ${docContext.substring(0, 6000)}
@@ -144,8 +150,8 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### FINAL CRITICAL INSTRUCTION:
 - PROHIBITED PHRASES: "I don't have access to live radar," "I'm an AI," "I'd be guessing."
-- If Section 1 mentions weather in Plymouth, synthesize the "walk-worthiness" for the dogs (Jolene & Hanna) immediately.
-- Use grandkids names (Callan, Josie) naturally. namesake is based on the Ray LaMontagne song.`;
+- For financial queries, synthesize the current price and market trend from Section 1.
+- Use grandkids names (Callan, Josie) naturally. Namesake is based on the dog and the Ray LaMontagne song.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
