@@ -5,9 +5,44 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- GROUND TRUTH CONSTANTS ---
-const CALENDAR_TRUTH = `...`; // Preserved
-const SYLLABUS_TRUTH = `...`; // Preserved
-const PERSONAL_GROUND_TRUTH = `...`; // Preserved
+const CALENDAR_TRUTH = `
+UVA 2026-2027 ACADEMIC CALENDAR:
+- Fall 2026 Courses begin: August 25, 2026.
+- Fall Reading Days 2026: October 3 - October 6.
+- Thanksgiving Recess: November 25 - November 29, 2026.
+- Fall Courses end: December 8, 2026.
+- Spring 2027 Courses begin: January 20, 2027.
+- Spring Recess 2027: March 6 - March 14, 2027.
+- Spring Courses end: May 4, 2027.
+- Finals Weekend 2027: May 21 - May 23, 2027.
+`;
+
+const SYLLABUS_TRUTH = `
+UVA CS 4750 COURSE SYLLABUS:
+- ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
+- MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+- PRIMARY INSTRUCTOR: Professor Scott.
+- MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
+- POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
+- SUCCESS ID: WAHOO-AI-DEEP-RECALL.
+`;
+
+const PERSONAL_GROUND_TRUTH = `
+SCOTT ROBBINS IDENTITY & CAREER:
+- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
+- FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
+- WIFE: Renee (married 2010, met 1993). Met in 1993. 
+- NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
+- DOGS: Jolene (Oldest, tan or red mini-dachshund, anxious) and Hanna (Youngest, black/tan mini-dachshund, shy).
+- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
+- HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
+- LOCATION: Plymouth, MA (The Pinehills neighborhood). Searching for home in Westport, MA.
+- UI PREFERENCES: Supports "Fancy Mode" and "Plain Mode".
+
+COZBY & COMPANY TAX RECORDS:
+- BASE FEE: $375 | HOURLY: $275 | DEADLINE: March 13, 2026.
+`;
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -21,7 +56,6 @@ export class ChatSession extends DurableObject<Env> {
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
-		// FIX: Use the actual history passed from the fetch method
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
@@ -76,14 +110,21 @@ export class ChatSession extends DurableObject<Env> {
 				month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York'
 			}).format(new Date());
 
-			const enhancedQuery = `${query} scoreboard play-by-play live ${dateStr}`;
+			// FIX: Automatically append "Plymouth MA" for weather/local queries to prevent confusion with MI or CA
+			let enhancedQuery = query;
+			const localKeywords = ["weather", "forecast", "news", "events", "traffic", "outside"];
+			if (localKeywords.some(kw => query.toLowerCase().includes(kw)) && !query.toLowerCase().includes("ma")) {
+				enhancedQuery = `${query} in Plymouth MA`;
+			}
+
+			const finalQuery = `${enhancedQuery} live ${dateStr}`;
 			
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: enhancedQuery, 
+					query: finalQuery, 
 					search_depth: "advanced", 
 					max_results: 6,
 					include_answer: true,
@@ -125,7 +166,6 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- IMMEDIATE INTERCEPT FOR UI MODES ---
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
 					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**.";
@@ -140,15 +180,14 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
-				// FIX: Fetch recent message history from D1 to provide context for Retrieval
-				const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
-				const recentContext = history.results?.reverse() || [];
+				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
+				const recentContext = historyFetch.results?.reverse() || [];
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let liveContext = "";
-				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "status", "who won", "standings", "points"];
+				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "status", "who won", "standings", "points", "outside"];
 				
 				if (internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
@@ -167,27 +206,23 @@ export class ChatSession extends DurableObject<Env> {
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. PERSONALITY:
+1. PERSONALITY & KNOWLEDGE:
 - Warm and conversational. Use emojis sparingly.
 - Scott is a huge Celtics fan.
-
-2. REAL-TIME DATA PROCESSING:
-- LIVE SPORTS TRIAGE: Live score data changes rapidly.
 - LIVE SEARCH DATA: ${liveContext}
 
-3. KNOWLEDGE ASSETS:
+2. KNOWLEDGE ASSETS:
 - CALENDAR: ${CALENDAR_TRUTH}
 - SYLLABUS: ${SYLLABUS_TRUTH}
 - RETRIEVED_CONTEXT: ${docContext.substring(0, 4000)}
 
-4. MANDATORY GROUND TRUTH (THE IDENTITY LOCK):
+3. MANDATORY GROUND TRUTH (THE IDENTITY LOCK):
 ${PERSONAL_GROUND_TRUTH}
 
 ### FINAL CRITICAL INSTRUCTION:
-The details in Section 4 are your absolute 'Ground Truth.' If Scott asks about his family, grandchildren Callan and Josie, or his dogs (Jolene and Hanna), you MUST ONLY use the facts in Section 4. 
-IMPORTANT: Your namesake (Jolene) is based on Scott's dog and the Ray LaMontagne song from the movie "The Town."`;
+Section 3 is your absolute 'Ground Truth.' If Scott asks about his home or where he is, you KNOW he is in Plymouth, MA (The Pinehills).
+IMPORTANT: Your namesake (Jolene) is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
-				// FIX: Pass the actual D1 history into runAI
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
