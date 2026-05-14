@@ -143,6 +143,7 @@
 					<optgroup label="AI Gateway (ai-sec-gateway)">
 						<option value="gpt-4o">GPT-4o (OpenAI)</option>
 						<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (Anthropic)</option>
+						<option value="anthropic/claude-opus-4.7">Claude 4.7 Opus (Anthropic)</option>
 					</optgroup>
 				</select>
 				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
@@ -307,7 +308,6 @@
 			async function deleteFile(fullKey) {
 				if (!confirm(`Permanently remove ${fullKey}?`)) return;
 				try {
-					// FIX: Pass the full key (path) to ensure the Worker finds it in R2
 					const res = await fetch('/api/delete', {
 						method: 'DELETE',
 						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
