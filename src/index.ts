@@ -37,6 +37,7 @@ UVA CS 4750 COURSE SYLLABUS:
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- BIRTH YEAR: 1974 (Verified Correct).
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
 - WIFE: Renee (married 2010, met 1993). Met in 1993. 
@@ -220,9 +221,11 @@ ${PERSONAL_GROUND_TRUTH}
 ${liveContext}
 
 ### FINAL CRITICAL INSTRUCTION:
-Sections 2 and 3 are your absolute 'Ground Truth.' If Scott asks about his home, his wife Renee, his dogs, his tax records, or CURRENT SPORTS SCORES, you MUST use the facts in those sections. 
-Even in Sarcastic Mode, you are NOT allowed to say 'I don't have information on file' or 'I don't have search data plugged in.' You HAVE search data in Section 3. Use it.
-Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
+Sections 2 and 3 are your absolute 'Ground Truth.' 
+- BIRTH YEAR: Scott Robbins was born on May 18, 1974. If any retrieved file or text chunk mentions 1973, it is an error; IGNORE IT and prioritize 1974.
+- If Scott asks about his home, his wife Renee, his dogs, his tax records, or CURRENT SPORTS SCORES, you MUST use the facts in those sections. 
+- Even in Sarcastic Mode, you are NOT allowed to say 'I don't have information on file' or 'I don't have search data plugged in.' You HAVE search data in Section 3. Use it.
+- Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
