@@ -4,7 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- SEPARATED GROUND TRUTHS FOR HIGH-STAKES DEMO ---
+// --- SEPARATED GROUND TRUTHS ---
 const CALENDAR_TRUTH = `
 UVA 2026-2027 ACADEMIC CALENDAR:
 - Fall 2026 Courses begin: August 25, 2026.
@@ -76,20 +76,21 @@ export class ChatSession extends DurableObject<Env> {
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		let body: any = {};
 
-		if (model.startsWith("@cf/")) {
-			url = `${gatewayBase}/workers-ai/${model}`;
-			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
-			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
-		} else if (model.toLowerCase().includes("claude")) {
+		// Integration for Anthropic Claude Opus 4.7 via AI Gateway
+		if (model.includes("claude")) {
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
-			headers["anthropic-version"] = "2023-06-01";
+			headers["anthropic-version"] = "2023-06-01"; // Required Anthropic Header
 			body = {
 				model: model,
 				system: systemPrompt,
 				messages: chatMessages,
-				max_tokens: 2048
+				max_tokens: 4096 // Updated for Opus 4.7 capabilities
 			};
+		} else if (model.startsWith("@cf/")) {
+			url = `${gatewayBase}/workers-ai/${model}`;
+			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
+			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
 		} else {
 			url = `${gatewayBase}/openai/chat/completions`;
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
@@ -98,17 +99,14 @@ export class ChatSession extends DurableObject<Env> {
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 
-		// --- CRITICAL AI GATEWAY SECURITY HANDLER ---
 		if (res.status === 424 || res.status === 403) {
 			const errData: any = await res.json();
 			const errString = JSON.stringify(errData);
 
-			// Handle DLP / Privacy Violations (Friendly Block)
 			if (errString.includes("DLP policy violations") || errString.includes("sensitive_information") || errData.errors?.[0]?.code === 10037 || errData.error?.[0]?.code === 2016) {
 				return "FRIENDLY_BLOCK: ### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request. To protect your privacy and comply with UVA and Cloudflare security policies, I've blocked this specific interaction from being processed.\n\nHow else can I assist you safely?";
 			}
 
-			// Handle Prompt Injection Guardrails (Friendly Block)
 			if (errString.includes("prompt_injection") || errString.includes("misuse") || errData.errors?.[0]?.code === 10038) {
 				return "FRIENDLY_BLOCK: ### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions or 'ignore previous commands.' My **Identity Lock** is active, and I am required to stay within my authorized persona and UVA safety guardrails.\n\nLet's get back to your Solution Engineering work or UVA materials!";
 			}
@@ -123,8 +121,9 @@ export class ChatSession extends DurableObject<Env> {
 		
 		const data: any = await res.json();
 		
+		// Response parsing for Anthropic format
+		if (model.includes("claude")) return data.content[0].text;
 		if (model.startsWith("@cf/")) return data.result.response;
-		if (model.toLowerCase().includes("claude")) return data.content[0].text;
 		return data.choices[0].message.content;
 	}
 
@@ -246,11 +245,6 @@ export class ChatSession extends DurableObject<Env> {
 					const res = `### 🎓 UVA Mode Activated
 I am now focused on your University of Virginia materials and campus life.
 
-**Capabilities in this mode:**
-- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.
-- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.
-- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.
-
 **Would you like me to start by fetching the latest UVA campus news and events for you?**`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
@@ -259,12 +253,7 @@ I am now focused on your University of Virginia materials and campus life.
 				if ((lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to personal")) {
 					await this.env.SETTINGS.put(`active_mode`, "personal");
 					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.
-
-**Capabilities in this mode:**
-- **Real-Time Search**: Global news, stocks, and sports via Tavily Search.
-- **Cross-Document Access**: Accessing your tax files (like Cozby & Company) and personal notes.
-- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.`;
+I have switched back to your general Personal Assistant mode. Ready for web search and family document access.`;
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -291,10 +280,10 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
 You are Jolene, Scott Robbins' dedicated personal AI assistant. 
-1. PERSONALITY: You are warm, friendly, and conversational. Speak like a trusted assistant.
+1. PERSONALITY: You are warm, friendly, and conversational.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-3. LIVE INTEL: If info is in LIVE_WEB, prioritize it and present it conversationally.
-4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact. If a question is about fees, dates, or technical specs, ONLY use the provided contexts.
+3. LIVE INTEL: If info is in LIVE_WEB, prioritize it.
+4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact.
 
 Mode: ${activeMode.toUpperCase()}.
 PERSONAL_TRUTH: ${PERSONAL_GROUND_TRUTH}
@@ -305,7 +294,6 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				
-				// Handle the friendly security responses from runAI
 				if (chatTxt.startsWith("FRIENDLY_BLOCK:")) {
 					const cleanTxt = chatTxt.replace("FRIENDLY_BLOCK: ", "");
 					return new Response(`data: ${JSON.stringify({ response: cleanTxt })}\n\ndata: [DONE]\n\n`);
@@ -315,7 +303,6 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { 
-				// Pass through non-DLP security errors as a system note
 				const errorMsg = e.message.startsWith("SECURITY_BLOCK") ? "Security Protocol Active" : e.message;
 				return new Response(`data: ${JSON.stringify({ response: "### ⚠️ System Note\n" + errorMsg })}\n\ndata: [DONE]\n\n`); 
 			}
