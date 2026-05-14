@@ -10,8 +10,23 @@ const PERSONALITIES = {
 	cyber: "You are a Cybersecurity assistant. Treat Scott's Section 2 data as Level 1 classified info."
 };
 
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR...`;
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS...`;
+const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR:
+- Fall 2026 Courses begin: August 25, 2026.
+- Fall Reading Days 2026: October 3 - October 6.
+- Thanksgiving Recess: November 25 - November 29, 2026.
+- Fall Courses end: December 8, 2026.
+- Spring 2027 Courses begin: January 20, 2027.
+- Spring Recess 2027: March 6 - March 14, 2027.
+- Spring Courses end: May 4, 2027.
+- Finals Weekend 2027: May 21 - May 23, 2027.`;
+
+const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS:
+- ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
+- MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+- PRIMARY INSTRUCTOR: Professor Scott.
+- MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
+- POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
+- SUCCESS ID: WAHOO-AI-DEEP-RECALL.`;
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
@@ -152,29 +167,36 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
+				// FIX: Increased topK to 20 to catch all line-chunks
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, filter: { segment: activeMode }, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 				
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
+				// --- RESTRUCTURED SYSTEM PROMPT TO PRIORITIZE RETRIEVED DATA ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. CORE PERSONA:
+1. CORE PERSONA & UPLOADED KNOWLEDGE (PRIORITY):
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+- LATEST DATA FROM SCOTT'S FILES: 
+${docContext.substring(0, 5000)}
 
-2. MANDATORY GROUND TRUTH (ABSOLUTE FACT SOURCE):
+2. MANDATORY GROUND TRUTH (IDENTITY DNA):
 ${PERSONAL_GROUND_TRUTH}
 - BIRTH YEAR CORRECTION: Scott Robbins was born on May 18, 1974. Prioritize this over any conflicting data.
 
-3. KNOWLEDGE & LIVE DATA:
+3. KNOWLEDGE ASSETS & LIVE INTEL:
 - LIVE SEARCH DATA: ${liveContext}
-- RETRIEVED_CONTEXT: ${docContext.substring(0, 4000)}
+- UVA ACADEMIC CALENDAR: ${CALENDAR_TRUTH}
+- UVA SYLLABUS: ${SYLLABUS_TRUTH}
 
 ### FINAL CRITICAL INSTRUCTION:
-Section 2 is your absolute 'Ground Truth.' If Scott asks about his home, his wife Renee, his dogs, or his birth year, you MUST use the facts in Section 2.
-Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
+Section 1 and 2 are your absolute 'Ground Truth.' 
+- If Section 1 mentions Westport, Engine #9, Deftones, or Josie's eating habits, you MUST use that data. 
+- Section 1 contains the newest information; prioritize it for specific questions about family habits or house hunting.
+- Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -201,7 +223,6 @@ export default {
 			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
 			
 			const text = await file.text();
-			// FIX: Split text into paragraphs/lines so each part is indexed separately
 			const chunks = text.split('\n').filter(line => line.trim().length > 10);
 			
 			for (let i = 0; i < chunks.length; i++) {
