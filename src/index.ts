@@ -193,19 +193,26 @@ export default {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// ROUTE UPLOADS TO R2
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
 			if (!file) return new Response("No file", { status: 400 });
 			
-			// ENSURE WE ARE WRITING TO THE BUCKET
 			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
 			
-			// TRIGGER THE VECTORIZE PROCESS (CHUNKING)
 			const text = await file.text();
-			const queryVector = await env.AI.run(EMBEDDING_MODEL, { text: [text] });
-			await env.VECTORIZE.upsert([{ id: file.name, values: queryVector.data[0], metadata: { text, segment: "personal" } }]);
+			// FIX: Split text into paragraphs/lines so each part is indexed separately
+			const chunks = text.split('\n').filter(line => line.trim().length > 10);
+			
+			for (let i = 0; i < chunks.length; i++) {
+				const chunk = chunks[i];
+				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+				await env.VECTORIZE.upsert([{ 
+					id: `${file.name}-chunk-${i}`, 
+					values: vectorRes.data[0], 
+					metadata: { text: chunk, segment: "personal" } 
+				}]);
+			}
 			
 			return new Response(JSON.stringify({ success: true }));
 		}
