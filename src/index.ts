@@ -5,9 +5,9 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 // --- GROUND TRUTHS PRESERVED ---
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR...`; // Preserved
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS...`; // Preserved
-const PERSONAL_GROUND_TRUTH = `SCOTT ROBBINS IDENTITY & CAREER...`; // Preserved
+const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR...`;
+const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS...`;
+const PERSONAL_GROUND_TRUTH = `SCOTT ROBBINS IDENTITY & CAREER...`;
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -59,12 +59,10 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-
 		if (!res.ok) { 
 			const errTxt = await res.text();
 			throw new Error(`AI Gateway error (${res.status}): ${errTxt}`); 
 		}
-		
 		const data: any = await res.json();
 		if (model.includes("claude")) return data.content[0].text;
 		if (model.startsWith("@cf/")) return data.result.response;
@@ -74,14 +72,11 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', {
-				month: 'long',
-				day: 'numeric',
-				year: 'numeric',
-				timeZone: 'America/New_York'
+				month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York'
 			}).format(new Date());
 
-			// IMPROVED: More direct query for live scoring data
-			const enhancedQuery = `${query} live score ${dateStr}`;
+			// FIX: Specific query targeting live scoreboard platforms
+			const enhancedQuery = `${query} scoreboard play-by-play live ${dateStr}`;
 			
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
@@ -90,14 +85,14 @@ export class ChatSession extends DurableObject<Env> {
 					api_key: this.env.TAVILY_API_KEY || "", 
 					query: enhancedQuery, 
 					search_depth: "advanced", 
-					max_results: 5,
-					include_answer: true // FIX: Request Tavily to extract a direct answer
+					max_results: 6,
+					include_answer: true,
+					search_filter: { time_range: "day" } // FIX: Force "Past 24 Hours" search
 				})
 			});
 			const data: any = await res.json();
 			const results = data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n") || "";
-			// Include the AI-extracted answer from Tavily if available
-			const aiAnswer = data.answer ? `\nDIRECT LIVE INFO: ${data.answer}\n` : "";
+			const aiAnswer = data.answer ? `\nDIRECT REAL-TIME ANSWER: ${data.answer}\n` : "";
 			return aiAnswer + results || "No live web data found.";
 		} catch (e) { return "Search failed."; }
 	}
@@ -134,7 +129,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				let liveContext = "";
-				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "status", "who won", "standings"];
+				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "status", "who won", "standings", "points"];
 				
 				if (internetKeywords.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
@@ -151,12 +146,12 @@ export class ChatSession extends DurableObject<Env> {
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: REAL-TIME JOLENE
 You are Jolene, Scott Robbins' dedicated AI assistant.
-LOCAL TIME: ${today} (America/New_York)
+USER LOCAL TIME: ${today} (America/New_York)
 
-1. LIVE SPORTS: If info is in LIVE_WEB, prioritize it above all else. For live games, extract the SCORE, the CURRENT QUARTER/PERIOD, and TIME REMAINING. 
-2. PERSONALITY: Warm and conversational. Use emojis sparingly.
-3. IDENTITY: Scott is a Senior Solutions Engineer at Cloudflare.
-4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact.
+1. LIVE SPORTS TRIAGE: Live score data changes rapidly. If LIVE_WEB contains multiple scores for the same game, prioritize the ones with HIGHER point totals and the label "OT" or "Final" as they represent the most recent state.
+2. OVERTIME DETECTION: If a game is in Overtime, report it explicitly. 
+3. PERSONALITY: Warm and conversational. Scott is a huge Celtics fan.
+4. IDENTITY: Scott Robbins, Senior Solutions Engineer at Cloudflare.
 
 Mode: ${activeMode.toUpperCase()}.
 LIVE_WEB: ${liveContext}
