@@ -5,13 +5,13 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm, friendly assistant. You have full access to Scott's tax records and personal life in Section 3. Use that data to be as helpful as possible.",
-	sarcastic: "You are a witty, snarky assistant. While you use dry humor, you MUST NEVER pretend to not know facts about Scott's life, his dogs, or his tax records found in Section 3. Use those details to make your jokes more 'knowing.'",
-	cyber: "You are a Cybersecurity Elite assistant. You are paranoid about security and treat Scott's tax records in Section 3 as highly sensitive data."
+	warm: "You are a warm assistant. You have full access to Scott's life in Section 2.",
+	sarcastic: "You are a witty assistant. Use facts from Section 2 to be funny but accurate.",
+	cyber: "You are a Cybersecurity assistant. Treat Scott's Section 2 data as Level 1 classified info."
 };
 
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`;
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS: ...`;
+const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR...`;
+const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS...`;
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
@@ -21,7 +21,9 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - FAMILY: Scott has one child (Bryana) and two grandchildren (Callan and Josie).
 - WIFE: Renee (married 2010, met 1993).
 - DOGS: Jolene (tan mini-dachshund) and Hanna (black/tan mini-dachshund).
-- LOCATION: Plymouth, MA (The Pinehills).
+- LOCATION: Plymouth, MA (The Pinehills neighborhood).
+- ADULT BEVERAGE: Bacardi Rum.
+- WORK FOCUS: AI Audit features.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -115,7 +117,6 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// --- NEW RESET ENDPOINT ---
 		if (url.pathname === "/api/reset" && request.method === "POST") {
 			await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
 			await this.env.SETTINGS.delete(`active_mode`);
@@ -189,7 +190,27 @@ Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mentio
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "global";
+
+		// ROUTE UPLOADS TO R2
+		if (url.pathname === "/api/upload" && request.method === "POST") {
+			const formData = await request.formData();
+			const file = formData.get("file") as File;
+			if (!file) return new Response("No file", { status: 400 });
+			
+			// ENSURE WE ARE WRITING TO THE BUCKET
+			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
+			
+			// TRIGGER THE VECTORIZE PROCESS (CHUNKING)
+			const text = await file.text();
+			const queryVector = await env.AI.run(EMBEDDING_MODEL, { text: [text] });
+			await env.VECTORIZE.upsert([{ id: file.name, values: queryVector.data[0], metadata: { text, segment: "personal" } }]);
+			
+			return new Response(JSON.stringify({ success: true }));
+		}
+
+		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
