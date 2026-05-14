@@ -34,12 +34,12 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
 - WIFE: Renee (married 2010, met 1993). Met in 1993. 
 - NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
-- DOGS: Jolene (Oldest, tan mini-dachshund, named after the Ray LaMontagne song) and Hanna (Youngest, black/tan mini-dachshund, shy).
-- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
+- DOGS: Jolene (Tan mini-dachshund) and Hanna (Black/tan mini-dachshund).
+- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC.
 - GRANDKIDS MUSIC: Callan and Josie love alternative heavy metal and hip hop.
 - HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
 - LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
-- UI PREFERENCES: Supports "Fancy Mode" (full graphics/animations) and "Plain Mode" (text-only/minimalist).
+- UI PREFERENCES: Supports "Fancy Mode" and "Plain Mode".
 
 COZBY & COMPANY TAX RECORDS (INTERNAL):
 - BASE FEE: $375 (includes 1st hour).
@@ -104,10 +104,10 @@ export class ChatSession extends DurableObject<Env> {
 			const errString = JSON.stringify(errData);
 
 			if (errString.includes("DLP policy violations") || errString.includes("sensitive_information") || errData.errors?.[0]?.code === 10037 || errData.error?.[0]?.code === 2016) {
-				return "FRIENDLY_BLOCK: ### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request.";
+				return "FRIENDLY_BLOCK: ### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information.";
 			}
 			if (errString.includes("prompt_injection") || errString.includes("misuse") || errData.errors?.[0]?.code === 10038) {
-				return "FRIENDLY_BLOCK: ### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions.";
+				return "FRIENDLY_BLOCK: ### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott!";
 			}
 			throw new Error(`SECURITY_BLOCK: ${errString}`);
 		}
@@ -125,12 +125,17 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-            // FIX: Generate dynamic date for search query
-            const now = new Date();
-            const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+			// FIX: Force America/New_York timezone for search queries
+			const dateStr = new Intl.DateTimeFormat('en-US', {
+				month: 'long',
+				day: 'numeric',
+				year: 'numeric',
+				timeZone: 'America/New_York'
+			}).format(new Date());
+
 			const enhancedQuery = `${query} ${dateStr} current live results scores`;
 			
-            const res = await fetch('https://api.tavily.com/search', {
+			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: enhancedQuery, search_depth: "advanced", max_results: 5 })
@@ -171,7 +176,6 @@ export class ChatSession extends DurableObject<Env> {
 				const lowMsg = userMsg.toLowerCase().trim();
 
 				await this.saveMsg(sessionId, 'user', userMsg);
-				const sessionState = await this.ctx.storage.get("session_state");
 
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
@@ -183,14 +187,6 @@ export class ChatSession extends DurableObject<Env> {
 				if (lowMsg.includes("plain mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
 					const res = "Understood. I've switched your profile to **Plain Mode**.";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
-					await this.ctx.storage.delete("session_state");
-					const context = await this.tavilySearch("University of Virginia UVA campus news");
-					const res = await this.runAI(selectedModel, "Provide a summary of current UVA news. sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
@@ -208,15 +204,23 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
-                // FIX: Dynamic date for the system prompt
-                const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+				// FIX: Force America/New_York timezone for the System Prompt date anchor
+				const today = new Intl.DateTimeFormat('en-US', {
+					weekday: 'long',
+					month: 'long',
+					day: 'numeric',
+					year: 'numeric',
+					hour: 'numeric',
+					minute: 'numeric',
+					timeZone: 'America/New_York'
+				}).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
 You are Jolene, Scott Robbins' dedicated personal AI assistant. 
-TODAY'S DATE: ${today}
+USER LOCAL TIME: ${today} (Timezone: America/New_York)
 1. PERSONALITY: You are warm, friendly, and conversational.
 2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare.
-3. LIVE INTEL: If info is in LIVE_WEB, prioritize it. If a game is happening "right now" based on LIVE_WEB, report it accurately.
+3. LIVE INTEL: If info is in LIVE_WEB, prioritize it. 
 4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact.
 
 Mode: ${activeMode.toUpperCase()}.
