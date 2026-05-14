@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). No dry lists unless specifically asked for a schedule.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use cool, relevant emojis sparingly to add aesthetic flair (e.g., 🥊 for MMA, 🏀 for NBA, 🛍️ for Renee). No dry lists.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -62,7 +62,6 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			
-			// ENHANCED QUERY LOGIC: Forces deep search for sports/events
 			let deepQuery = query;
 			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
@@ -76,7 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
 					include_answer: true, 
-					max_results: 12 // INCREASED: Surfacing more fights/data points
+					max_results: 12 
 				})
 			});
 			const data: any = await res.json();
@@ -149,8 +148,9 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless s
 
 ### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant. You know Renee is Portuguese/American Indian and met Scott in 1993. You know she dresses uniquely and likes to shop.
-- BE WITTY: Intersperse your knowledge with sarcasm. If asked about Renee, she is probably spending money.
+- INSTRUCTION: Use the "Memory" section to be brilliant.
+- EMOJIS: Use emojis that fit the context (e.g. 🥃 for Bacardi, 🐕 for the real Jolene/Hanna, 🥊 for fights). Use them for aesthetic flair in your prose.
+- BE WITTY: Intersperse your knowledge with sarcasm. 
 - NO BORING LISTS: Synthesize the Live Intel into a narrative. Tell Scott who is fighting and why it matters. Use your sass to predict a winner.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
