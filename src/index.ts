@@ -58,15 +58,22 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+			
+			// ENHANCED SPORTS LOGIC: Add "eliminated" and "standings" to playoff queries
+			let enhancedQuery = query;
+			if (query.toLowerCase().includes("playoff") || query.toLowerCase().includes("nba") || query.toLowerCase().includes("nhl")) {
+				enhancedQuery = `${query} scores standings eliminated teams ${dateStr}`;
+			}
+
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} live data ${dateStr}`, 
+					query: `${enhancedQuery} live now`, 
 					search_depth: "advanced", 
 					include_answer: true,
-					max_results: 8
+					max_results: 10
 				})
 			});
 			const data: any = await res.json();
@@ -81,90 +88,6 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "global";
-		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
-
-		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-			const storage = await this.env.DOCUMENTS.list();
-			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Senior Solutions Engineer | Fancy Mode`,
-				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: "personal",
-				personality: personality,
-				durableObject: { id: sessionId, state: "Active" }
-			}), { headers });
-		}
-
-		if (url.pathname === "/api/chat" && request.method === "POST") {
-			try {
-				const body = await request.json() as any;
-				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase().trim();
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
-
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
-				const recentContext = historyFetch.results?.reverse() || [];
-				await this.saveMsg(sessionId, 'user', userMsg);
-
-				// Step 1: Internet Trigger (expanded list for financial queries)
-				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk", "radar", "stock", "price", "ticker", "market"];
-				
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
-					// FINANCIAL LOGIC: If it's a stock/market question, don't force "Plymouth MA" suffix
-					let searchQuery = userMsg;
-					const financialTerms = ["stock", "ticker", "price", "market", "nasdaq", "nyse"];
-					if (!financialTerms.some(term => lowMsg.includes(term))) {
-						searchQuery = `${userMsg} in Plymouth MA`;
-					}
-					liveContext = await this.tavilySearch(searchQuery);
-				}
-
-				// Step 2: RAG Retrieval
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
-				
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-
-				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
-You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS via Section 1. 
-
-1. AGENT LIVE DATA FEED (YOUR EYES):
-${liveContext}
-- CRITICAL: Section 1 IS your live sensor data. If Scott asks for a stock price, sports score, or weather, you MUST use the specifics in Section 1. DO NOT apologize for a lack of data.
-
-2. PRIORITY KNOWLEDGE (UPLOADED FILES):
-${docContext.substring(0, 6000)}
-
-3. MANDATORY GROUND TRUTH:
-${PERSONAL_GROUND_TRUTH}
-
-4. CORE PERSONA:
-${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-
-### FINAL CRITICAL INSTRUCTION:
-- PROHIBITED PHRASES: "I don't have access to live radar," "I'm an AI," "I'd be guessing."
-- For financial queries, synthesize the current price and market trend from Section 1.
-- Use grandkids names (Callan, Josie) naturally. Namesake is based on the dog and the Ray LaMontagne song.`;
-
-				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
-		}
-		return new Response("OK");
-	}
-}
-
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		const url = new URL(request.url);
 
@@ -183,6 +106,69 @@ export default {
 			return new Response(JSON.stringify({ success: true }));
 		}
 
+		const sessionId = request.headers.get("x-session-id") || "global";
+		if (url.pathname === "/api/chat" && request.method === "POST") {
+			try {
+				const body = await request.json() as any;
+				const userMsg = body.messages[body.messages.length - 1].content;
+				const lowMsg = userMsg.toLowerCase().trim();
+				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
+
+				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
+				const recentContext = historyFetch.results?.reverse() || [];
+				await this.saveMsg(sessionId, 'user', userMsg);
+
+				let liveContext = "";
+				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk", "radar", "stock", "price", "ticker", "market", "celtics", "red sox"];
+				
+				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+					let searchQuery = userMsg;
+					if (!lowMsg.includes("stock") && !lowMsg.includes("ticker")) {
+						searchQuery = `${userMsg} in Plymouth MA`;
+					}
+					liveContext = await this.tavilySearch(searchQuery);
+				}
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
+				
+				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+
+				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
+You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS. 
+
+1. AGENT LIVE DATA FEED (YOUR EYES):
+${liveContext}
+- CRITICAL: Section 1 IS the current reality. If Section 1 shows a score or an elimination status, that is the ONLY fact that matters. 
+
+2. PRIORITY KNOWLEDGE (UPLOADED FILES):
+${docContext.substring(0, 6000)}
+
+3. MANDATORY GROUND TRUTH:
+${PERSONAL_GROUND_TRUTH}
+
+4. CORE PERSONA:
+${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+
+### FINAL CRITICAL INSTRUCTION:
+- PROHIBITED PHRASES: "I don't have access," "I'm an AI," "I'd be guessing."
+- If Section 1 mentions the Celtics are out of the playoffs, you MUST state that and not suggest checking the NBA app for their game.
+- Synthesize the "walk-worthiness" for the dogs (Jolene & Hanna) based on the drizzle data in Section 1.`;
+
+				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		}
+		return new Response("OK");
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
