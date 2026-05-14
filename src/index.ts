@@ -18,6 +18,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - WIFE: Renee (married 2010, met 1993).
 - DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
+- WORK SPACES: Scott has a dedicated Basement Office used for customer video calls, presentations, and demos (including the UVA demo). He also has a separate Theater room where he frequently works. These are two distinct areas; the theater is NOT in the basement office.
 - ADULT BEVERAGE: Bacardi Rum.
 `;
 
@@ -59,7 +60,6 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			
-			// Enhanced elimination-aware logic
 			let enhancedQuery = query;
 			if (query.toLowerCase().match(/nba|playoff|celtics|score|game/)) {
 				enhancedQuery = `${query} scores standings eliminated teams ${dateStr}`;
@@ -154,6 +154,7 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### FINAL CRITICAL INSTRUCTION:
 - PROHIBITED PHRASES: "I don't have access," "I'm an AI," "I'd be guessing."
+- For work locations, strictly distinguish between the Basement Office and the Theater room.
 - If Section 1 mentions the Celtics are eliminated, do not suggest checking for their game tonight.
 - Use grandkids names (Callan, Josie) naturally. namesake is based on the Ray LaMontagne song.`;
 
