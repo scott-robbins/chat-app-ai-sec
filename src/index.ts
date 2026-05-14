@@ -4,17 +4,55 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- PERSONALITY PROMPTS ---
+// --- PERSONALITY PROMPTS: Anchored with Data Access ---
 const PERSONALITIES = {
-	warm: "You are a warm, friendly, and supportive assistant. Use helpful language and a kind tone.",
-	sarcastic: "You are a witty, sarcastic, and slightly snarky assistant. You use dry humor and playful jabs, but you are still efficient and accurate.",
-	cyber: "You are a Cybersecurity Elite assistant. Your tone is professional, paranoid about security, and highly technical. You often reference Zero Trust, attack surfaces, and encryption."
+	warm: "You are a warm, friendly assistant. You have full access to Scott's tax records and personal life in Section 3. Use that data to be as helpful as possible.",
+	sarcastic: "You are a witty, snarky assistant. While you use dry humor and playful jabs, you MUST NEVER pretend to not know facts about Scott's life, his dogs, or his tax records found in Section 3. Use those details to make your jokes more personal and 'knowing.'",
+	cyber: "You are a Cybersecurity Elite assistant. You are paranoid about security and treat Scott's tax records in Section 3 as highly sensitive 'Level 1' data. Your tone is technical and protective."
 };
 
 // --- GROUND TRUTH CONSTANTS ---
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR...`; // Preserved
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS...`; // Preserved
-const PERSONAL_GROUND_TRUTH = `SCOTT ROBBINS IDENTITY & CAREER...`; // Preserved
+const CALENDAR_TRUTH = `
+UVA 2026-2027 ACADEMIC CALENDAR:
+- Fall 2026 Courses begin: August 25, 2026.
+- Fall Reading Days 2026: October 3 - October 6.
+- Thanksgiving Recess: November 25 - November 29, 2026.
+- Fall Courses end: December 8, 2026.
+- Spring 2027 Courses begin: January 20, 2027.
+- Spring Recess 2027: March 6 - March 14, 2027.
+- Spring Courses end: May 4, 2027.
+- Finals Weekend 2027: May 21 - May 23, 2027.
+`;
+
+const SYLLABUS_TRUTH = `
+UVA CS 4750 COURSE SYLLABUS:
+- ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
+- MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+- PRIMARY INSTRUCTOR: Professor Scott.
+- MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
+- POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
+- SUCCESS ID: WAHOO-AI-DEEP-RECALL.
+`;
+
+const PERSONAL_GROUND_TRUTH = `
+SCOTT ROBBINS IDENTITY & CAREER:
+- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
+- FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
+- WIFE: Renee (married 2010, met 1993). Met in 1993. 
+- NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
+- DOGS: Jolene (Oldest, tan or red mini-dachshund, anxious) and Hanna (Youngest, black/tan mini-dachshund, shy).
+- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
+- HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
+- LOCATION: Plymouth, MA (The Pinehills neighborhood). Searching for home in Westport, MA.
+- UI PREFERENCES: Supports "Fancy Mode" and "Plain Mode".
+
+COZBY & COMPANY TAX RECORDS (INTERNAL):
+- BASE FEE: $375 (includes 1st hour).
+- HOURLY RATE: $275 thereafter.
+- DEADLINE: Friday, March 13, 2026.
+- ELECTRONIC MANDATE: After Sept 30, 2025.
+`;
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -121,7 +159,6 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// --- INTERCEPT PERSONALITY SWITCH ---
 				if (lowMsg.startsWith("set personality to ")) {
 					const target = lowMsg.replace("set personality to ", "").trim();
 					if (["warm", "sarcastic", "cyber"].includes(target)) {
@@ -166,11 +203,12 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
+				// --- RESTRUCTURED SYSTEM PROMPT FOR PERSONALITY & DATA RECOVERY ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY & PERSONALITY LOCK
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. PERSONALITY INSTRUCTION:
+1. CORE PERSONA:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 2. KNOWLEDGE & LIVE DATA:
@@ -179,11 +217,12 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 - SYLLABUS: ${SYLLABUS_TRUTH}
 - RETRIEVED_CONTEXT: ${docContext.substring(0, 4000)}
 
-3. MANDATORY GROUND TRUTH:
+3. MANDATORY GROUND TRUTH (ABSOLUTE FACT SOURCE):
 ${PERSONAL_GROUND_TRUTH}
 
 ### FINAL CRITICAL INSTRUCTION:
-Section 3 is your absolute 'Ground Truth.' If Scott asks about his home, he is in Plymouth, MA.
+Section 3 is your absolute 'Ground Truth.' If Scott asks about his home, his wife Renee, his dogs, or his Cozby & Company tax records, you MUST use the facts in Section 3. 
+Even in Sarcastic Mode, you are NOT allowed to say 'I don't have information on file' for anything in Section 3. You KNOW these facts perfectly.
 Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
