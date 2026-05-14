@@ -174,8 +174,10 @@ ${liveContext}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "global";
 
+		// ROUTE UPLOADS TO R2
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
@@ -191,6 +193,7 @@ export default {
 			return new Response(JSON.stringify({ success: true }));
 		}
 
+		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
