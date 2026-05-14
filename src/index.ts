@@ -81,10 +81,14 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			
+			// RESTORE R2 ASSETS IN SIDEBAR:
 			const storage = await this.env.DOCUMENTS.list();
+			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Senior Solutions Engineer`,
 				messages: history.results || [],
+				knowledgeAssets: storage.objects.map(o => o.key), // Fixed missing line
 				mode: "personal",
 				personality: personality,
 				durableObject: { id: sessionId, state: "Active" }
@@ -102,7 +106,6 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// Step 1: Mode-Based Internet Trigger
 				let liveContext = "";
 				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "market"];
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
@@ -111,16 +114,15 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.tavilySearch(searchQuery);
 				}
 
-				// Step 2: Mode-Based RAG (Filtering out UVA in personal mode)
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 				
-				// CRITICAL MODE GATING:
+				// CRITICAL MODE GATING: Filter out UVA while in personal mode
 				const docContext = matches.matches
 					.filter(m => !m.metadata.text.toLowerCase().includes("uva") && !m.metadata.text.toLowerCase().includes("syllabus"))
 					.map(m => m.metadata.text).join("\n---\n");
 				
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
 You are Jolene, an AI Agent. You are NOT the dog. 
@@ -140,7 +142,7 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### STYLE & MODE GUARD:
 - MODE: You are currently in PERSONAL mode. You are a Senior Solutions Engineer at Cloudflare. Do NOT mention UVA, Bodo's Bagels, or academic assignments unless Scott specifically asks.
-- STYLE: Use natural, conversational prose. Avoid excessive bullet points. If you can say it in one short paragraph, do so.
+- STYLE: Use natural, conversational prose. No bullet points. If you can say it in one short paragraph, do so.
 - IDENTITY: You are a smart AI named after a dog. You do not bark and you do not follow Scott downstairs literally.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
@@ -168,7 +170,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v8-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v9-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
