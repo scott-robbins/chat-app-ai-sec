@@ -82,8 +82,8 @@ export class ChatSession extends DurableObject<Env> {
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
 			headers["anthropic-version"] = "2023-06-01"; // Required Anthropic Header
 			
-			// FIX: Strip the provider prefix (e.g., "anthropic/") for the payload body
-			const cleanModel = model.replace("anthropic/", "");
+			// FIX: Strip prefix AND correct version formatting (period to hyphen) for the body payload
+			const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
 			
 			body = {
 				model: cleanModel,
