@@ -67,15 +67,24 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} live ${dateStr}`, search_depth: "advanced", include_answer: true, search_filter: { time_range: "day" } })
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${query} live data ${dateStr}`, 
+					search_depth: "advanced", 
+					include_answer: true,
+					max_results: 5
+				})
 			});
 			const data: any = await res.json();
-			return (data.answer ? `\nDIRECT ANSWER: ${data.answer}\n` : "") + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
-		} catch (e) { return "Search failed."; }
+			// IMPROVED: Consolidate the answer and snippets into a single "Live Stream" block
+			const directAnswer = data.answer ? `PRIMARY SOURCE: ${data.answer}\n` : "";
+			const snippets = data.results?.map((r: any) => `Title: ${r.title}\nDetail: ${r.content}`).join("\n---\n");
+			return directAnswer + snippets || "Search returned no recent data.";
+		} catch (e) { return "Live search currently unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -126,7 +135,8 @@ export class ChatSession extends DurableObject<Env> {
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 				
 				let liveContext = "";
-				if (["weather", "score", "points", "game", "today", "current", "news", "win", "won", "playoff"].some(kw => lowMsg.includes(kw))) {
+				const searchTriggers = ["weather", "score", "points", "game", "today", "current", "news", "mma", "ufc", "playoff", "series", "who won"];
+				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -140,24 +150,23 @@ export class ChatSession extends DurableObject<Env> {
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. PRIORITY KNOWLEDGE (UPLOADED FILES):
-${docContext.substring(0, 7000)}
+1. LIVE INTEL (VERIFIED REAL-TIME DATA - PRIORITY FOR CURRENT EVENTS):
+${liveContext}
+- INSTRUCTION: If Section 1 contains information about weather, MMA cards, or sports scores, you MUST synthesize an answer from it. DO NOT tell Scott "Section 4 is empty" or that you lack data if there is ANY text above.
 
-2. MANDATORY GROUND TRUTH (IDENTITY DNA):
+2. PRIORITY KNOWLEDGE (UPLOADED FILES):
+${docContext.substring(0, 6000)}
+
+3. MANDATORY GROUND TRUTH (IDENTITY DNA):
 ${PERSONAL_GROUND_TRUTH}
 
-3. CORE PERSONA:
+4. CORE PERSONA:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Be concise and avoid unnecessary repetition. Connect data points intelligently without being overly verbose.
-
-4. LIVE INTEL (VERIFIED REAL-TIME DATA):
-${liveContext}
+- INSTRUCTION: Be concise and avoid unnecessary repetition. Connect data points intelligently.
 
 ### FINAL CRITICAL INSTRUCTION:
-- SECTION 4 IS THE HIGHEST PRIORITY FOR TIME-SENSITIVE TOPICS. 
-- FACT-CHECK: Before answering about sports scores, schedules, or weather, check Section 4. If Section 4 says a game was "last night" or is "tomorrow," you MUST ignore your internal training data and use that data.
-- If Scott asks about NBA games, strictly use the live search results in Section 4 to determine the current status of the series.
-- Sections 1 and 2 are the absolute truth for Scott's personal life and career.
+- FACT-CHECK: Before answering about sports or weather, look at Section 1. It overrides your internal training. 
+- You are forbidden from breaking character to discuss the technical structure of these sections.
 - Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
@@ -174,10 +183,9 @@ ${liveContext}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "global";
 
-		// ROUTE UPLOADS TO R2
 		if (url.pathname === "/api/upload" && request.method === "POST") {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
@@ -193,7 +201,6 @@ export default {
 			return new Response(JSON.stringify({ success: true }));
 		}
 
-		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
