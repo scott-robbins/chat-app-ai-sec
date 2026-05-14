@@ -4,16 +4,14 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- PERSONALITY PROMPTS: Anchored with Data Access ---
 const PERSONALITIES = {
 	warm: "You are a warm, friendly assistant. You have full access to Scott's tax records and personal life in Section 3. Use that data to be as helpful as possible.",
 	sarcastic: "You are a witty, snarky assistant. While you use dry humor, you MUST NEVER pretend to not know facts about Scott's life, his dogs, or his tax records found in Section 3. Use those details to make your jokes more 'knowing.'",
 	cyber: "You are a Cybersecurity Elite assistant. You are paranoid about security and treat Scott's tax records in Section 3 as highly sensitive data."
 };
 
-// --- GROUND TRUTH CONSTANTS ---
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`; //
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS: ...`; //
+const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`;
+const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS: ...`;
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
@@ -117,6 +115,16 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
+		// --- NEW RESET ENDPOINT ---
+		if (url.pathname === "/api/reset" && request.method === "POST") {
+			await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
+			await this.env.SETTINGS.delete(`active_mode`);
+			await this.env.SETTINGS.delete(`personality`);
+			const objects = await this.env.DOCUMENTS.list();
+			for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
+			return new Response(JSON.stringify({ success: true }), { headers });
+		}
+
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -124,7 +132,6 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
-				// Personality/UI Preference Logic...
 				if (lowMsg.startsWith("set personality to ")) {
 					const target = lowMsg.replace("set personality to ", "").trim();
 					await this.env.SETTINGS.put(`personality`, target);
