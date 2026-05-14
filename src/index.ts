@@ -159,6 +159,21 @@ export class ChatSession extends DurableObject<Env> {
 				const selectedModel = body.model || DEFAULT_CF_MODEL;
 				const lowMsg = userMsg.toLowerCase().trim();
 
+				// --- FIX: IMMEDIATE INTERCEPT FOR UI MODES ---
+				if (lowMsg.includes("fancy mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
+					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. You'll see my full UI animations and graphics again.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
+				if (lowMsg.includes("plain mode")) {
+					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
+					const res = "Understood. I've switched your profile to **Plain Mode** for a minimalist experience.";
+					await this.saveMsg(sessionId, 'assistant', res);
+					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
+				}
+
 				await this.saveMsg(sessionId, 'user', userMsg);
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
@@ -178,7 +193,6 @@ export class ChatSession extends DurableObject<Env> {
 					hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York'
 				}).format(new Date());
 
-				// --- RESTRUCTURED SYSTEM PROMPT FOR IDENTITY LOCK ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
