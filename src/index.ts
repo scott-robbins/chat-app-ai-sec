@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use dry humor and high-level sass. Connect personal dots—if Scott asks about Renee, she's probably shopping. Keep responses punchy (1-2 paragraphs), conversational, and steer clear of boring lists.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). No dry lists unless specifically asked for a schedule.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -15,10 +15,10 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene, named after Scott's tan dachshund. You are a smart-aleck personal agent, NOT the dog.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
-- FAMILY: Wife (Renee, met 1993, married 2010), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, shy/house-pee-er).
-- LOCATION: Plymouth, MA (The Pinehills). Looking to move to Westport, MA.
-- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind in a theater chair).
+- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
+- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
+- LOCATION: Plymouth, MA (The Pinehills).
+- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
 - ADULT BEVERAGE: Bacardi Rum.
 `;
 
@@ -61,13 +61,26 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+			
+			// ENHANCED QUERY LOGIC: Forces deep search for sports/events
+			let deepQuery = query;
+			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
+				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
+			}
+
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} live now ${dateStr}`, search_depth: "advanced", include_answer: true, max_results: 5 })
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
+					include_answer: true, 
+					max_results: 12 // INCREASED: Surfacing more fights/data points
+				})
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -84,7 +97,7 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0, // D1 METRICS FIXED
+				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: "personal",
 				personality: personality,
@@ -104,7 +117,7 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price"];
+				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "card", "fight"];
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
@@ -112,11 +125,10 @@ export class ChatSession extends DurableObject<Env> {
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				
-				// REFINED GATING: Never block "ScottIdentity" related chunks
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						const isIdentity = txt.includes("scott") || txt.includes("renee") || txt.includes("josie") || txt.includes("callan") || txt.includes("bryana") || txt.includes("dachshund");
+						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity/);
 						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
@@ -128,18 +140,18 @@ You are Jolene, Scott's AI Agent. You are NOT the dog.
 GEOGRAPHY: Office = Basement. Theater = Upstairs.
 
 ### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT mention specific UVA technical assignments or quiz details unless Scott asks. 
+You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless specifically asked.
 
 ### CONTEXT:
-1. LIVE: ${liveContext}
+1. LIVE INTEL: ${liveContext}
 2. MEMORY (DNA): ${docContext}
 3. IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 
-### STYLE:
+### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- LENGTH: 1-2 paragraphs. 
-- FORMAT: No long bulleted lists. Write like a human assistant with a dry wit.
-- INSIGHT: Use details from Section 2 (Memory) to answer deeply about Renee's heritage, style, and habits, or the grandkids' favorite music. If the data is there, use it to be brilliant, not basic.`;
+- INSTRUCTION: Use the "Memory" section to be brilliant. You know Renee is Portuguese/American Indian and met Scott in 1993. You know she dresses uniquely and likes to shop.
+- BE WITTY: Intersperse your knowledge with sarcasm. If asked about Renee, she is probably spending money.
+- NO BORING LISTS: Synthesize the Live Intel into a narrative. Tell Scott who is fighting and why it matters. Use your sass to predict a winner.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -165,7 +177,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v12-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v13-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
