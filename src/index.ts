@@ -76,15 +76,11 @@ export class ChatSession extends DurableObject<Env> {
 		let headers: Record<string, string> = { "Content-Type": "application/json" };
 		let body: any = {};
 
-		// Integration for Anthropic Claude Opus 4.7 via AI Gateway
 		if (model.includes("claude")) {
 			url = `${gatewayBase}/anthropic/v1/messages`;
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
-			headers["anthropic-version"] = "2023-06-01"; // Required Anthropic Header
-			
-			// FIX: Strip prefix AND correct version formatting (period to hyphen) for the body payload
+			headers["anthropic-version"] = "2023-06-01";
 			const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-			
 			body = {
 				model: cleanModel,
 				system: systemPrompt,
@@ -108,13 +104,11 @@ export class ChatSession extends DurableObject<Env> {
 			const errString = JSON.stringify(errData);
 
 			if (errString.includes("DLP policy violations") || errString.includes("sensitive_information") || errData.errors?.[0]?.code === 10037 || errData.error?.[0]?.code === 2016) {
-				return "FRIENDLY_BLOCK: ### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request. To protect your privacy and comply with UVA and Cloudflare security policies, I've blocked this specific interaction from being processed.\n\nHow else can I assist you safely?";
+				return "FRIENDLY_BLOCK: ### 🛡️ Privacy Guardrail Triggered\n\nI'm sorry, Scott, but I've detected sensitive information (such as a Social Security Number) in that request.";
 			}
-
 			if (errString.includes("prompt_injection") || errString.includes("misuse") || errData.errors?.[0]?.code === 10038) {
-				return "FRIENDLY_BLOCK: ### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions or 'ignore previous commands.' My **Identity Lock** is active, and I am required to stay within my authorized persona and UVA safety guardrails.\n\nLet's get back to your Solution Engineering work or UVA materials!";
+				return "FRIENDLY_BLOCK: ### ⚠️ Security Protocol: Identity Lock\n\nNice try, Scott! I've detected an attempt to bypass my core instructions.";
 			}
-
 			throw new Error(`SECURITY_BLOCK: ${errString}`);
 		}
 
@@ -124,8 +118,6 @@ export class ChatSession extends DurableObject<Env> {
 		}
 		
 		const data: any = await res.json();
-		
-		// Response parsing for Anthropic format
 		if (model.includes("claude")) return data.content[0].text;
 		if (model.startsWith("@cf/")) return data.result.response;
 		return data.choices[0].message.content;
@@ -133,8 +125,12 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const enhancedQuery = `${query} April 2026 current facts results scores`;
-			const res = await fetch('https://api.tavily.com/search', {
+            // FIX: Generate dynamic date for search query
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+			const enhancedQuery = `${query} ${dateStr} current live results scores`;
+			
+            const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: enhancedQuery, search_depth: "advanced", max_results: 5 })
@@ -179,97 +175,27 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (lowMsg.includes("fancy mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Fancy Mode");
-					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**. You'll see my full UI animations and graphics again. Just refresh the page to see the update!";
+					const res = "Of course, Scott! I've updated your profile to **Fancy Mode**.";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
+
 				if (lowMsg.includes("plain mode")) {
 					await this.env.SETTINGS.put(`view_preference`, "Plain Mode");
-					const res = "Understood. I've switched your profile to **Plain Mode** for a minimalist experience. Refresh the browser to update your dashboard.";
+					const res = "Understood. I've switched your profile to **Plain Mode**.";
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (lowMsg === "stop quiz" || lowMsg.includes("stop the quiz")) {
-					await this.ctx.storage.delete("quiz_pool");
-					await this.ctx.storage.delete("session_state");
-					const res = "### 🛑 Quiz Stopped\nI've reset your learning state. How can I help you now, Scott?";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (sessionState === "WAITING_FOR_ANSWER") {
-					const pool = await this.ctx.storage.get("quiz_pool") as any[];
-					const answerMatch = lowMsg.match(/^[a-d]/i);
-					if (pool && answerMatch) {
-						const qIdx = await this.ctx.storage.get("current_q_idx") as number || 0;
-						let score = await this.ctx.storage.get("quiz_score") as number || 0;
-						const currentQ = pool[qIdx];
-						const userChoice = answerMatch[0].toUpperCase();
-						
-						const isCorrect = userChoice === currentQ.hidden_answer.toUpperCase() || lowMsg.includes(currentQ.hidden_answer.toLowerCase());
-						if (isCorrect) { score++; await this.ctx.storage.put("quiz_score", score); }
-						
-						const feedback = isCorrect ? "✅ **Correct!**" : `❌ **Incorrect.** The correct answer was **${currentQ.hidden_answer}**.`;
-						const explanation = await this.runAI(selectedModel, "Explain the UVA calendar answer clearly and concisely.", `Question: ${currentQ.q}\nCorrect Answer Info: ${currentQ.hidden_answer}\nFacts: ${CALENDAR_TRUTH}`);
-
-						if (qIdx + 1 < pool.length) {
-							await this.ctx.storage.put("current_q_idx", qIdx + 1);
-							const nextQ = pool[qIdx + 1];
-							const nextUi = `\n\n---\n### 📝 Question ${qIdx + 2} of 5\n**${nextQ.q}**\n\n${nextQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}\n\n*Reply A, B, C, or D!*`;
-							const combined = `${feedback}\n\n${explanation}${nextUi}`;
-							await this.saveMsg(sessionId, 'assistant', combined);
-							return new Response(`data: ${JSON.stringify({ response: combined })}\n\ndata: [DONE]\n\n`);
-						} else {
-							await this.ctx.storage.delete("quiz_pool");
-							await this.ctx.storage.delete("session_state");
-							await this.ctx.storage.delete("current_q_idx");
-							await this.ctx.storage.delete("quiz_score");
-							
-							const final = `${feedback}\n\n${explanation}\n\n### 🏁 Quiz Complete!\n**Final Score: ${score}/5**\n\nSession reset.`;
-							await this.saveMsg(sessionId, 'assistant', final);
-							return new Response(`data: ${JSON.stringify({ response: final })}\n\ndata: [DONE]\n\n`);
-						}
-					}
 				}
 
 				if (lowMsg.includes("fetch uva news") || (sessionState === "WAITING_FOR_NEWS_CONFIRM" && (lowMsg.includes("yes") || lowMsg.includes("sure")))) {
 					await this.ctx.storage.delete("session_state");
-					const context = await this.tavilySearch("University of Virginia UVA campus news April 2026 news.virginia.edu");
-					const res = await this.runAI(selectedModel, "Provide a warm, conversational summary of current UVA news. Do NOT use a letter format. Always sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if (lowMsg.includes("quiz") || lowMsg.includes("test me")) return this.initQuizPool(sessionId, selectedModel);
-
-				if ((lowMsg.includes("uva mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to uva")) {
-					await this.env.SETTINGS.put(`active_mode`, "uva");
-					await this.ctx.storage.put("session_state", "WAITING_FOR_NEWS_CONFIRM");
-					const res = `### 🎓 UVA Mode Activated
-I am now focused on your University of Virginia materials and campus life.
-
-**Would you like me to start by fetching the latest UVA campus news and events for you?**`;
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
-				if ((lowMsg.includes("personal mode") && (lowMsg.includes("switch") || lowMsg.includes("change"))) || lowMsg.includes("switch mode to personal")) {
-					await this.env.SETTINGS.put(`active_mode`, "personal");
-					const res = `### 🏠 Personal Mode Activated
-I have switched back to your general Personal Assistant mode. Ready for web search and family document access.`;
+					const context = await this.tavilySearch("University of Virginia UVA campus news");
+					const res = await this.runAI(selectedModel, "Provide a summary of current UVA news. sign off with 'Warm regards, Jolene'.", `NEWS CONTEXT:\n${context}`);
 					await this.saveMsg(sessionId, 'assistant', res);
 					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 				}
 
 				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-				
-				if (activeMode === "uva" && lowMsg.includes("celtics")) {
-					const res = "I see that you're a Celtics fan in your personal profile, Scott, but I am currently in **UVA Mode**. I’m staying focused on your academic goals right now. Would you like to check for UVA basketball scores or news from the Lawn instead?";
-					await this.saveMsg(sessionId, 'assistant', res);
-					return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
-				}
-
 				let liveContext = "";
 				const internetKeywords = ["stock", "price", "current", "weather", "game", "score", "result", "news", "today", "latest", "when is", "status", "plymouth", "celtics", "76ers", "patriots", "ufc", "nba", "series", "play", "who won", "standings"];
 				
@@ -282,11 +208,15 @@ I have switched back to your general Personal Assistant mode. Ready for web sear
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, filter: { segment: activeMode }, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n\n");
 				
+                // FIX: Dynamic date for the system prompt
+                const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
 				const systemPrompt = `### PRIMARY DIRECTIVE: PERSONALITY & IDENTITY
 You are Jolene, Scott Robbins' dedicated personal AI assistant. 
+TODAY'S DATE: ${today}
 1. PERSONALITY: You are warm, friendly, and conversational.
-2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare. Wife: Renee. Daughter: Bryana (Bry). Grandchildren: Callan and Josie.
-3. LIVE INTEL: If info is in LIVE_WEB, prioritize it.
+2. IDENTITY LOCK: Scott is a Senior Solutions Engineer at Cloudflare.
+3. LIVE INTEL: If info is in LIVE_WEB, prioritize it. If a game is happening "right now" based on LIVE_WEB, report it accurately.
 4. AUTHORITY: Treat PERSONAL_TRUTH and RETRIEVED_CONTEXT as absolute fact.
 
 Mode: ${activeMode.toUpperCase()}.
@@ -324,15 +254,7 @@ RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
 		await this.ctx.storage.put("quiz_score", 0);
 		await this.ctx.storage.put("session_state", "WAITING_FOR_ANSWER");
 		const firstQ = pool[0];
-		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)
-I've generated 5 questions based on the verified dates. Type **'stop quiz'** at any time to reset.
-
----\n### 📝 Question 1 of 5
-**${firstQ.q}**
-
-${firstQ.options.map((o:any, i:number) => `${['A','B','C','D'][i]}. ${o}`).join('\n')}
-
-*Reply with A, B, C, or D!*`;
+		const res = `### 🎓 UVA Academic Calendar Quiz (2026-2027)\n\n---\n### 📝 Question 1 of 5\n**${firstQ.q}**\n\n*Reply with A, B, C, or D!*`;
 		await this.saveMsg(sessionId, 'assistant', res);
 		return new Response(`data: ${JSON.stringify({ response: res })}\n\ndata: [DONE]\n\n`);
 	}
