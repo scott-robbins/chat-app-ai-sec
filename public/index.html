@@ -322,6 +322,27 @@
 				updateDashboard();
 			};
 
+            // FIX: RESET IDENTITY & HISTORY HANDLER
+            document.getElementById('clear-vector-btn').onclick = async () => {
+                if (!confirm("### ⚠️ WARNING\nThis will permanently wipe Scott's identity, tax records, and chat history from the edge. Proceed?")) return;
+                
+                try {
+                    const res = await fetch('/api/reset', { 
+                        method: 'POST', 
+                        headers: { 'x-session-id': sessionId } 
+                    });
+                    
+                    if (res.ok) {
+                        appendMessage('system-indicator', "System: Edge Wipe Complete. Refreshing environment...");
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        throw new Error("Reset failed on server.");
+                    }
+                } catch (e) {
+                    appendMessage('system-indicator', `Error: ${e.message}`);
+                }
+            };
+
 			async function deleteFile(fullKey) {
 				if (!confirm(`Permanently remove ${fullKey}?`)) return;
 				try {
