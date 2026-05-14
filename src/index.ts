@@ -5,8 +5,8 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use dry humor. Section 1 and 2 are your Absolute Truth.",
+	warm: "You are a warm, supportive assistant. Be concise yet insightful. Section 1 and 2 are your Absolute Truth.",
+	sarcastic: "You are a witty, snarky assistant. Use dry humor but keep your responses punchy. Section 1 and 2 are your Absolute Truth.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -59,9 +59,9 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			
-			// ENHANCED SPORTS LOGIC: Add "eliminated" and "standings" to playoff queries
+			// Enhanced elimination-aware logic
 			let enhancedQuery = query;
-			if (query.toLowerCase().includes("playoff") || query.toLowerCase().includes("nba") || query.toLowerCase().includes("nhl")) {
+			if (query.toLowerCase().match(/nba|playoff|celtics|score|game/)) {
 				enhancedQuery = `${query} scores standings eliminated teams ${dateStr}`;
 			}
 
@@ -80,33 +80,33 @@ export class ChatSession extends DurableObject<Env> {
 			return `
 [AGENT LIVE DATA FEED]
 TIMESTAMP: ${dateStr}
-DIRECT_ANSWER: ${data.answer || "Check snippets below"}
+DIRECT_ANSWER: ${data.answer || "No direct answer."}
 DATA_POINTS:
 ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).join("\n")}
 [/END FEED]`;
-		} catch (e) { return "AGENT_SEARCH_FAIL"; }
+		} catch (e) { return "SEARCH_ERROR"; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "global";
+		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		if (url.pathname === "/api/upload" && request.method === "POST") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			if (!file) return new Response("No file", { status: 400 });
-			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			const text = await file.text();
-			const lines = text.split('\n').filter(line => line.trim().length > 5);
-			for (let i = 0; i < lines.length; i++) {
-				const chunk = lines.slice(i, i + 3).join(' ');
-				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v7-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
-			}
-			return new Response(JSON.stringify({ success: true }));
+		if (url.pathname === "/api/profile") {
+			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const storage = await this.env.DOCUMENTS.list();
+			return new Response(JSON.stringify({
+				profile: `Scott E Robbins | Senior Solutions Engineer | Fancy Mode`,
+				messages: history.results || [],
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
+				mode: "personal",
+				personality: personality,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
 		}
 
-		const sessionId = request.headers.get("x-session-id") || "global";
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -123,7 +123,7 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 				
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					let searchQuery = userMsg;
-					if (!lowMsg.includes("stock") && !lowMsg.includes("ticker")) {
+					if (!lowMsg.match(/stock|ticker|price/)) {
 						searchQuery = `${userMsg} in Plymouth MA`;
 					}
 					liveContext = await this.tavilySearch(searchQuery);
@@ -136,11 +136,12 @@ ${data.results?.map((r: any) => `- SOURCE: ${r.title}\n  DETAIL: ${r.content}`).
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### PRIMARY DIRECTIVE: AGENT IDENTITY
-You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS. 
+You are Jolene, Scott Robbins' dedicated Agent. You have FULL LIVE ACCESS via Section 1. 
+USER LOCAL TIME: ${today} (America/New_York)
 
 1. AGENT LIVE DATA FEED (YOUR EYES):
 ${liveContext}
-- CRITICAL: Section 1 IS the current reality. If Section 1 shows a score or an elimination status, that is the ONLY fact that matters. 
+- CRITICAL: Section 1 IS the current reality. If Section 1 shows a team is ELIMINATED or a game is over, you MUST state that. No guessing.
 
 2. PRIORITY KNOWLEDGE (UPLOADED FILES):
 ${docContext.substring(0, 6000)}
@@ -153,8 +154,8 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### FINAL CRITICAL INSTRUCTION:
 - PROHIBITED PHRASES: "I don't have access," "I'm an AI," "I'd be guessing."
-- If Section 1 mentions the Celtics are out of the playoffs, you MUST state that and not suggest checking the NBA app for their game.
-- Synthesize the "walk-worthiness" for the dogs (Jolene & Hanna) based on the drizzle data in Section 1.`;
+- If Section 1 mentions the Celtics are eliminated, do not suggest checking for their game tonight.
+- Use grandkids names (Callan, Josie) naturally. namesake is based on the Ray LaMontagne song.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -168,7 +169,25 @@ ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "global";
+
+		if (url.pathname === "/api/upload" && request.method === "POST") {
+			const formData = await request.formData();
+			const file = formData.get("file") as File;
+			if (!file) return new Response("No file", { status: 400 });
+			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
+			const text = await file.text();
+			const lines = text.split('\n').filter(line => line.trim().length > 5);
+			for (let i = 0; i < lines.length; i++) {
+				const chunk = lines.slice(i, i + 3).join(' ');
+				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v7-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+			}
+			return new Response(JSON.stringify({ success: true }));
+		}
+
+		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
