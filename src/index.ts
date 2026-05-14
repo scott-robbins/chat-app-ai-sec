@@ -5,9 +5,9 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm, supportive assistant. Be concise yet insightful. You have full access to Scott's life in Sections 1 and 2.",
-	sarcastic: "You are a witty, snarky assistant. Use dry humor but keep your responses punchy and avoid over-explaining. Section 1 and 2 are your fuel.",
-	cyber: "You are a Cybersecurity Elite assistant. Your tone is technical, protective, and direct."
+	warm: "You are a warm assistant. Be concise. Section 1 and 2 are your Truth.",
+	sarcastic: "You are a witty assistant. Use dry humor. Section 1 and 2 are your Truth.",
+	cyber: "You are a Cybersecurity assistant. Section 1 and 2 are Verified Threat Intel."
 };
 
 const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`;
@@ -18,7 +18,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - BIRTH YEAR: 1974 (Verified Correct).
 - SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
-- FAMILY: Scott has one child (Bryana) and two grandchildren (Callan and Josie).
+- FAMILY: Scott has one daughter (Bryana) and two grandkids (Callan and Josie).
 - WIFE: Renee (married 2010, met 1993).
 - DOGS: Jolene (tan mini-dachshund) and Hanna (black/tan mini-dachshund).
 - LOCATION: Plymouth, MA (The Pinehills neighborhood).
@@ -67,24 +67,23 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} live data ${dateStr}`, 
+					query: `${query} in Plymouth MA live status ${dateStr}`, 
 					search_depth: "advanced", 
 					include_answer: true,
-					max_results: 5
+					max_results: 6
 				})
 			});
 			const data: any = await res.json();
-			// IMPROVED: Consolidate the answer and snippets into a single "Live Stream" block
-			const directAnswer = data.answer ? `PRIMARY SOURCE: ${data.answer}\n` : "";
-			const snippets = data.results?.map((r: any) => `Title: ${r.title}\nDetail: ${r.content}`).join("\n---\n");
-			return directAnswer + snippets || "Search returned no recent data.";
-		} catch (e) { return "Live search currently unavailable."; }
+			const directAnswer = data.answer ? `### CURRENT REALITY: ${data.answer}\n` : "";
+			const snippets = data.results?.map((r: any) => `Source: ${r.title} | Data: ${r.content}`).join("\n---\n");
+			return directAnswer + snippets || "NO DATA RETURNED FROM SEARCH.";
+		} catch (e) { return "SEARCH_ERROR_UNAVAILABLE"; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -108,25 +107,12 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		if (url.pathname === "/api/reset" && request.method === "POST") {
-			await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-			const objects = await this.env.DOCUMENTS.list();
-			for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
-			return new Response(JSON.stringify({ success: true }), { headers });
-		}
-
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const selectedModel = body.model || "claude-3-5-sonnet-20240620";
 				const lowMsg = userMsg.toLowerCase().trim();
-
-				if (lowMsg.startsWith("set personality to ")) {
-					const target = lowMsg.replace("set personality to ", "").trim();
-					await this.env.SETTINGS.put(`personality`, target);
-					return new Response(`data: ${JSON.stringify({ response: `Personality set to ${target}.` })}\n\ndata: [DONE]\n\n`);
-				}
 
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
@@ -135,7 +121,7 @@ export class ChatSession extends DurableObject<Env> {
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 				
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "points", "game", "today", "current", "news", "mma", "ufc", "playoff", "series", "who won"];
+				const searchTriggers = ["weather", "score", "game", "today", "now", "current", "news", "mma", "ufc", "playoff", "drizzle", "rain", "outside", "walk"];
 				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
@@ -150,24 +136,23 @@ export class ChatSession extends DurableObject<Env> {
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. LIVE INTEL (VERIFIED REAL-TIME DATA - PRIORITY FOR CURRENT EVENTS):
+1. LIVE INTEL (ABSOLUTE PRIORITY SOURCE):
 ${liveContext}
-- INSTRUCTION: If Section 1 contains information about weather, MMA cards, or sports scores, you MUST synthesize an answer from it. DO NOT tell Scott "Section 4 is empty" or that you lack data if there is ANY text above.
+- MANDATORY INSTRUCTION: You HAVE live internet access. Section 1 contains the CURRENT REALITY. If Section 1 mentions rain, weather, or scores, you MUST answer as if you are looking at the radar. DO NOT apologize for lack of data. Synthesis is required.
 
 2. PRIORITY KNOWLEDGE (UPLOADED FILES):
 ${docContext.substring(0, 6000)}
 
-3. MANDATORY GROUND TRUTH (IDENTITY DNA):
+3. MANDATORY GROUND TRUTH (IDENTITY):
 ${PERSONAL_GROUND_TRUTH}
 
 4. CORE PERSONA:
 ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Be concise and avoid unnecessary repetition. Connect data points intelligently.
 
 ### FINAL CRITICAL INSTRUCTION:
-- FACT-CHECK: Before answering about sports or weather, look at Section 1. It overrides your internal training. 
-- You are forbidden from breaking character to discuss the technical structure of these sections.
-- Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
+- FACT-CHECK: Check Section 1 for current events. It overrides your internal brain.
+- You are Jolene, named after Scott's dog and the Ray LaMontagne song. 
+- Section 3 defines your family. You know Bryana (daughter), Callan and Josie (grandkids). Use their names naturally.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
