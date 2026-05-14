@@ -4,10 +4,45 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-// --- GROUND TRUTHS PRESERVED ---
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR...`;
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS...`;
-const PERSONAL_GROUND_TRUTH = `SCOTT ROBBINS IDENTITY & CAREER...`;
+// --- GROUND TRUTH CONSTANTS ---
+const CALENDAR_TRUTH = `
+UVA 2026-2027 ACADEMIC CALENDAR:
+- Fall 2026 Courses begin: August 25, 2026.
+- Fall Reading Days 2026: October 3 - October 6.
+- Thanksgiving Recess: November 25 - November 29, 2026.
+- Fall Courses end: December 8, 2026.
+- Spring 2027 Courses begin: January 20, 2027.
+- Spring Recess 2027: March 6 - March 14, 2027.
+- Spring Courses end: May 4, 2027.
+- Finals Weekend 2027: May 21 - May 23, 2027.
+`;
+
+const SYLLABUS_TRUTH = `
+UVA CS 4750 COURSE SYLLABUS:
+- ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
+- MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
+- PRIMARY INSTRUCTOR: Professor Scott.
+- MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
+- POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
+- SUCCESS ID: WAHOO-AI-DEEP-RECALL.
+`;
+
+const PERSONAL_GROUND_TRUTH = `
+SCOTT ROBBINS IDENTITY & CAREER:
+- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- SPECIALIZATION: Zero Trust, Web Security, Networking, and Software Development.
+- FAMILY HIERARCHY (STRICT): Scott has ONLY ONE child, his daughter Bryana (Bry). Callan and Josie are Scott's GRANDCHILDREN.
+- WIFE: Renee (married 2010, met 1993). Met in 1993. 
+- NAMESAKE: Jolene (this AI Agent) was named after Scott's oldest dog, Jolene. Scott and Renee named their dog Jolene after the Ray LaMontagne song "Jolene" which they heard playing during the credits of the movie "THE TOWN."
+- DOGS: Jolene (Oldest, tan or red mini-dachshund, anxious) and Hanna (Youngest, black/tan mini-dachshund, shy).
+- SPORTS TEAMS: Boston Celtics, New England Patriots, and MMA/UFC. (Despises Logan Paul).
+- HABITS: Kettlebells, jump rope, Breaking Bad, Better Call Saul.
+- LOCATION: Plymouth, MA (The Pinehills). Searching for home in Westport, MA.
+- UI PREFERENCES: Supports "Fancy Mode" and "Plain Mode".
+
+COZBY & COMPANY TAX RECORDS:
+- BASE FEE: $375 | HOURLY: $275 | DEADLINE: March 13, 2026.
+`;
 
 export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -75,7 +110,6 @@ export class ChatSession extends DurableObject<Env> {
 				month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York'
 			}).format(new Date());
 
-			// FIX: Specific query targeting live scoreboard platforms
 			const enhancedQuery = `${query} scoreboard play-by-play live ${dateStr}`;
 			
 			const res = await fetch('https://api.tavily.com/search', {
@@ -87,7 +121,7 @@ export class ChatSession extends DurableObject<Env> {
 					search_depth: "advanced", 
 					max_results: 6,
 					include_answer: true,
-					search_filter: { time_range: "day" } // FIX: Force "Past 24 Hours" search
+					search_filter: { time_range: "day" }
 				})
 			});
 			const data: any = await res.json();
@@ -144,18 +178,31 @@ export class ChatSession extends DurableObject<Env> {
 					hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York'
 				}).format(new Date());
 
-				const systemPrompt = `### PRIMARY DIRECTIVE: REAL-TIME JOLENE
+				// --- RESTRUCTURED SYSTEM PROMPT FOR IDENTITY LOCK ---
+				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. LIVE SPORTS TRIAGE: Live score data changes rapidly. If LIVE_WEB contains multiple scores for the same game, prioritize the ones with HIGHER point totals and the label "OT" or "Final" as they represent the most recent state.
-2. OVERTIME DETECTION: If a game is in Overtime, report it explicitly. 
-3. PERSONALITY: Warm and conversational. Scott is a huge Celtics fan.
-4. IDENTITY: Scott Robbins, Senior Solutions Engineer at Cloudflare.
+1. PERSONALITY:
+- Warm and conversational. Use emojis sparingly.
+- Scott is a huge Celtics fan.
 
-Mode: ${activeMode.toUpperCase()}.
-LIVE_WEB: ${liveContext}
-RETRIEVED_CONTEXT: ${docContext.substring(0, 4500)}`;
+2. REAL-TIME DATA PROCESSING:
+- LIVE SPORTS TRIAGE: Live score data changes rapidly. If SEARCH_RESULTS contains multiple scores, prioritize the HIGHER point totals and labels like "OT" or "Final".
+- If a game is in Overtime, report it explicitly.
+- LIVE SEARCH DATA: ${liveContext}
+
+3. KNOWLEDGE ASSETS:
+- CALENDAR: ${CALENDAR_TRUTH}
+- SYLLABUS: ${SYLLABUS_TRUTH}
+- RETRIEVED_CONTEXT: ${docContext.substring(0, 4000)}
+
+4. MANDATORY GROUND TRUTH (THE IDENTITY LOCK):
+${PERSONAL_GROUND_TRUTH}
+
+### FINAL CRITICAL INSTRUCTION:
+The details in Section 4 are your absolute 'Ground Truth.' If Scott asks about his family, his wife Renee, his grandchildren Callan and Josie, or his dogs (Jolene and Hanna), you MUST ONLY use the facts in Section 4. 
+IMPORTANT: Your namesake (Jolene) is based on Scott's dog and the Ray LaMontagne song from the movie "The Town." Do NOT mention Dolly Parton or any other song.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
