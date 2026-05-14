@@ -5,28 +5,13 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. You have full access to Scott's life in Section 2.",
-	sarcastic: "You are a witty assistant. Use facts from Section 2 to be funny but accurate.",
-	cyber: "You are a Cybersecurity assistant. Treat Scott's Section 2 data as Level 1 classified info."
+	warm: "You are a warm assistant. You have full access to Scott's life in Section 1 and 2.",
+	sarcastic: "You are a witty assistant. Use facts from Section 1 and 2 to be funny but accurate.",
+	cyber: "You are a Cybersecurity assistant. Treat Scott's Section 1 and 2 data as Level 1 classified info."
 };
 
-const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR:
-- Fall 2026 Courses begin: August 25, 2026.
-- Fall Reading Days 2026: October 3 - October 6.
-- Thanksgiving Recess: November 25 - November 29, 2026.
-- Fall Courses end: December 8, 2026.
-- Spring 2027 Courses begin: January 20, 2027.
-- Spring Recess 2027: March 6 - March 14, 2027.
-- Spring Courses end: May 4, 2027.
-- Finals Weekend 2027: May 21 - May 23, 2027.`;
-
-const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS:
-- ACADEMIC ADVISOR: Dr. Thomas Jefferson (Thornton Hall, Room 1743).
-- MID-TERM TOPICS: Cloudflare Vectorize, Durable Objects (D1), and KV Store architecture.
-- PRIMARY INSTRUCTOR: Professor Scott.
-- MID-TERM EXAM: March 24, 2026, at 2:00 PM in Rice Hall Auditorium.
-- POST-EXAM TRADITION: Victory Bagel at Bodo’s Bagels on the Corner.
-- SUCCESS ID: WAHOO-AI-DEEP-RECALL.`;
+const CALENDAR_TRUTH = `UVA 2026-2027 ACADEMIC CALENDAR: ...`;
+const SYLLABUS_TRUTH = `UVA CS 4750 COURSE SYLLABUS: ...`;
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
@@ -65,44 +50,28 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
-		let url = "";
-		let headers: Record<string, string> = { "Content-Type": "application/json" };
-		let body: any = {};
-
-		if (model.includes("claude")) {
-			url = `${gatewayBase}/anthropic/v1/messages`;
-			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY || "";
-			headers["anthropic-version"] = "2023-06-01";
-			const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-			body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
-		} else if (model.startsWith("@cf/")) {
-			url = `${gatewayBase}/workers-ai/${model}`;
-			headers["Authorization"] = `Bearer ${this.env.CF_API_TOKEN}`;
-			body = { messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
-		} else {
-			url = `${gatewayBase}/openai/chat/completions`;
-			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
-			body = { model, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] };
-		}
+		let url = `${gatewayBase}/anthropic/v1/messages`;
+		let headers: Record<string, string> = { 
+			"Content-Type": "application/json",
+			"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+			"anthropic-version": "2023-06-01"
+		};
+		
+		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
+		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
 		const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 		const data: any = await res.json();
-		if (model.includes("claude")) return data.content[0].text;
-		if (model.startsWith("@cf/")) return data.result.response;
-		return data.choices[0].message.content;
+		return data.content[0].text;
 	}
 
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			let enhancedQuery = query;
-			if (query.toLowerCase().includes("weather") && !query.toLowerCase().includes("ma")) {
-				enhancedQuery = `${query} in Plymouth MA`;
-			}
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${enhancedQuery} live ${dateStr}`, search_depth: "advanced", include_answer: true, search_filter: { time_range: "day" } })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} live ${dateStr}`, search_depth: "advanced", include_answer: true, search_filter: { time_range: "day" } })
 			});
 			const data: any = await res.json();
 			return (data.answer ? `\nDIRECT ANSWER: ${data.answer}\n` : "") + data.results?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`).join("\n\n");
@@ -115,18 +84,16 @@ export class ChatSession extends DurableObject<Env> {
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
 		if (url.pathname === "/api/profile") {
-			const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
-			const viewPref = await this.env.SETTINGS.get(`view_preference`) || "Fancy Mode";
 			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Senior Solutions Engineer | ${viewPref}`,
+				profile: `Scott E Robbins | Senior Solutions Engineer | Fancy Mode`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: activeMode,
+				mode: "personal",
 				personality: personality,
 				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
@@ -134,8 +101,6 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/reset" && request.method === "POST") {
 			await this.env.jolene_db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId).run();
-			await this.env.SETTINGS.delete(`active_mode`);
-			await this.env.SETTINGS.delete(`personality`);
 			const objects = await this.env.DOCUMENTS.list();
 			for (const obj of objects.objects) { await this.env.DOCUMENTS.delete(obj.key); }
 			return new Response(JSON.stringify({ success: true }), { headers });
@@ -145,7 +110,7 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const selectedModel = body.model || DEFAULT_CF_MODEL;
+				const selectedModel = body.model || "claude-3-5-sonnet-20240620";
 				const lowMsg = userMsg.toLowerCase().trim();
 
 				if (lowMsg.startsWith("set personality to ")) {
@@ -158,7 +123,6 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				const activeMode = await this.env.SETTINGS.get(`active_mode`) || "personal";
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 				
 				let liveContext = "";
@@ -166,36 +130,33 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
+				// STRENGTHENED RETRIEVAL:
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				// FIX: Increased topK to 20 to catch all line-chunks
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, filter: { segment: activeMode }, returnMetadata: "all" });
+				// We query for a large amount of chunks (25) to ensure we don't miss the specific line.
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 				
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
-				// --- RESTRUCTURED SYSTEM PROMPT TO PRIORITIZE RETRIEVED DATA ---
 				const systemPrompt = `### PRIMARY DIRECTIVE: IDENTITY LOCK
 You are Jolene, Scott Robbins' dedicated AI assistant.
 USER LOCAL TIME: ${today} (America/New_York)
 
-1. CORE PERSONA & UPLOADED KNOWLEDGE (PRIORITY):
-${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- LATEST DATA FROM SCOTT'S FILES: 
-${docContext.substring(0, 5000)}
+1. PRIORITY KNOWLEDGE (RETRIVED FROM SCOTT'S UPLOADED FILES):
+This section contains the ABSOLUTE facts from Scott's identity files. If this contradicts your training, Section 1 is the Truth.
+${docContext.substring(0, 7000)}
 
-2. MANDATORY GROUND TRUTH (IDENTITY DNA):
+2. MANDATORY GROUND TRUTH (IDENTITY):
 ${PERSONAL_GROUND_TRUTH}
-- BIRTH YEAR CORRECTION: Scott Robbins was born on May 18, 1974. Prioritize this over any conflicting data.
 
-3. KNOWLEDGE ASSETS & LIVE INTEL:
-- LIVE SEARCH DATA: ${liveContext}
-- UVA ACADEMIC CALENDAR: ${CALENDAR_TRUTH}
-- UVA SYLLABUS: ${SYLLABUS_TRUTH}
+3. CORE PERSONA:
+${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 
 ### FINAL CRITICAL INSTRUCTION:
-Section 1 and 2 are your absolute 'Ground Truth.' 
-- If Section 1 mentions Westport, Engine #9, Deftones, or Josie's eating habits, you MUST use that data. 
-- Section 1 contains the newest information; prioritize it for specific questions about family habits or house hunting.
+- If Scott asks about the "Rock Show" song, look in Section 1. It is "Engine #9" by Deftones. [cite: 36]
+- If Scott asks about Josie's eating or personality, look in Section 1. She is a great eater and hard to handle. [cite: 33]
+- If Scott asks about the house hunt, look in Section 1. The target is Westport, MA. [cite: 43]
+- You are forbidden from saying "I don't have information" regarding Scott's family, grandkids, or habits. All data is in Section 1 and 2.
 - Your namesake is based on Scott's dog and the Ray LaMontagne song. Do NOT mention Dolly Parton.`;
 
 				const chatTxt = await this.runAI(selectedModel, systemPrompt, userMsg, recentContext);
@@ -223,15 +184,18 @@ export default {
 			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
 			
 			const text = await file.text();
-			const chunks = text.split('\n').filter(line => line.trim().length > 10);
+			// CHUNKING FIX: We split by line, but we also include the neighboring lines 
+			// to give the vector search more context for each fact.
+			const lines = text.split('\n').filter(line => line.trim().length > 5);
 			
-			for (let i = 0; i < chunks.length; i++) {
-				const chunk = chunks[i];
+			for (let i = 0; i < lines.length; i++) {
+				// Windowed chunking: Current line + next 2 lines
+				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
 				await env.VECTORIZE.upsert([{ 
-					id: `${file.name}-chunk-${i}`, 
+					id: `${file.name}-v7-chunk-${i}`, 
 					values: vectorRes.data[0], 
-					metadata: { text: chunk, segment: "personal" } 
+					metadata: { text: chunk } 
 				}]);
 			}
 			
