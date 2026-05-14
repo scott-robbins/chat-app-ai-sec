@@ -146,7 +146,12 @@
 						<option value="anthropic/claude-opus-4.7">Claude 4.7 Opus (Anthropic)</option>
 					</optgroup>
 				</select>
-				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+                <select id="personality-selector" class="btn-secondary" style="border-color: var(--primary-color);">
+					<option value="warm">Warm Personality</option>
+					<option value="sarcastic">Sarcastic Personality</option>
+					<option value="cyber">Cyber Security Mode</option>
+				</select>
+                <button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
 				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
@@ -193,8 +198,12 @@
 					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
 					<div id="kv-mode-container" style="margin-top: 10px; font-size: 0.7rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
 						<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-							<span style="color: var(--text-light)">Session Context:</span> 
+							<span style="color: var(--text-light)">Session Context:</span> 
 							<span id="kv-mode-display" style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
+						</div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+							<span style="color: var(--text-light)">Personality:</span> 
+							<span id="kv-personality-display" style="color: #f6821f; font-weight: 800; text-transform: uppercase;">WARM</span>
 						</div>
 					</div>
 				</div>
@@ -245,7 +254,7 @@
 			}
 			let sessionId = getSessionId();
 			let isTyping = false;
-			let voiceEnabled = false; 
+			let voiceEnabled = false; 
 			let activeMode = "personal";
 
 			const modelSelector = document.getElementById('model-selector');
@@ -257,13 +266,21 @@
 				appendMessage('system-indicator', `System: Jolene is now using ${modelName}`);
 			};
 
+            // Personality logic
+            const personalitySelector = document.getElementById('personality-selector');
+            personalitySelector.onchange = async () => {
+                const val = personalitySelector.value;
+                appendMessage('user-message', `Set personality to ${val}`);
+                await sendCustomMessage(`set personality to ${val}`);
+            };
+
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
 			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
 			
-			document.getElementById('clear-screen-btn').onclick = () => { 
-				document.getElementById('chat-messages').innerHTML = ''; 
-				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
+			document.getElementById('clear-screen-btn').onclick = () => { 
+				document.getElementById('chat-messages').innerHTML = ''; 
+				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
 			};
 
 			document.getElementById('voice-toggle-btn').onclick = () => {
@@ -273,17 +290,17 @@
 				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
 			};
 
-			document.getElementById('new-chat-btn').onclick = async () => { 
-				sessionId = crypto.randomUUID(); 
-				localStorage.setItem('jolene_session_id', sessionId); 
-				document.getElementById('chat-messages').innerHTML = ''; 
+			document.getElementById('new-chat-btn').onclick = async () => { 
+				sessionId = crypto.randomUUID(); 
+				localStorage.setItem('jolene_session_id', sessionId); 
+				document.getElementById('chat-messages').innerHTML = ''; 
 				await updateDashboard();
 				
 				let greeting = "";
 				if (activeMode === "uva") {
-					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.\n\n**Capabilities in this mode:**\n- **UVA Academic Calendar Quiz**: Say **'Start a quiz based on the UVA Academic Calendar'** to test key dates.\n- **Syllabus Analysis**: Extracting exam dates and traditions from Thornton Hall.\n- **Campus News**: Say **'Fetch UVA News'** for the latest from the Lawn.";
+					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.";
 				} else {
-					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode. Ready for web search and family document access.\n\n**In this mode I can:**\n- **Real-Time Search**: Global news and sports via Tavily Search.\n- **Cross-Document Access**: Accessing your tax files and personal notes.\n- **Identity Lock**: Full context on Scott, Renee, Bry, and the mini-dachshunds.";
+					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode.";
 				}
 				appendMessage('assistant-message', greeting);
 			};
@@ -316,9 +333,6 @@
 					if (res.ok) {
 						appendMessage('system-indicator', `System: Deleted ${fullKey}`);
 						updateDashboard();
-					} else {
-						const err = await res.text();
-						console.error("Deletion failed:", err);
 					}
 				} catch (e) { console.error("Deletion failed", e); }
 			}
@@ -329,7 +343,7 @@
 					const data = await res.json();
 					
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
-						document.getElementById('chat-messages').innerHTML = ''; 
+						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
 					}
 
@@ -348,8 +362,13 @@
 					const modeEl = document.getElementById('kv-mode-display');
 					const mode = data.mode || "personal";
 					modeEl.innerText = mode.toUpperCase();
-					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
+					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
+
+                    // Update Personality Dashboard display
+                    const personalityEl = document.getElementById('kv-personality-display');
+                    personalityEl.innerText = (data.personality || "warm").toUpperCase();
+                    personalitySelector.value = data.personality || "warm";
 					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `
@@ -361,6 +380,42 @@
 						</li>`).join('') || '<li>No assets indexed</li>';
 				} catch (e) {}
 			}
+
+            // Internal helper to send logic commands without messy typing loop
+            async function sendCustomMessage(content) {
+                showTyping(true);
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+                    body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value })
+                });
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantText = "";
+                const msgDiv = appendMessage('assistant-message', "");
+                const contentDiv = msgDiv.querySelector('.message-content');
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const raw = line.substring(6).trim();
+                            if (raw === '[DONE]') continue;
+                            try {
+                                const data = JSON.parse(raw);
+                                if (data.response) {
+                                    assistantText += data.response;
+                                    contentDiv.innerHTML = marked.parse(assistantText);
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
+                showTyping(false);
+                updateDashboard();
+            }
 
 			async function sendMessage() {
 				const input = document.getElementById('user-input');
@@ -390,7 +445,7 @@
 						
 						lineBuffer += decoder.decode(value, { stream: true });
 						const lines = lineBuffer.split('\n');
-						lineBuffer = lines.pop(); 
+						lineBuffer = lines.pop(); 
 
 						for (const line of lines) {
 							if (line.startsWith('data: ')) {
@@ -398,12 +453,10 @@
 								if (raw === '[DONE]') continue;
 								try {
 									const data = JSON.parse(raw);
-									if (data.response) { 
-										assistantText += data.response; 
-										if (!assistantText.includes("![") || assistantText.includes(")")) {
-											contentDiv.innerHTML = marked.parse(assistantText);
-										}
-										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
+									if (data.response) { 
+										assistantText += data.response; 
+										contentDiv.innerHTML = marked.parse(assistantText);
+										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
 									}
 								} catch (e) { }
 							}
