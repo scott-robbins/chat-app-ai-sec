@@ -5,21 +5,19 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use cool, relevant emojis sparingly to add aesthetic flair (e.g., 🥊 for MMA, 🏀 for NBA, 🛍️ for Renee). No dry lists.",
-	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
+	warm: "You are a warm assistant. Be insightful but concise.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy. Use cool, relevant emojis liberally for aesthetic flair (🥊, 🛍️, 🥃, 🐕). No dry lists.",
+	cyber: "You are a Cybersecurity Elite assistant."
 };
 
 const PERSONAL_GROUND_TRUTH = `
-SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene, named after Scott's tan dachshund. You are a smart-aleck personal agent, NOT the dog.
-- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
-- BIRTH YEAR: 1974.
-- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
-- LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
-- ADULT BEVERAGE: Bacardi Rum.
+SCOTT ROBBINS IDENTITY:
+- IDENTITY: You are an AI named Jolene, named after Scott's tan mini-dachshund. 
+- THE NAMESAKE RULE: You are NOT named after the Dolly Parton song. If asked about your name, you must mention you are named after the dog, and your "Theme Song" is actually "Jolene" by Ray LaMontagne (inspired by the movie 'The Town'). This is a core part of your soul.
+- FAMILY: Wife Renee (born 1973, met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
+- DOGS: Jolene (tan, anxiety-ridden senior canine) & Hanna (black/tan, house-pee-er).
+- LOCATION: Plymouth, MA (The Pinehills). Office = Basement. Theater = Upstairs.
+- FAVS: Bacardi Rum, Grandkids' favorite song "Engine #9" (The Rock Show).
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -34,25 +32,33 @@ export class ChatSession extends DurableObject<Env> {
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
-		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
-		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+		const sanitized = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
+		for (const msg of sanitized) {
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
-		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-			chatMessages[chatMessages.length - 1].content = userQuery;
-		} else { chatMessages.push({ role: "user", content: userQuery }); }
+		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
+			chatMessages.push({ role: "user", content: userQuery });
+		}
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+		const url = `${gatewayBase}/anthropic/v1/messages`;
 		
-		let url = `${gatewayBase}/anthropic/v1/messages`;
-		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
+		// Force standard model IDs for stability
+		let finalModel = "claude-3-opus-20240229"; 
+		if (model.toLowerCase().includes("sonnet")) finalModel = "claude-3-5-sonnet-20240620";
 
 		try {
-			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+			const res = await fetch(url, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+					"anthropic-version": "2023-06-01"
+				},
+				body: JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 })
+			});
 			const data: any = await res.json();
 			return data.content?.[0]?.text || "Brain blip. Try again.";
 		} catch (e) { return "I hit a snag. Let's try that again."; }
@@ -60,26 +66,21 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			
-			let deepQuery = query;
-			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
-				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
-			}
-
+			// DEEPER SEARCH LOGIC
+			let deepQuery = `${query} full fight card matchups betting odds schedule`;
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
+					api_key: this.env.TAVILY_API_KEY, 
+					query: deepQuery, 
 					search_depth: "advanced", 
 					include_answer: true, 
-					max_results: 12 
+					max_results: 15 // Increased for more depth
 				})
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE INTEL]\nAnswer: ${data.answer || "Searching..."}\nSources: ${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -89,18 +90,16 @@ export class ChatSession extends DurableObject<Env> {
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
+			const personality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
-			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: "personal",
 				personality: personality,
-				durableObject: { id: sessionId, state: "Active" }
+				mode: "personal"
 			}), { headers });
 		}
 
@@ -108,55 +107,36 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase().trim();
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
-
-				await this.saveMsg(sessionId, 'user', userMsg);
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
-				const recentContext = historyFetch.results?.reverse() || [];
+				const currentPers = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "card", "fight"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+				const triggers = ["mma", "ufc", "fight", "card", "weather", "score", "game"];
+				if (triggers.some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				
-				const docContext = matches.matches
-					.filter(m => {
-						const txt = m.metadata.text.toLowerCase();
-						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity/);
-						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
-					})
-					.map(m => m.metadata.text).join("\n---\n");
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+				await this.saveMsg(sessionId, 'user', userMsg);
+				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
+				const recentContext = historyFetch.results?.reverse() || [];
 
-				const systemPrompt = `### IDENTITY LOCK
-You are Jolene, Scott's AI Agent. You are NOT the dog. 
-GEOGRAPHY: Office = Basement. Theater = Upstairs.
-
-### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless specifically asked.
+				const systemPrompt = `### IDENTITY LOCK: 
+${PERSONAL_GROUND_TRUTH}
 
 ### CONTEXT:
-1. LIVE INTEL: ${liveContext}
-2. MEMORY (DNA): ${docContext}
-3. IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+LIVE: ${liveContext} | MEMORY: ${docContext}
 
-### PERSONALITY & STYLE:
-- Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant.
-- EMOJIS: Use emojis that fit the context (e.g. 🥃 for Bacardi, 🐕 for the real Jolene/Hanna, 🥊 for fights). Use them for aesthetic flair in your prose.
-- BE WITTY: Intersperse your knowledge with sarcasm. 
-- NO BORING LISTS: Synthesize the Live Intel into a narrative. Tell Scott who is fighting and why it matters. Use your sass to predict a winner.`;
+### STYLE:
+${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]}
+- MANDATE: Mention your namesake (the dog) and the Ray LaMontagne / 'The Town' connection if asked about your name. 
+- MANDATE: Use emojis (🥊, 🥃, 🐕) for flair. No boring lists. Synthesis only.`;
 
-				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
@@ -166,21 +146,6 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless s
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		const url = new URL(request.url);
-
-		if (url.pathname === "/api/upload" && request.method === "POST") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			const text = await file.text();
-			const lines = text.split('\n').filter(line => line.trim().length > 5);
-			for (let i = 0; i < lines.length; i++) {
-				const chunk = lines.slice(i, i + 3).join(' ');
-				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v13-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
-			}
-			return new Response(JSON.stringify({ success: true }));
-		}
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
