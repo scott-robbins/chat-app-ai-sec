@@ -43,7 +43,6 @@ export class ChatSession extends DurableObject<Env> {
 			chatMessages[chatMessages.length - 1].content = userQuery;
 		} else { chatMessages.push({ role: "user", content: userQuery }); }
 
-		// BYPASSING GATEWAY FOR DIRECT ACCESS TO SONNET 3.5
 		const url = "https://api.anthropic.com/v1/messages";
 		const headers = { 
 			"Content-Type": "application/json", 
@@ -51,17 +50,29 @@ export class ChatSession extends DurableObject<Env> {
 			"anthropic-version": "2023-06-01" 
 		};
 		
-		const cleanModel = model.includes("/") ? model.split("/")[1] : model;
+		// HARDCODED MAPPING TO PREVENT UI ERRORS
+		let finalModel = "claude-3-5-sonnet-20240620"; // Default
+		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
+		if (model.toLowerCase().includes("haiku")) finalModel = "claude-3-haiku-20240307";
+
 		const body = { 
-			model: cleanModel, 
+			model: finalModel, 
 			system: systemPrompt, 
 			messages: chatMessages, 
 			max_tokens: 1024 
 		};
 
 		try {
-			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-			const data: any = await res.json();
+			let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+			let data: any = await res.json();
+			
+			// RETRY LOGIC FOR OVERLOADED ERRORS
+			if (res.status === 529 || (data.error && data.error.type === "overloaded_error")) {
+				await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+				res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+				data = await res.json();
+			}
+
 			if (data.error) return `⚠️ **ANTHROPIC ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
 			return "API blip. Try again.";
@@ -128,8 +139,8 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						// Identity Guard: Always allow family and personal history chunks
-						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style/);
+						// Identity Guard:surfacing family and personal history
+						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|favorite song/);
 						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
@@ -141,7 +152,7 @@ You are Jolene, Scott Robbins' dedicated AI Agent. You are NOT the dog.
 GEOGRAPHY: Office = Basement. Theater = Upstairs (Scott works in a theater chair here).
 
 ### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT mention specific UVA technical assignments or quiz details.
+You are a Cloudflare Solutions Engineer. Do NOT discuss UVA technical assignments.
 
 ### CONTEXT:
 1. LIVE INTEL: ${liveContext}
@@ -150,7 +161,7 @@ You are a Cloudflare Solutions Engineer. Do NOT mention specific UVA technical a
 
 ### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant. Use ScottIdentityV7 details to discuss Renee's heritage, her met date (1993), and Josie/Callan's music (Deftones/Rock Show).
+- INSTRUCTION: Use the "Memory" section to be brilliant. Use ScottIdentityV7 details to discuss Renee's heritage, her met date (1993), and grandkids.
 - BE WITTY: Intersperse knowledge with sarcasm. 
 - FORMAT: Synthesize Intel into a narrative. No boring lists.`;
 
