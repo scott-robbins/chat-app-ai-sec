@@ -25,8 +25,8 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitized = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
 		for (const msg of sanitized) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
-			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push({ role: "user", content: msg.content }); }
+			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push({ role: msg.role, content: msg.content }); }
 		}
 		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
 			chatMessages.push({ role: "user", content: userQuery });
@@ -35,32 +35,32 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		// HYBRID ROUTING FIX
-		const isOpenAI = model.toLowerCase().includes("gpt");
-		const provider = isOpenAI ? "openai" : "anthropic";
-		const finalModel = isOpenAI ? "gpt-4o" : "claude-3-opus-20240229";
+		// EXPLICIT PROVIDER ROUTING (The Opus 404 Fix)
+		const isGPT = model.toLowerCase().includes("gpt");
+		const provider = isGPT ? "openai" : "anthropic";
+		const finalModel = isGPT ? "gpt-4o" : "claude-3-opus-20240229";
 		
-		const url = isOpenAI 
+		const url = isGPT 
 			? `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/openai/chat/completions`
 			: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 
 		const headers: any = { "Content-Type": "application/json" };
-		if (isOpenAI) {
+		if (isGPT) {
 			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
 		} else {
 			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
 			headers["anthropic-version"] = "2023-06-01";
 		}
 
-		const body = isOpenAI 
-			? { model: finalModel, messages: [{role: "system", content: systemPrompt}, ...chatMessages], max_tokens: 1024 }
+		const body = isGPT 
+			? { model: finalModel, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] }
 			: { model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
 			if (data.error) return `⚠️ ${provider.toUpperCase()} ERROR: ${data.error.message}`;
-			return isOpenAI ? data.choices[0].message.content : data.content[0].text;
+			return isGPT ? data.choices[0].message.content : data.content[0].text;
 		} catch (e) { return "Wiring snag. Hit me again."; }
 	}
 
@@ -78,9 +78,9 @@ export class ChatSession extends DurableObject<Env> {
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare SE`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0, // RESTORES D1 COUNTER
-				knowledgeAssets: storage.objects.map(o => o.key), // RESTORES R2 LIST
-				personality: personality.toUpperCase(), // RESTORES KV STATUS
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
+				personality: personality.toUpperCase(),
 				mode: "PERSONAL"
 			}), { headers });
 		}
@@ -91,15 +91,15 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase();
 
-				// AGGRESSIVE SPORTS SEARCH (No more Nets/Celtics hallucinations)
+				// 2026 LIVE SEARCH (This gave us the win on NBA)
 				let liveContext = "";
-				if (["nba", "playoff", "ufc", "fight", "score", "celtics"].some(kw => lowMsg.includes(kw))) {
+				if (["nba", "playoff", "ufc", "fight", "score", "celtics", "pistons", "cavaliers"].some(kw => lowMsg.includes(kw))) {
 					const tRes = await fetch('https://api.tavily.com/search', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ 
 							api_key: this.env.TAVILY_API_KEY, 
-							query: `${userMsg} live scores schedule 2026`, 
+							query: `${userMsg} current scores 2026`, 
 							search_depth: "advanced", 
 							max_results: 10 
 						})
@@ -119,7 +119,7 @@ export class ChatSession extends DurableObject<Env> {
 				const systemPrompt = `You are Jolene, Scott's smart-aleck agent. 
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
 CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
-STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). If asked about NBA, use the LIVE context only—it is 2026, the Celtics are out!`;
+STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). Rely on LIVE context for sports—it is 2026.`;
 
 				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
