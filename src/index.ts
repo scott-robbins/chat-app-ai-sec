@@ -30,20 +30,21 @@ export class ChatSession extends DurableObject<Env> {
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
-		
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push({ role: "user", content: msg.content }); }
-			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push({ role: msg.role, content: msg.content }); }
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
+			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// BYPASSING GATEWAY COMPLETELY TO FIX 404s
-		const url = "https://api.anthropic.com/v1/messages";
+		// BACK TO THE ORIGINAL GATEWAY SETUP THAT WORKED
+		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
+		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 		
-		let finalModel = "claude-3-5-sonnet-20240620"; 
-		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
+		// Map back to the specific Opus ID that worked this morning
+		let finalModel = "claude-3-opus-20240229";
 
 		try {
 			const res = await fetch(url, { 
@@ -56,64 +57,60 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 }) 
 			});
 			const data: any = await res.json();
-			if (data.error) return `⚠️ **ANTHROPIC ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
-			return "Brain blip. Try again.";
-		} catch (e) { return "Direct API connection failed."; }
+			return "Brain blip. Let's try that again.";
+		} catch (e) { return "snagged connection."; }
 	}
 
 	async tavilySearch(query: string) {
 		try {
+			// KEEPING THE ENHANCED SEARCH DEPTH
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} full fight card schedule odds`, search_depth: "advanced", include_answer: true, max_results: 15 })
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${query} full fight card schedule matchups`, 
+					search_depth: "advanced", 
+					include_answer: true, 
+					max_results: 12 
+				})
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED]\n${data.answer || "No direct answer."}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { return "Search unavailable."; }
+			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
+		} catch (e) { return "Search blip."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
-		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase().trim();
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
+				const lowMsg = userMsg.toLowerCase();
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["weather", "mma", "ufc", "fight", "card", "nba"].some(kw => lowMsg.includes(kw))) {
+				if (["mma", "ufc", "fight", "card", "weather"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				
-				const docContext = matches.matches
-					.filter(m => {
-						const txt = m.metadata.text.toLowerCase();
-						return txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|song/) || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
-					})
-					.map(m => m.metadata.text).join("\n---\n");
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				const systemPrompt = `### IDENTITY: Jolene. Office=Basement, Theater=Upstairs.
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | DNA: ${PERSONAL_GROUND_TRUTH}
-### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]} Reference Renee's heritage and grandkids' favorite song "Engine #9" (Rock Show). Use thematic emojis. No lists.`;
+### STYLE: Sarcastic. Reference Renee's heritage and grandkids' favorite song "Engine #9". No lists.`;
 
-				const targetModel = body.model || "claude-3-opus-20240229";
-				const chatTxt = await this.runAI(targetModel, systemPrompt, userMsg, recentContext);
+				const chatTxt = await this.runAI("opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
@@ -123,19 +120,6 @@ export class ChatSession extends DurableObject<Env> {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		if (new URL(request.url).pathname === "/api/upload" && request.method === "POST") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			const text = await file.text();
-			const lines = text.split('\n').filter(l => l.trim().length > 5);
-			for (let i = 0; i < lines.length; i++) {
-				const chunk = lines.slice(i, i + 3).join(' ');
-				const vRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v24-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
-			}
-			return new Response(JSON.stringify({ success: true }));
-		}
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
