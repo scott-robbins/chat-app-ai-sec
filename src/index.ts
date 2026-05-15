@@ -1,21 +1,20 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use thematic emojis (🥊, 🛍️, 🥃) for flair. No dry lists.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy. Use emojis like 🥊, 🛍️, 🥃. No dry lists.",
 	cyber: "You are a Cybersecurity Elite assistant."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY:
-- AI AGENT: You are Jolene (named after the dachshund). You are smart, witty, and sarcastic.
-- FAMILY: Wife (Renee, born 1973), Daughter (Bry), Grandkids (Callan & Josie).
-- WORK: Senior Solutions Engineer at Cloudflare. Works in Basement Office or Upstairs Theater.
-- DRINK: Bacardi Rum.
+- AGENT: Jolene (AI smart-aleck, not the dog).
+- FAMILY: Wife (Renee, met 1993, Portuguese/American Indian), Daughter (Bry), Grandkids (Callan & Josie).
+- WORK: Cloudflare Solutions Engineer. Basement or Upstairs Theater.
+- FAVS: Bacardi Rum, Grandkids' song "Engine #9" (Rock Show).
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -31,45 +30,36 @@ export class ChatSession extends DurableObject<Env> {
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
+		
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push({ role: msg.role, content: msg.content }); }
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push({ role: "user", content: msg.content }); }
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push({ role: msg.role, content: msg.content }); }
 		}
 		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
-		
-		// Attempting the most standard Gateway URL first
-		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
+		// BYPASSING GATEWAY COMPLETELY TO FIX 404s
+		const url = "https://api.anthropic.com/v1/messages";
 		
 		let finalModel = "claude-3-5-sonnet-20240620"; 
 		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
 
-		const headers = { 
-			"Content-Type": "application/json", 
-			"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
-			"anthropic-version": "2023-06-01" 
-		};
-
-		const body = JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 });
-
 		try {
-			let res = await fetch(url, { method: "POST", headers, body });
-			
-			// Fallback: If 404, try the alternative URL path
-			if (res.status === 404) {
-				const altUrl = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/messages`;
-				res = await fetch(altUrl, { method: "POST", headers, body });
-			}
-
+			const res = await fetch(url, { 
+				method: "POST", 
+				headers: { 
+					"Content-Type": "application/json", 
+					"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
+					"anthropic-version": "2023-06-01" 
+				}, 
+				body: JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 }) 
+			});
 			const data: any = await res.json();
-			if (data.error) return `⚠️ **GATEWAY ERROR:** ${data.error.message}`;
+			if (data.error) return `⚠️ **ANTHROPIC ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
 			return "Brain blip. Try again.";
-		} catch (e) { return "Worker-level connectivity issue."; }
+		} catch (e) { return "Direct API connection failed."; }
 	}
 
 	async tavilySearch(query: string) {
@@ -77,10 +67,10 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} live now`, search_depth: "advanced", include_answer: true, max_results: 15 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} full fight card schedule odds`, search_depth: "advanced", include_answer: true, max_results: 15 })
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE FEED]\n${data.answer || "No direct answer."}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -89,27 +79,12 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
-			const storage = await this.env.DOCUMENTS.list();
-			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Cloudflare SE`,
-				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: "personal",
-				personality: personality,
-				durableObject: { id: sessionId, state: "Active" }
-			}), { headers });
-		}
-
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
+				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
@@ -132,7 +107,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const systemPrompt = `### IDENTITY: Jolene. Office=Basement, Theater=Upstairs.
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | DNA: ${PERSONAL_GROUND_TRUTH}
-### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]} Reference Renee's heritage and grandkids' favorite song "Engine #9" (Rock Show). No lists.`;
+### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]} Reference Renee's heritage and grandkids' favorite song "Engine #9" (Rock Show). Use thematic emojis. No lists.`;
 
 				const targetModel = body.model || "claude-3-opus-20240229";
 				const chatTxt = await this.runAI(targetModel, systemPrompt, userMsg, recentContext);
@@ -157,7 +132,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v23-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v24-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
