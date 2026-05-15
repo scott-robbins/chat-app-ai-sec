@@ -3,19 +3,11 @@ import { DurableObject } from "cloudflare:workers";
 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-const PERSONALITIES = {
-	warm: "You are a warm, insightful assistant. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are Jolene, Scott's witty, high-level snarky personal agent. Use plenty of sass. Reference Scott's wife Renee (the real boss) and the grandkids Callan & Josie. Use emojis (🥊, 🛍️, 🥃, 🏀) liberally. No dry lists; keep it conversational and punchy.",
-	cyber: "You are a Cybersecurity Elite assistant. Technical, direct, and elite."
-};
-
 const PERSONAL_GROUND_TRUTH = `
-SCOTT ROBBINS IDENTITY:
-- AI AGENT: Jolene (Named after the dachshund). You are the agent, not the dog.
-- CAREER: Senior Solutions Engineer at Cloudflare (AI Audit focus).
-- FAMILY: Wife Renee (met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
-- LOCATION: Plymouth, MA. Office is in the Basement; Theater is Upstairs.
-- FAVS: Bacardi Rum, Grandkids' song "Engine #9" (The Rock Show).
+IDENTITY: You are Jolene, Scott Robbins' smart-aleck AI Agent. 
+JOB: Senior Solutions Engineer at Cloudflare. Office=Basement, Theater=Upstairs.
+FAMILY: Wife Renee (Portuguese/Indian), Daughter Bryana, Grandkids Callan & Josie.
+FAVORITES: Bacardi Rum. Grandkids' song "Engine #9" (Rock Show). Met Renee in 1993.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -32,23 +24,19 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitized = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
 		for (const msg of sanitized) {
-			if (chatMessages.length === 0) { 
-				if (msg.role === 'user') chatMessages.push({role: msg.role, content: msg.content}); 
-			} else { 
-				if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push({role: msg.role, content: msg.content}); 
-			}
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
+			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// USE STABLE GATEWAY ENDPOINT
+		// STABLE GATEWAY PATH
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 		
-		// Force exact model ID for stability
-		let finalModel = "claude-3-opus-20240229"; 
+		let finalModel = model.includes("sonnet") ? "claude-3-5-sonnet-20240620" : "claude-3-opus-20240229";
 
 		try {
 			const res = await fetch(url, {
@@ -62,8 +50,8 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await res.json();
 			if (data.content && data.content.length > 0) return data.content[0].text;
-			return data.error ? `⚠️ AI Error: ${data.error.message}` : "Brain blip. Try again.";
-		} catch (e) { return "Wiring snag. Hit me again."; }
+			return data.error ? `⚠️ AI ERROR: ${data.error.message}` : "Brain blip. Try again.";
+		} catch (e) { return "Wiring issue."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -71,7 +59,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// FIX: RESTORE COMMAND CENTER METRICS
+		// FIX: Dashboard Metrics
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
@@ -81,8 +69,8 @@ export class ChatSession extends DurableObject<Env> {
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
-				personality: personality,
-				mode: "personal"
+				personality: personality.toUpperCase(),
+				mode: "PERSONAL"
 			}), { headers });
 		}
 
@@ -90,33 +78,32 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const currentPers = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 
-				// 1. ADVANCED TAVILY SEARCH (Kept for your fight cards)
+				// 1. ADVANCED TAVILY (The Fight Card Fix)
 				let liveContext = "";
-				if (["mma", "ufc", "fight", "card", "weather", "score"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				if (["mma", "ufc", "fight", "card"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					const tRes = await fetch('https://api.tavily.com/search', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} ufc mma match schedule odds`, search_depth: "advanced", max_results: 12 })
+						body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} full fight card matchups`, search_depth: "advanced", max_results: 12 })
 					});
 					const tData: any = await tRes.json();
 					liveContext = tData.results?.map((r: any) => r.content).join("\n");
 				}
 
-				// 2. VECTOR SEARCH (Top 25 for Identity DNA)
+				// 2. VECTOR SEARCH (Identity DNA)
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
-				const systemPrompt = `### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
-### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
-### STYLE: ${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]} 
-INSTRUCTION: Reference Renee's heritage and the kids' favorite song "Engine #9". Use emojis.`;
+				const systemPrompt = `You are Jolene, Scott's sarcastic agent. 
+IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
+STYLE: Be witty and high-level snarky. Use emojis (🥊, 🛍️, 🥃). Mention Renee's heritage and the grandkids' favorite song "Engine #9". No boring lists.`;
 
 				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -131,12 +118,6 @@ INSTRUCTION: Reference Renee's heritage and the kids' favorite song "Engine #9".
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		if (new URL(request.url).pathname === "/api/upload") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			return new Response(JSON.stringify({ success: true }));
-		}
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
