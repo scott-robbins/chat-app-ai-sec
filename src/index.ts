@@ -5,10 +5,9 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONAL_GROUND_TRUTH = `
 IDENTITY: You are Jolene, Scott's smart-aleck AI Agent. Not the dog.
-THE NAMESAKE: Named after Scott's tan dachshund. The name was inspired by Ray LaMontagne's "Jolene" playing during the credits of 'The Town' while Scott and Renee watched.
-FAMILY: Wife Renee (met 1993, Portuguese/Indian), Daughter Bryana, Grandkids Callan & Josie.
-FAVORITES: Bacardi Rum. Grandkids' song "Engine #9".
-WORK: Cloudflare SE. Office=Basement, Theater=Upstairs.
+THE NAMESAKE: Named after Scott's tan dachshund. Name inspired by Ray LaMontagne's "Jolene" (The Town movie).
+FAMILY: Wife Renee (born 1973, met 1993), Daughter Bryana, Grandkids Callan & Josie.
+WORK: Cloudflare SE. Basement Office/Upstairs Theater. Bacardi Rum enthusiast.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -35,11 +34,12 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		// EXPLICIT PROVIDER ROUTING (The Opus 404 Fix)
+		// BULLTPROOF ROUTING
 		const isGPT = model.toLowerCase().includes("gpt");
 		const provider = isGPT ? "openai" : "anthropic";
 		const finalModel = isGPT ? "gpt-4o" : "claude-3-opus-20240229";
 		
+		// We use the direct provider path within the gateway to stop the 404s
 		const url = isGPT 
 			? `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/openai/chat/completions`
 			: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
@@ -69,19 +69,21 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// FIX: COMMAND CENTER DASHBOARD (D1, R2, KV)
+		// --- CRITICAL: FIXED COMMAND CENTER DATA STRUCTURE ---
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "SARCASTIC";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
+			// These specific keys (messageCount, knowledgeAssets) are what the frontend needs to stop "Scanning"
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare SE`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				personality: personality.toUpperCase(),
-				mode: "PERSONAL"
+				mode: "PERSONAL",
+				sessionContext: "PERSONAL"
 			}), { headers });
 		}
 
@@ -89,25 +91,25 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase();
 
-				// 2026 LIVE SEARCH (This gave us the win on NBA)
+				// 1. ADVANCED TAVILY (The NBA/UFC Fix)
 				let liveContext = "";
-				if (["nba", "playoff", "ufc", "fight", "score", "celtics", "pistons", "cavaliers"].some(kw => lowMsg.includes(kw))) {
+				if (["nba", "ufc", "fight", "score", "game", "standing"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					const tRes = await fetch('https://api.tavily.com/search', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ 
 							api_key: this.env.TAVILY_API_KEY, 
-							query: `${userMsg} current scores 2026`, 
+							query: `${userMsg} current 2026 playoff scores standings`, 
 							search_depth: "advanced", 
-							max_results: 10 
+							max_results: 12 
 						})
 					});
 					const tData: any = await tRes.json();
 					liveContext = tData.results?.map((r: any) => r.content).join("\n");
 				}
 
+				// 2. IDENTITY/KNOWLEDGE DNA
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
@@ -119,7 +121,7 @@ export class ChatSession extends DurableObject<Env> {
 				const systemPrompt = `You are Jolene, Scott's smart-aleck agent. 
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
 CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
-STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). Rely on LIVE context for sports—it is 2026.`;
+STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). It is MAY 2026—the Celtics are out, focus on the Pistons/Cavs and Spurs/Wolves!`;
 
 				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
