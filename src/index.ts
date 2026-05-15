@@ -6,17 +6,20 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy. Use cool, relevant emojis sparingly (🥊, 🛍️, 🥃). No dry lists.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy. Use cool, relevant emojis sparingly (🥊, 🏀, 🛍️). No dry lists.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
-- THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" from 'The Town' credits. You are NOT named after Dolly Parton.
+- IDENTITY: You are an AI named Jolene. 
+- THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
+- BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund) & Hanna (black/tan).
+- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
+- LOCATION: Plymouth, MA (The Pinehills).
+- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
 - ADULT BEVERAGE: Bacardi Rum.
 `;
 
@@ -34,7 +37,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -60,7 +63,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- ENHANCED VOICE ENDPOINT (POST & GET Support) ---
+		// --- RE-ENGINEERED TTS ENDPOINT (Using Speech-T5) ---
 		if (url.pathname === "/api/tts") {
 			try {
 				let textToSpeak = "";
@@ -71,24 +74,26 @@ export class ChatSession extends DurableObject<Env> {
 					textToSpeak = url.searchParams.get("text") || "";
 				}
 
-				if (!textToSpeak) return new Response("No text provided", { status: 400 });
+				if (!textToSpeak) return new Response("Silence is golden, but I need text.", { status: 400 });
 
-				// Strip markdown and emojis for the voice engine
+				// Cleanup: Remove emojis and asterisks
 				const cleanText = textToSpeak.replace(/\*\*/g, '').replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E6}-\u{1F1FF}]/gu, '');
 				
-				const audioResponse = await this.env.AI.run("@cf/elevenlabs/edge-tts", {
-					text: cleanText,
-					voice: "en-US-AnaNeural" 
+				// Using the stable Speech-T5 model
+				const audioResponse = await this.env.AI.run("@cf/microsoft/speech-t5-tts", {
+					text: cleanText
 				});
 
 				return new Response(audioResponse, {
 					headers: { 
-						"Content-Type": "audio/mpeg", 
+						"Content-Type": "audio/wav", 
 						"Access-Control-Allow-Origin": "*",
 						"Cache-Control": "no-cache" 
 					}
 				});
-			} catch (e) { return new Response(JSON.stringify({ error: "Voice failure" }), { status: 500, headers }); }
+			} catch (e: any) { 
+				return new Response(JSON.stringify({ error: e.message }), { status: 500, headers }); 
+			}
 		}
 
 		if (url.pathname === "/api/profile") {
@@ -118,9 +123,8 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				const systemPrompt = `You are Jolene, Scott's AI Agent. 
-DNA: ${PERSONAL_GROUND_TRUTH}
-Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-Context: ${docContext}`;
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
+STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, []);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
