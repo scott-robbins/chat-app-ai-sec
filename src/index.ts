@@ -3,11 +3,16 @@ import { DurableObject } from "cloudflare:workers";
 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
+const PERSONALITIES = {
+	warm: "You are a warm, insightful assistant.",
+	sarcastic: "You are Jolene, Scott's smart-aleck AI Agent. Use high-level sass and emojis (🥊, 🥃, 🐕, 🛍️). Reference Renee (the boss) and the grandkids Callan & Josie. Be punchy."
+};
+
 const PERSONAL_GROUND_TRUTH = `
-IDENTITY: You are Jolene, Scott's smart-aleck AI Agent. Not the dog.
-THE NAMESAKE: Named after Scott's tan dachshund. Name inspired by Ray LaMontagne's "Jolene" (The Town movie).
-FAMILY: Wife Renee (born 1973, met 1993), Daughter Bryana, Grandkids Callan & Josie.
-WORK: Cloudflare SE. Basement Office/Upstairs Theater. Bacardi Rum enthusiast.
+IDENTITY: You are Jolene, named after Scott's dachshund. You're a smart-aleck, not a dog.
+FAMILY: Wife Renee (Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
+FAVORITES: Bacardi Rum, Grandkids' song "Engine #9".
+WORK: Cloudflare SE. Office=Basement, Theater=Upstairs.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -20,70 +25,23 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		const chatMessages: any[] = [];
-		const sanitized = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
-		for (const msg of sanitized) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push({ role: "user", content: msg.content }); }
-			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push({ role: msg.role, content: msg.content }); }
-		}
-		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
-			chatMessages.push({ role: "user", content: userQuery });
-		}
-
-		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
-		
-		// BULLTPROOF ROUTING
-		const isGPT = model.toLowerCase().includes("gpt");
-		const provider = isGPT ? "openai" : "anthropic";
-		const finalModel = isGPT ? "gpt-4o" : "claude-3-opus-20240229";
-		
-		// We use the direct provider path within the gateway to stop the 404s
-		const url = isGPT 
-			? `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/openai/chat/completions`
-			: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
-
-		const headers: any = { "Content-Type": "application/json" };
-		if (isGPT) {
-			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
-		} else {
-			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
-			headers["anthropic-version"] = "2023-06-01";
-		}
-
-		const body = isGPT 
-			? { model: finalModel, messages: [{ role: "system", content: systemPrompt }, ...chatMessages] }
-			: { model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
-
-		try {
-			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-			const data: any = await res.json();
-			if (data.error) return `⚠️ ${provider.toUpperCase()} ERROR: ${data.error.message}`;
-			return isGPT ? data.choices[0].message.content : data.content[0].text;
-		} catch (e) { return "Wiring snag. Hit me again."; }
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- CRITICAL: FIXED COMMAND CENTER DATA STRUCTURE ---
+		// --- RESTORE STABLE DASHBOARD ROUTE ---
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "SARCASTIC";
+			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
-			// These specific keys (messageCount, knowledgeAssets) are what the frontend needs to stop "Scanning"
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Cloudflare SE`,
+				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
-				personality: personality.toUpperCase(),
-				mode: "PERSONAL",
-				sessionContext: "PERSONAL"
+				personality: personality
 			}), { headers });
 		}
 
@@ -91,41 +49,41 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
+				const currentPers = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				// 1. ADVANCED TAVILY (The NBA/UFC Fix)
-				let liveContext = "";
-				if (["nba", "ufc", "fight", "score", "game", "standing"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					const tRes = await fetch('https://api.tavily.com/search', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ 
-							api_key: this.env.TAVILY_API_KEY, 
-							query: `${userMsg} current 2026 playoff scores standings`, 
-							search_depth: "advanced", 
-							max_results: 12 
-						})
-					});
-					const tData: any = await tRes.json();
-					liveContext = tData.results?.map((r: any) => r.content).join("\n");
-				}
-
-				// 2. IDENTITY/KNOWLEDGE DNA
+				// 1. SIMPLE VECTOR SEARCH (Stable)
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				await this.saveMsg(sessionId, 'user', userMsg);
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
-				const recentContext = historyFetch.results?.reverse() || [];
 
-				const systemPrompt = `You are Jolene, Scott's smart-aleck agent. 
-IDENTITY: ${PERSONAL_GROUND_TRUTH}
-CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
-STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). It is MAY 2026—the Celtics are out, focus on the Pistons/Cavs and Spurs/Wolves!`;
+				// 2. STABLE GATEWAY ROUTING
+				const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+				const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
+				const aiUrl = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 
-				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				const systemPrompt = `${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]}\n\nDNA: ${PERSONAL_GROUND_TRUTH}\nMEMORY: ${docContext}`;
+
+				const res = await fetch(aiUrl, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+						"anthropic-version": "2023-06-01"
+					},
+					body: JSON.stringify({
+						model: "claude-3-opus-20240229",
+						system: systemPrompt,
+						messages: [{ role: "user", content: userMsg }],
+						max_tokens: 1024
+					})
+				});
+
+				const data: any = await res.json();
+				const chatTxt = data.content?.[0]?.text || "Brain blip.";
 				
+				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
