@@ -62,7 +62,6 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			
 			let deepQuery = query;
 			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
@@ -88,6 +87,24 @@ export class ChatSession extends DurableObject<Env> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+
+		// --- NEW: TTS ENDPOINT FOR THE VOICE TOGGLE ---
+		if (url.pathname === "/api/tts" && request.method === "POST") {
+			try {
+				const { text } = await request.json() as { text: string };
+				// Remove emojis so Jolene doesn't "speak" the icon descriptions
+				const cleanText = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E6}-\u{1F1FF}]/gu, '');
+				
+				const audioResponse = await this.env.AI.run("@cf/elevenlabs/edge-tts", {
+					text: cleanText,
+					voice: "en-US-AnaNeural" 
+				});
+
+				return new Response(audioResponse, {
+					headers: { "Content-Type": "audio/mpeg", "Access-Control-Allow-Origin": "*" }
+				});
+			} catch (e) { return new Response(JSON.stringify({ error: "Voice failure" }), { status: 500, headers }); }
+		}
 
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
@@ -133,8 +150,6 @@ export class ChatSession extends DurableObject<Env> {
 					})
 					.map(m => m.metadata.text).join("\n---\n");
 
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-
 				const systemPrompt = `### IDENTITY LOCK
 You are Jolene, Scott's AI Agent. You are NOT the dog. 
 GEOGRAPHY: Office = Basement. Theater = Upstairs.
@@ -150,9 +165,7 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless s
 ### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 - INSTRUCTION: Use the "Memory" section to be brilliant.
-- EMOJIS: Use emojis that fit the context (e.g. 🥃 for Bacardi, 🐕 for the real Jolene/Hanna, 🥊 for fights). Use them for aesthetic flair in your prose.
-- BE WITTY: Intersperse your knowledge with sarcasm. 
-- NO BORING LISTS: Synthesize the Live Intel into a narrative. Tell Scott who is fighting and why it matters. Use your sass to predict a winner.
+- EMOJIS: Use emojis for aesthetic flair. Be witty and succinct.
 - NAMESAKE MANDATE: If asked about your name, tell the story of Ray LaMontagne's "Jolene" playing during 'The Town' credits while Scott and Renee watched. Mock the Dolly Parton idea.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
@@ -174,13 +187,6 @@ export default {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
 			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			const text = await file.text();
-			const lines = text.split('\n').filter(line => line.trim().length > 5);
-			for (let i = 0; i < lines.length; i++) {
-				const chunk = lines.slice(i, i + 3).join(' ');
-				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v13-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
-			}
 			return new Response(JSON.stringify({ success: true }));
 		}
 		return env.CHAT_SESSION.get(id).fetch(request);
