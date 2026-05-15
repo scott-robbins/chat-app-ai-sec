@@ -13,9 +13,9 @@ const PERSONALITIES = {
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene, named after Scott's dachshund. You are a smart-aleck personal agent, NOT the dog.
-- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund) and Hanna (black/tan dachshund).
+- DOGS: Jolene (tan dachshund, barks/anxious) and Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
 - WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
 `;
@@ -33,51 +33,43 @@ export class ChatSession extends DurableObject<Env> {
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
-		
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) {
-				if (msg.role === 'user') chatMessages.push({ role: "user", content: msg.content });
-			} else {
-				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
-					chatMessages.push({ role: msg.role, content: msg.content });
-				}
-			}
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
+			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// LOGIC: Map UI names to Anthropic's strict IDs
-		let finalModel = "claude-3-5-sonnet-20240620";
-		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
-		if (model.toLowerCase().includes("haiku")) finalModel = "claude-3-haiku-20240307";
+		// BACK TO GATEWAY
+		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+		const url = `${gatewayBase}/anthropic/v1/messages`;
+		
+		const cleanModel = model.replace("anthropic/", "").replace("4.7 ", "");
 
-		const url = "https://api.anthropic.com/v1/messages";
-		const fetchOptions = (mId: string) => ({
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-				"anthropic-version": "2023-06-01"
-			},
-			body: JSON.stringify({ model: mId, system: systemPrompt, messages: chatMessages, max_tokens: 1024 })
-		});
+		const body = { 
+			model: cleanModel, 
+			system: systemPrompt, 
+			messages: chatMessages, 
+			max_tokens: 1024 
+		};
 
 		try {
-			let res = await fetch(url, fetchOptions(finalModel));
-			let data: any = await res.json();
-			
-			// AUTO-FALLBACK TO HAIKU IF SONNET/OPUS IS NOT FOUND OR OVERLOADED
-			if (data.error && (data.error.type === "not_found_error" || data.error.type === "overloaded_error")) {
-				console.log(`Falling back to Haiku due to: ${data.error.message}`);
-				res = await fetch(url, fetchOptions("claude-3-haiku-20240307"));
-				data = await res.json();
-			}
-
-			if (data.error) return `⚠️ **ANTHROPIC REJECTED ALL MODELS:** ${data.error.message}`;
+			const res = await fetch(url, { 
+				method: "POST", 
+				headers: { 
+					"Content-Type": "application/json", 
+					"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
+					"anthropic-version": "2023-06-01" 
+				}, 
+				body: JSON.stringify(body) 
+			});
+			const data: any = await res.json();
+			if (data.error) return `⚠️ **GATEWAY ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
-			return "API blip. Try again.";
-		} catch (e: any) { return `❌ **WORKER CRASH:** ${e.message}`; }
+			return "Brain blip. Try again.";
+		} catch (e) { return "I hit a snag. Let's try that again."; }
 	}
 
 	async tavilySearch(query: string) {
@@ -89,7 +81,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await res.json();
 			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { return "Search blip."; }
+		} catch (e) { return "Search unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -117,17 +109,14 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
-
-				if (lowMsg === "status check") {
-					return new Response(`data: ${JSON.stringify({ response: `Worker: Active\nKey Configured: ${!!this.env.ANTHROPIC_API_KEY}\nEndpoint: Direct Anthropic` })}\n\ndata: [DONE]\n\n`);
-				}
+				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["weather", "mma", "ufc", "fight", "card", "news", "price"].some(kw => lowMsg.includes(kw))) {
+				if (["weather", "mma", "ufc", "fight", "card", "price"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -137,7 +126,8 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						return txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style/) || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
+						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|favorite song/);
+						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
 
@@ -148,7 +138,8 @@ You are Jolene, Scott Robbins' Agent. Office=Basement, Theater=Upstairs.
 2. MEMORY: ${docContext}
 3. DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE
-Be witty, sarcastic, and conversational. Reference Renee's heritage and the grandkids' favorite song "Engine #9". Use thematic emojis. No lists.`;
+- Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+- INSTRUCTION: Use ScottIdentityV7 details to discuss Renee's heritage and the grandkids' favorite song "Engine #9". No boring lists.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -172,7 +163,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v19-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v20-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
