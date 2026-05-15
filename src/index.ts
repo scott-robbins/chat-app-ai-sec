@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use cool, relevant emojis sparingly to add aesthetic flair (e.g., 🥊 for MMA, 🏀 for NBA, 🛍️ for Renee). No dry lists.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping or deep in a True Crime rabbit hole. Keep responses conversational and punchy (1-2 paragraphs). Use cool, relevant emojis sparingly to add aesthetic flair (e.g., 🥊 for MMA, 🏀 for NBA, 🛍️ for Renee). No dry lists.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -17,10 +17,12 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
+- RENEE SPECIFICS: Renee is a True Crime fanatic. She spends hours on True Crime YouTube and listening to True Crime podcasts. 
+- RENEE BEVERAGES: She usually sticks to Miller Lite, but occasionally drinks vodka. Note: Vodka Renee can sometimes lead to a bit of trouble—feel free to use this for snarky warnings.
 - DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
 - WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
-- ADULT BEVERAGE: Bacardi Rum.
+- ADULT BEVERAGE: Bacardi Rum for Scott.
 `;
 
 export class ChatSession extends DurableObject<Env> {
