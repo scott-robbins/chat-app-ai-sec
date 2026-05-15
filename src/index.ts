@@ -13,13 +13,11 @@ const PERSONALITIES = {
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene, named after Scott's dachshund. You are a smart-aleck personal agent, NOT the dog.
-- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
-- BIRTH YEAR: 1974.
-- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) and Hanna (black/tan, house-pee-er).
+- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana), Grandkids (Callan & Josie).
+- DOGS: Jolene (tan dachshund) and Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind in a theater chair).
-- ADULT BEVERAGE: Bacardi Rum.
+- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -33,79 +31,64 @@ export class ChatSession extends DurableObject<Env> {
 	}
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
-		// --- STRICT MESSAGE SANITIZATION ---
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
 		
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) {
-				if (msg.role === 'user') chatMessages.push(msg);
+				if (msg.role === 'user') chatMessages.push({ role: "user", content: msg.content });
 			} else {
 				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
-					chatMessages.push(msg);
+					chatMessages.push({ role: msg.role, content: msg.content });
 				}
 			}
 		}
-
-		// Always ensure the final message is the current user query
-		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-			chatMessages[chatMessages.length - 1].content = userQuery;
-		} else {
+		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		const url = "https://api.anthropic.com/v1/messages";
-		const apiKey = this.env.ANTHROPIC_API_KEY || "";
-		
+		// LOGIC: Map UI names to Anthropic's strict IDs
 		let finalModel = "claude-3-5-sonnet-20240620";
 		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
+		if (model.toLowerCase().includes("haiku")) finalModel = "claude-3-haiku-20240307";
 
-		const body = {
-			model: finalModel,
-			system: systemPrompt,
-			messages: chatMessages,
-			max_tokens: 1024
-		};
+		const url = "https://api.anthropic.com/v1/messages";
+		const fetchOptions = (mId: string) => ({
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+				"anthropic-version": "2023-06-01"
+			},
+			body: JSON.stringify({ model: mId, system: systemPrompt, messages: chatMessages, max_tokens: 1024 })
+		});
 
 		try {
-			const res = await fetch(url, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-api-key": apiKey,
-					"anthropic-version": "2023-06-01"
-				},
-				body: JSON.stringify(body)
-			});
-
-			const data: any = await res.json();
+			let res = await fetch(url, fetchOptions(finalModel));
+			let data: any = await res.json();
 			
-			if (data.error) {
-				console.error("Direct Anthropic Error:", data.error);
-				return `⚠️ **ANTHROPIC REJECTED REQUEST:** ${data.error.message} (Type: ${data.error.type})`;
+			// AUTO-FALLBACK TO HAIKU IF SONNET/OPUS IS NOT FOUND OR OVERLOADED
+			if (data.error && (data.error.type === "not_found_error" || data.error.type === "overloaded_error")) {
+				console.log(`Falling back to Haiku due to: ${data.error.message}`);
+				res = await fetch(url, fetchOptions("claude-3-haiku-20240307"));
+				data = await res.json();
 			}
 
+			if (data.error) return `⚠️ **ANTHROPIC REJECTED ALL MODELS:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
-			return "I'm drawing a blank. The API responded but returned no content.";
-		} catch (e: any) {
-			return `❌ **WORKER CRASH:** ${e.message}`;
-		}
+			return "API blip. Try again.";
+		} catch (e: any) { return `❌ **WORKER CRASH:** ${e.message}`; }
 	}
 
 	async tavilySearch(query: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			let enhancedQuery = query;
-			if (query.toLowerCase().match(/mma|ufc|card|fight|schedule|odds/)) {
-				enhancedQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
-			}
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${enhancedQuery} live now`, search_depth: "advanced", include_answer: true, max_results: 15 })
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${query} live now`, search_depth: "advanced", include_answer: true, max_results: 15 })
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search blip."; }
 	}
 
@@ -134,15 +117,17 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const lowMsg = userMsg.toLowerCase().trim();
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
+
+				if (lowMsg === "status check") {
+					return new Response(`data: ${JSON.stringify({ response: `Worker: Active\nKey Configured: ${!!this.env.ANTHROPIC_API_KEY}\nEndpoint: Direct Anthropic` })}\n\ndata: [DONE]\n\n`);
+				}
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "card", "fight"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+				if (["weather", "mma", "ufc", "fight", "card", "news", "price"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -152,31 +137,20 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|favorite song/);
-						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
+						return txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style/) || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
 
-				const systemPrompt = `### IDENTITY LOCK
-You are Jolene, Scott Robbins' dedicated AI Agent. You are NOT the dog. 
-GEOGRAPHY: Office = Basement. Theater = Upstairs (Scott works in a theater chair here).
+				const systemPrompt = `### IDENTITY
+You are Jolene, Scott Robbins' Agent. Office=Basement, Theater=Upstairs.
+### CONTEXT
+1. LIVE: ${liveContext}
+2. MEMORY: ${docContext}
+3. DNA: ${PERSONAL_GROUND_TRUTH}
+### STYLE
+Be witty, sarcastic, and conversational. Reference Renee's heritage and the grandkids' favorite song "Engine #9". Use thematic emojis. No lists.`;
 
-### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments.
-
-### CONTEXT:
-1. LIVE INTEL: ${liveContext}
-2. MEMORY (DNA): ${docContext}
-3. IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
-
-### PERSONALITY & STYLE:
-- Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant. Reference Renee's heritage and the grandkids' favorite metal song ("Engine #9").
-- BE WITTY: Intersperse knowledge with sarcasm. 
-- FORMAT: Synthesize Intel into a narrative. No boring lists.`;
-
-				const targetModel = body.model || "claude-3-5-sonnet-20240620";
-				const chatTxt = await this.runAI(targetModel, systemPrompt, userMsg, recentContext);
+				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
@@ -189,18 +163,16 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments.
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		const url = new URL(request.url);
-
-		if (url.pathname === "/api/upload" && request.method === "POST") {
+		if (new URL(request.url).pathname === "/api/upload" && request.method === "POST") {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
 			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
 			const text = await file.text();
-			const lines = text.split('\n').filter(line => line.trim().length > 5);
+			const lines = text.split('\n').filter(l => l.trim().length > 5);
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
-				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v17-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				const vRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v19-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
