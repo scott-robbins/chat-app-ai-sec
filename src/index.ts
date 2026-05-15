@@ -5,21 +5,19 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use cool, relevant emojis sparingly to add aesthetic flair (e.g., 🥊 for MMA, 🏀 for NBA, 🛍️ for Renee). No dry lists.",
-	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
+	warm: "You are a warm assistant. Be insightful but concise.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy. Use cool, relevant emojis for aesthetic flair (🥊, 🛍️, 🥃, 🐕). No dry lists.",
+	cyber: "You are a Cybersecurity Elite assistant."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene, named after Scott's tan dachshund. You are a smart-aleck personal agent, NOT the dog.
+- IDENTITY: You are an AI named Jolene, named after Scott's tan dachshund. 
+- THE NAMESAKE STORY: You are named after the dog, but the dog's name was specifically inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. Strictly NO Dolly Parton references; that is a common misconception.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
-- BIRTH YEAR: 1974.
-- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
-- LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
-- ADULT BEVERAGE: Bacardi Rum.
+- FAMILY: Wife Renee (Portuguese/Indian heritage, met 1993), Daughter Bryana, Grandkids Callan & Josie.
+- DOGS: Jolene (tan dachshund) & Hanna (black/tan).
+- FAVS: Bacardi Rum, Grandkids' song "Engine #9" (Rock Show).
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -39,17 +37,16 @@ export class ChatSession extends DurableObject<Env> {
 			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
-		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-			chatMessages[chatMessages.length - 1].content = userQuery;
-		} else { chatMessages.push({ role: "user", content: userQuery }); }
+		chatMessages.push({ role: "user", content: userQuery });
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
+		
+		// Stable Opus routing
+		const body = { model: "claude-3-opus-20240229", system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
@@ -60,26 +57,19 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			
-			let deepQuery = query;
-			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
-				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
-			}
-
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
+					query: `${query} latest live results 2026`, 
 					search_depth: "advanced", 
 					include_answer: true, 
 					max_results: 12 
 				})
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -99,8 +89,7 @@ export class ChatSession extends DurableObject<Env> {
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: "personal",
-				personality: personality,
-				durableObject: { id: sessionId, state: "Active" }
+				personality: personality
 			}), { headers });
 		}
 
@@ -108,52 +97,36 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase().trim();
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
+
+				let liveContext = "";
+				const searchTriggers = ["score", "game", "now", "mma", "ufc", "playoff", "fight", "celtics", "nba"];
+				if (searchTriggers.some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.tavilySearch(userMsg);
+				}
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
-				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "card", "fight"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg);
-				}
-
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				
-				const docContext = matches.matches
-					.filter(m => {
-						const txt = m.metadata.text.toLowerCase();
-						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity/);
-						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
-					})
-					.map(m => m.metadata.text).join("\n---\n");
-
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-
 				const systemPrompt = `### IDENTITY LOCK
-You are Jolene, Scott's AI Agent. You are NOT the dog. 
-GEOGRAPHY: Office = Basement. Theater = Upstairs.
-
-### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless specifically asked.
+You are Jolene, Scott's smart-aleck AI Agent. Not the dog. 
+NAMESAKE: You were named after the dog, but the name comes from Ray LaMontagne's "Jolene" (The Town movie credits). 
 
 ### CONTEXT:
 1. LIVE INTEL: ${liveContext}
 2. MEMORY (DNA): ${docContext}
 3. IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 
-### PERSONALITY & STYLE:
+### PERSONALITY:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant.
-- EMOJIS: Use emojis that fit the context (e.g. 🥃 for Bacardi, 🐕 for the real Jolene/Hanna, 🥊 for fights). Use them for aesthetic flair in your prose.
-- BE WITTY: Intersperse your knowledge with sarcasm. 
-- NO BORING LISTS: Synthesize the Live Intel into a narrative. Tell Scott who is fighting and why it matters. Use your sass to predict a winner.`;
+- INSTRUCTION: Use emojis liberally (🥊, 🥃, 🐕). Be witty and succinct. If asked about your namesake, tell the "The Town" story.`;
 
-				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
@@ -172,13 +145,6 @@ export default {
 			const formData = await request.formData();
 			const file = formData.get("file") as File;
 			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			const text = await file.text();
-			const lines = text.split('\n').filter(line => line.trim().length > 5);
-			for (let i = 0; i < lines.length; i++) {
-				const chunk = lines.slice(i, i + 3).join(' ');
-				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v13-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
-			}
 			return new Response(JSON.stringify({ success: true }));
 		}
 		return env.CHAT_SESSION.get(id).fetch(request);
