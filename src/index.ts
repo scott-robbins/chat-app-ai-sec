@@ -42,23 +42,29 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		// THE EXPLICIT PROVIDER ROUTE (Bypasses 404 Universal errors)
-		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/messages`;
+		// Attempting the most standard Gateway URL first
+		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 		
-		// Hard-mapping to ensure the Gateway/Anthropic sees the exact string it wants
 		let finalModel = "claude-3-5-sonnet-20240620"; 
 		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
 
+		const headers = { 
+			"Content-Type": "application/json", 
+			"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
+			"anthropic-version": "2023-06-01" 
+		};
+
+		const body = JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 });
+
 		try {
-			const res = await fetch(url, { 
-				method: "POST", 
-				headers: { 
-					"Content-Type": "application/json", 
-					"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
-					"anthropic-version": "2023-06-01" 
-				}, 
-				body: JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 }) 
-			});
+			let res = await fetch(url, { method: "POST", headers, body });
+			
+			// Fallback: If 404, try the alternative URL path
+			if (res.status === 404) {
+				const altUrl = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/messages`;
+				res = await fetch(altUrl, { method: "POST", headers, body });
+			}
+
 			const data: any = await res.json();
 			if (data.error) return `⚠️ **GATEWAY ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
@@ -75,7 +81,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await res.json();
 			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { return "Search blip."; }
+		} catch (e) { return "Search unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -110,7 +116,7 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["weather", "mma", "ufc", "fight", "card"].some(kw => lowMsg.includes(kw))) {
+				if (["weather", "mma", "ufc", "fight", "card", "nba"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -151,7 +157,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v22-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v23-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
