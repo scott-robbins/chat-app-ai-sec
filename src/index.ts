@@ -1,20 +1,19 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise.",
-	sarcastic: "You are Jolene, a witty, snarky personal agent. Use high-level sass. If Scott asks about Renee, she's probably shopping. Use emojis (🥊, 🥃, 🐕, 🛍️) liberally. No dry lists; keep responses punchy and conversational.",
+	sarcastic: "You are Jolene, Scott's witty, snarky personal agent. Use high-level sass. If Scott asks about Renee, she's probably shopping. Use emojis (🥊, 🥃, 🐕, 🛍️) liberally. No dry lists; keep it punchy.",
 	cyber: "You are a Cybersecurity Elite assistant."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY:
 - IDENTITY: You are an AI named Jolene, named after Scott's tan mini-dachshund. 
-- THE NAMESAKE STORY: You are named after the dog, but the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. This is your origin. Strictly NO Dolly Parton references.
-- FAMILY: Wife Renee (born 1973, met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
+- THE NAMESAKE STORY: You are named after the dog, but the dog's name was specifically inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. This is your core origin story. Strictly NO Dolly Parton.
+- FAMILY: Wife Renee (met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
 - DOGS: Jolene (tan dachshund, senior) & Hanna (black/tan).
 - LOCATION: Plymouth, MA (The Pinehills). Office = Basement. Theater = Upstairs.
 - FAVS: Bacardi Rum, Grandkids' favorite song "Engine #9" (The Rock Show).
@@ -25,7 +24,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
-			// Await the run to ensure D1 increments immediately for the dashboard
+			// Forced AWAIT to ensure D1 increments before UI refresh
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
 		} catch (e) { console.error("D1 Persistence Error:", e); }
@@ -45,44 +44,51 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		// Force Opus model ID for stability and direct pathing
-		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
+		// DYNAMIC PROVIDER FIX: No more "Claude" errors on GPT calls
+		const isOpenAI = model.toLowerCase().includes("gpt");
+		const provider = isOpenAI ? "openai" : "anthropic";
+		const finalModel = isOpenAI ? "gpt-4o" : "claude-3-opus-20240229";
+		
+		const url = isOpenAI 
+			? `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/openai/chat/completions`
+			: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 
-		const headers = { 
-			"Content-Type": "application/json",
-			"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-			"anthropic-version": "2023-06-01"
-		};
+		const headers: any = { "Content-Type": "application/json" };
+		if (isOpenAI) {
+			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
+		} else {
+			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
+			headers["anthropic-version"] = "2023-06-01";
+		}
+
+		const body = isOpenAI 
+			? { model: finalModel, messages: [{role: "system", content: systemPrompt}, ...chatMessages], max_tokens: 1024 }
+			: { model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
 
 		try {
-			const res = await fetch(url, { 
-				method: "POST", 
-				headers, 
-				body: JSON.stringify({ model: "claude-3-opus-20240229", system: systemPrompt, messages: chatMessages, max_tokens: 1024 }) 
-			});
+			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			if (data.error) return `⚠️ Gateway Error: ${data.error.message}`;
-			return data.content[0].text;
+			if (data.error) return `⚠️ ${provider.toUpperCase()} ERROR: ${data.error.message}`;
+			return isOpenAI ? data.choices[0].message.content : data.content[0].text;
 		} catch (e) { return "Wiring snag. Hit me again."; }
 	}
 
 	async tavilySearch(query: string) {
 		try {
-			// Expanded query for sports/current events
-			const enhancedQuery = `${query} today live score schedule results matchups`;
+			// NBA/Playoff trigger expansion
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY, 
-					query: enhancedQuery, 
+					query: `${query} today live score schedule results matchups playoff`, 
 					search_depth: "advanced", 
 					include_answer: true, 
 					max_results: 15 
 				})
 			});
 			const data: any = await res.json();
-			return `[LIVE INTEL FEED]\nAnswer: ${data.answer || "Processing live data..."}\nContext: ${data.results?.map((r: any) => r.content).join("\n")}\n[/END]`;
+			return `[LIVE INTEL FEED]\nAnswer: ${data.answer || "Processing..."}\nContext: ${data.results?.map((r: any) => r.content).join("\n")}\n[/END]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -91,6 +97,7 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// R2/D1 DASHBOARD FIX: UI expects specific keys for metrics
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
@@ -99,7 +106,7 @@ export class ChatSession extends DurableObject<Env> {
 				profile: `Scott E Robbins | Cloudflare SE`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
+				knowledgeAssets: storage.objects.map(o => o.key), // Fixes "Scanning..."
 				personality: personality,
 				mode: "personal"
 			}), { headers });
@@ -111,17 +118,15 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPers = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 
-				// 1. SAVE USER MSG TO D1 IMMEDIATELY
 				await this.saveMsg(sessionId, 'user', userMsg);
 
-				// 2. TRIGGER SEARCH FOR SPORTS/NEWS
 				let liveContext = "";
 				const lowMsg = userMsg.toLowerCase();
-				if (["nba", "playoff", "ufc", "mma", "fight", "card", "weather", "score", "game"].some(kw => lowMsg.includes(kw))) {
+				// Aggressive triggers for NBA/Playoffs
+				if (["nba", "playoff", "ufc", "mma", "fight", "score", "game", "celtics"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
-				// 3. GET IDENTITY/KNOWLEDGE
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
@@ -135,14 +140,10 @@ ${PERSONAL_GROUND_TRUTH}
 LIVE FEED: ${liveContext} | MEMORY: ${docContext}
 ### STYLE:
 ${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]}
-- MANDATE: Mention the Namesake Story if asked about your name (Ray LaMontagne/The Town/Renee connection). 
-- MANDATE: Use the Live Feed to answer sports queries. Celtics are out; focus on current playoff action. 
-- MANDATE: Use emojis (🥊, 🥃, 🐕). Synthesis only, avoid verbosity and lists.`;
+- MANDATE: You are named after the dog. Your origin story is watching 'The Town' with Renee and hearing Ray LaMontagne.
+- MANDATE: Use the Live Feed for sports. Synthesize results, don't list them. No verbosity.`;
 
-				// 4. RUN OPUS (FORCED FOR STABILITY)
-				const chatTxt = await this.runAI("opus", systemPrompt, userMsg, recentContext);
-				
-				// 5. SAVE ASSISTANT MSG TO D1
+				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
