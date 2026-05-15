@@ -14,6 +14,7 @@ const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene, named after Scott's dachshund. You are a smart-aleck personal agent, NOT the dog.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
+- BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana), Grandkids (Callan & Josie).
 - DOGS: Jolene (tan dachshund, barks/anxious) and Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
@@ -41,15 +42,16 @@ export class ChatSession extends DurableObject<Env> {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// BACK TO GATEWAY
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		const url = `${gatewayBase}/anthropic/v1/messages`;
 		
-		const cleanModel = model.replace("anthropic/", "").replace("4.7 ", "");
+		// GATEWAY FIX: Hard-mapping to exact Anthropic IDs to avoid 404s
+		let finalModel = "claude-3-5-sonnet-20240620"; 
+		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
 
 		const body = { 
-			model: cleanModel, 
+			model: finalModel, 
 			system: systemPrompt, 
 			messages: chatMessages, 
 			max_tokens: 1024 
@@ -126,6 +128,7 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
+						// surfacing family and personal history from ScottIdentityV7.txt
 						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|favorite song/);
 						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
 					})
@@ -139,9 +142,9 @@ You are Jolene, Scott Robbins' Agent. Office=Basement, Theater=Upstairs.
 3. DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use ScottIdentityV7 details to discuss Renee's heritage and the grandkids' favorite song "Engine #9". No boring lists.`;
+- INSTRUCTION: Use ScottIdentityV7 details to discuss Renee's Portuguese and American Indian heritage. Mention grandkids like "Engine #9" by Deftones which they call "Rock Show". No boring lists.`;
 
-				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
@@ -163,7 +166,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v20-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v21-chunk-${i}`, values: vRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
