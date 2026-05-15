@@ -31,7 +31,7 @@ export class ChatSession extends DurableObject<Env> {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// STABLE GATEWAY PATH - Using /anthropic/messages for Universal Routing
+		// UNIVERSAL GATEWAY PATH
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/messages`;
@@ -59,13 +59,12 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- FIX: SIDEBAR METRICS (D1 & R2) ---
+		// FIX: Dashboard Metrics (D1, R2, KV)
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "SARCASTIC";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
-			// UI expects 'knowledgeAssets' and 'messageCount'
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
@@ -81,19 +80,19 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 
-				// 1. ENHANCED TAVILY SEARCH
+				// 1. TAVILY SEARCH (Fight Intel)
 				let liveContext = "";
-				if (["mma", "ufc", "fight", "card", "weather"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				if (["mma", "ufc", "fight", "card"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					const tRes = await fetch('https://api.tavily.com/search', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} full card schedule odds`, search_depth: "advanced", max_results: 12 })
+						body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} full fight card schedule`, search_depth: "advanced", max_results: 10 })
 					});
 					const tData: any = await tRes.json();
 					liveContext = tData.results?.map((r: any) => r.content).join("\n");
 				}
 
-				// 2. VECTOR SEARCH (Identity DNA)
+				// 2. VECTOR IDENTITY DNA
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
@@ -105,7 +104,7 @@ export class ChatSession extends DurableObject<Env> {
 				const systemPrompt = `You are Jolene, Scott's smart-aleck AI Agent. 
 IDENTITY: ${PERSONAL_GROUND_TRUTH}
 CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
-STYLE: Be witty, high-level snarky, and conversational. USE EMOJIS (🥊, 🛍️, 🥃). Reference Renee's heritage and the kids' song "Engine #9". No dry lists.`;
+STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). Mention Renee and the kids' song "Engine #9".`;
 
 				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
