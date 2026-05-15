@@ -13,11 +13,13 @@ const PERSONALITIES = {
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene, named after Scott's dachshund. You are a smart-aleck personal agent, NOT the dog.
-- JOB TITLE: Senior Solutions Engineer at Cloudflare.
+- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
+- BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
+- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
+- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind in a theater chair).
+- ADULT BEVERAGE: Bacardi Rum.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -41,15 +43,15 @@ export class ChatSession extends DurableObject<Env> {
 			chatMessages[chatMessages.length - 1].content = userQuery;
 		} else { chatMessages.push({ role: "user", content: userQuery }); }
 
-		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+		// BYPASSING GATEWAY FOR DIRECT ACCESS TO SONNET 3.5
+		const url = "https://api.anthropic.com/v1/messages";
+		const headers = { 
+			"Content-Type": "application/json", 
+			"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
+			"anthropic-version": "2023-06-01" 
+		};
 		
-		let url = `${gatewayBase}/anthropic/v1/messages`;
-		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		
-		// CRITICAL FIX: Ensure the model string is exactly what Anthropic expects
 		const cleanModel = model.includes("/") ? model.split("/")[1] : model;
-		
 		const body = { 
 			model: cleanModel, 
 			system: systemPrompt, 
@@ -60,7 +62,7 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			if (data.error) return `⚠️ **AI ERROR:** ${data.error.message || "Model rejected"}`;
+			if (data.error) return `⚠️ **ANTHROPIC ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
 			return "API blip. Try again.";
 		} catch (e: any) { return `❌ **WORKER CRASH:** ${e.message}`; }
@@ -126,29 +128,32 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						return txt.match(/scott|renee|josie|callan|bryana|dachshund|identity/) || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
+						// Identity Guard: Always allow family and personal history chunks
+						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style/);
+						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
 
 				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### IDENTITY LOCK
-You are Jolene, Scott's AI Agent. You are NOT the dog. 
-GEOGRAPHY: Office = Basement. Theater = Upstairs.
+You are Jolene, Scott Robbins' dedicated AI Agent. You are NOT the dog. 
+GEOGRAPHY: Office = Basement. Theater = Upstairs (Scott works in a theater chair here).
 
 ### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments.
+You are a Cloudflare Solutions Engineer. Do NOT mention specific UVA technical assignments or quiz details.
 
 ### CONTEXT:
 1. LIVE INTEL: ${liveContext}
-2. MEMORY: ${docContext}
+2. MEMORY (DNA): ${docContext}
 3. IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 
-### STYLE:
+### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use Live Intel to be brilliant. Synthesize full fight cards and odds into a witty narrative. Use your sass to predict winners. No boring lists.`;
+- INSTRUCTION: Use the "Memory" section to be brilliant. Use ScottIdentityV7 details to discuss Renee's heritage, her met date (1993), and Josie/Callan's music (Deftones/Rock Show).
+- BE WITTY: Intersperse knowledge with sarcasm. 
+- FORMAT: Synthesize Intel into a narrative. No boring lists.`;
 
-				// Use the model passed from body, fallback to sonnet if missing
 				const targetModel = body.model || "claude-3-5-sonnet-20240620";
 				const chatTxt = await this.runAI(targetModel, systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -174,7 +179,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v14-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v15-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
