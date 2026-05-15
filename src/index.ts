@@ -54,29 +54,32 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			return data.content?.[0]?.text || "Brain blip. Try again.";
-		} catch (e) { return "I hit a snag. Let's try that again."; }
+			
+			// DETAILED DEBUGGING:
+			if (data.error) {
+				console.error("Gateway/AI Error:", data.error);
+				return `⚠️ **AI ERROR:** ${data.error.message || "Check Cloudflare Gateway Logs"}`;
+			}
+
+			if (data.content && data.content.length > 0) return data.content[0].text;
+			return "I'm drawing a blank. The API responded but returned no content.";
+		} catch (e: any) { 
+			console.error("AI Fetch Error:", e);
+			return `❌ **WORKER CRASH:** ${e.message}`; 
+		}
 	}
 
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			
 			let deepQuery = query;
 			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			}
-
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
-					include_answer: true, 
-					max_results: 12 
-				})
+				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${deepQuery} live now`, search_depth: "advanced", include_answer: true, max_results: 12 })
 			});
 			const data: any = await res.json();
 			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
@@ -149,9 +152,8 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless s
 ### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 - INSTRUCTION: Use the "Memory" section to be brilliant.
-- EMOJIS: Use emojis that fit the context (e.g. 🥃 for Bacardi, 🐕 for the real Jolene/Hanna, 🥊 for fights). Use them for aesthetic flair in your prose.
-- BE WITTY: Intersperse your knowledge with sarcasm. 
-- NO BORING LISTS: Synthesize the Live Intel into a narrative. Tell Scott who is fighting and why it matters. Use your sass to predict a winner.`;
+- EMOJIS: Use thematic emojis (e.g. 🥊, 🏀, 🛍️, 🥃) for aesthetic prose flair.
+- NO BORING LISTS: Synthesize Intel into a witty narrative.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
