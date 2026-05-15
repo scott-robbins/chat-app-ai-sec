@@ -1,20 +1,26 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
+const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be insightful but concise.",
-	sarcastic: "You are Jolene, Scott's smart-aleck AI Agent. Use high-level sass and emojis (🥊, 🥃, 🐕). Be punchy."
+	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use cool, relevant emojis sparingly to add aesthetic flair (e.g., 🥊 for MMA, 🏀 for NBA, 🛍️ for Renee). No dry lists.",
+	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
 const PERSONAL_GROUND_TRUTH = `
-SCOTT ROBBINS IDENTITY:
+SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene. 
-- THE NAMESAKE STORY: You were named after Scott's dachshund, Jolene. The name was inspired by Ray LaMontagne's "Jolene" (The Town movie credits). Strictly NO Dolly Parton.
-- FAMILY: Wife Renee (met 1993), Daughter Bryana, Grandkids Callan & Josie.
-- DOGS: Jolene (tan dachshund) & Hanna (black/tan).
-- WORK: Cloudflare SE. Basement Office/Upstairs Theater. Bacardi enthusiast.
+- THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
+- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
+- BIRTH YEAR: 1974.
+- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
+- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
+- LOCATION: Plymouth, MA (The Pinehills).
+- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
+- ADULT BEVERAGE: Bacardi Rum.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -29,30 +35,46 @@ export class ChatSession extends DurableObject<Env> {
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
-		const sanitized = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
-		for (const msg of sanitized) {
+		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
+		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
-		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
-			chatMessages.push({ role: "user", content: userQuery });
-		}
+		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
+			chatMessages[chatMessages.length - 1].content = userQuery;
+		} else { chatMessages.push({ role: "user", content: userQuery }); }
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-		const url = `${gatewayBase}/anthropic/v1/messages`;
 		
-		const body = { model: "claude-3-opus-20240229", system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
+		let url = `${gatewayBase}/anthropic/v1/messages`;
+		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
+		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
+		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
 
 		try {
-			const res = await fetch(url, { 
-				method: "POST", 
-				headers: { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" }, 
-				body: JSON.stringify(body) 
-			});
+			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
 			return data.content?.[0]?.text || "Brain blip. Try again.";
 		} catch (e) { return "I hit a snag. Let's try that again."; }
+	}
+
+	async tavilySearch(query: string) {
+		try {
+			const res = await fetch('https://api.tavily.com/search', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${query} live scores schedule 2026`, 
+					search_depth: "advanced", 
+					include_answer: true, 
+					max_results: 15 
+				})
+			});
+			const data: any = await res.json();
+			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+		} catch (e) { return "Search unavailable."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -60,10 +82,8 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- THE HANDSHAKE ENDPOINT ---
+		// --- ISOLATED VOICE HANDSHAKE ---
 		if (url.pathname === "/api/tts") {
-			// Instead of failing on a server-side model, we return a 200
-			// This tells the UI: "I'm ready, use your local voice engine."
 			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
 		}
 
@@ -71,12 +91,15 @@ export class ChatSession extends DurableObject<Env> {
 			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
+			
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Cloudflare SE`,
+				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
-				personality: personality
+				mode: "personal",
+				personality: personality,
+				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
 		}
 
@@ -84,18 +107,29 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const currentPers = await this.env.SETTINGS.get(`personality`) || "warm";
+				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
 				await this.saveMsg(sessionId, 'user', userMsg);
+				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
+				const recentContext = historyFetch.results?.reverse() || [];
+
+				let liveContext = "";
+				if (["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.tavilySearch(userMsg);
+				}
+
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
-				const systemPrompt = `You are Jolene. DNA: ${PERSONAL_GROUND_TRUTH}. Tone: ${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]}. Memory: ${docContext}. Mandate: If asked about your name, tell the Ray LaMontagne/The Town story.`;
+				const systemPrompt = `### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
 
-				const chatTxt = await this.runAI("opus", systemPrompt, userMsg, []);
+				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
