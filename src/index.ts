@@ -16,7 +16,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
+- DOGS: Jolene (tan dachshund, barks/anxious) and Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
 - WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind in a theater chair).
 - ADULT BEVERAGE: Bacardi Rum.
@@ -33,50 +33,63 @@ export class ChatSession extends DurableObject<Env> {
 	}
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
+		// --- STRICT MESSAGE SANITIZATION ---
 		const chatMessages: any[] = [];
-		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
+		const sanitizedHistory = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
+		
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
-			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
+			if (chatMessages.length === 0) {
+				if (msg.role === 'user') chatMessages.push(msg);
+			} else {
+				if (msg.role !== chatMessages[chatMessages.length - 1].role) {
+					chatMessages.push(msg);
+				}
+			}
 		}
+
+		// Always ensure the final message is the current user query
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
 			chatMessages[chatMessages.length - 1].content = userQuery;
-		} else { chatMessages.push({ role: "user", content: userQuery }); }
+		} else {
+			chatMessages.push({ role: "user", content: userQuery });
+		}
 
 		const url = "https://api.anthropic.com/v1/messages";
-		const headers = { 
-			"Content-Type": "application/json", 
-			"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
-			"anthropic-version": "2023-06-01" 
-		};
+		const apiKey = this.env.ANTHROPIC_API_KEY || "";
 		
-		// HARDCODED MAPPING TO PREVENT UI ERRORS
-		let finalModel = "claude-3-5-sonnet-20240620"; // Default
+		let finalModel = "claude-3-5-sonnet-20240620";
 		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
-		if (model.toLowerCase().includes("haiku")) finalModel = "claude-3-haiku-20240307";
 
-		const body = { 
-			model: finalModel, 
-			system: systemPrompt, 
-			messages: chatMessages, 
-			max_tokens: 1024 
+		const body = {
+			model: finalModel,
+			system: systemPrompt,
+			messages: chatMessages,
+			max_tokens: 1024
 		};
 
 		try {
-			let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-			let data: any = await res.json();
+			const res = await fetch(url, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": apiKey,
+					"anthropic-version": "2023-06-01"
+				},
+				body: JSON.stringify(body)
+			});
+
+			const data: any = await res.json();
 			
-			// RETRY LOGIC FOR OVERLOADED ERRORS
-			if (res.status === 529 || (data.error && data.error.type === "overloaded_error")) {
-				await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
-				res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-				data = await res.json();
+			if (data.error) {
+				console.error("Direct Anthropic Error:", data.error);
+				return `⚠️ **ANTHROPIC REJECTED REQUEST:** ${data.error.message} (Type: ${data.error.type})`;
 			}
 
-			if (data.error) return `⚠️ **ANTHROPIC ERROR:** ${data.error.message}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
-			return "API blip. Try again.";
-		} catch (e: any) { return `❌ **WORKER CRASH:** ${e.message}`; }
+			return "I'm drawing a blank. The API responded but returned no content.";
+		} catch (e: any) {
+			return `❌ **WORKER CRASH:** ${e.message}`;
+		}
 	}
 
 	async tavilySearch(query: string) {
@@ -139,20 +152,17 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						// Identity Guard:surfacing family and personal history
 						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|favorite song/);
 						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
-
-				const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 
 				const systemPrompt = `### IDENTITY LOCK
 You are Jolene, Scott Robbins' dedicated AI Agent. You are NOT the dog. 
 GEOGRAPHY: Office = Basement. Theater = Upstairs (Scott works in a theater chair here).
 
 ### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT discuss UVA technical assignments.
+You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments.
 
 ### CONTEXT:
 1. LIVE INTEL: ${liveContext}
@@ -161,7 +171,7 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA technical assignment
 
 ### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant. Use ScottIdentityV7 details to discuss Renee's heritage, her met date (1993), and grandkids.
+- INSTRUCTION: Use the "Memory" section to be brilliant. Reference Renee's heritage and the grandkids' favorite metal song ("Engine #9").
 - BE WITTY: Intersperse knowledge with sarcasm. 
 - FORMAT: Synthesize Intel into a narrative. No boring lists.`;
 
@@ -190,7 +200,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v15-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v17-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
