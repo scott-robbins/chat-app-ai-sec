@@ -5,20 +5,17 @@ const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use thematic emojis (🥊, 🏀, 🛍️, 🥃) for aesthetic prose. No dry lists.",
-	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
+	warm: "You are a warm assistant. Be insightful but concise.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Keep responses conversational and punchy (1-2 paragraphs). Use thematic emojis (🥊, 🛍️, 🥃) for flair. No dry lists.",
+	cyber: "You are a Cybersecurity Elite assistant."
 };
 
 const PERSONAL_GROUND_TRUTH = `
-SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene, named after Scott's dachshund. You are a smart-aleck personal agent, NOT the dog.
-- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
-- BIRTH YEAR: 1974.
-- FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) and Hanna (black/tan, house-pee-er).
-- LOCATION: Plymouth, MA (The Pinehills).
-- WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind in a theater chair).
+SCOTT ROBBINS IDENTITY:
+- AI AGENT: You are Jolene (named after the dachshund). You are smart, witty, and sarcastic.
+- FAMILY: Wife (Renee, born 1973), Daughter (Bry), Grandkids (Callan & Josie).
+- WORK: Senior Solutions Engineer at Cloudflare. Works in Basement Office or Upstairs Theater.
+- DRINK: Bacardi Rum.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -45,19 +42,12 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		// THE STABLE GATEWAY URL FORMAT
+		// THE EXPLICIT PROVIDER ROUTE (Bypasses 404 Universal errors)
 		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/messages`;
 		
-		// Strict mapping to avoid any "4.7" or misformatted strings
+		// Hard-mapping to ensure the Gateway/Anthropic sees the exact string it wants
 		let finalModel = "claude-3-5-sonnet-20240620"; 
 		if (model.toLowerCase().includes("opus")) finalModel = "claude-3-opus-20240229";
-
-		const body = { 
-			model: finalModel, 
-			system: systemPrompt, 
-			messages: chatMessages, 
-			max_tokens: 1024 
-		};
 
 		try {
 			const res = await fetch(url, { 
@@ -67,7 +57,7 @@ export class ChatSession extends DurableObject<Env> {
 					"x-api-key": this.env.ANTHROPIC_API_KEY || "", 
 					"anthropic-version": "2023-06-01" 
 				}, 
-				body: JSON.stringify(body) 
+				body: JSON.stringify({ model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 }) 
 			});
 			const data: any = await res.json();
 			if (data.error) return `⚠️ **GATEWAY ERROR:** ${data.error.message}`;
@@ -85,7 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await res.json();
 			return `[LIVE FEED]\n${data.answer || ""}\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { return "Search unavailable."; }
+		} catch (e) { return "Search blip."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -98,7 +88,7 @@ export class ChatSession extends DurableObject<Env> {
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
+				profile: `Scott E Robbins | Cloudflare SE`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
 				knowledgeAssets: storage.objects.map(o => o.key),
@@ -120,7 +110,7 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["weather", "mma", "ufc", "fight", "card", "price"].some(kw => lowMsg.includes(kw))) {
+				if (["weather", "mma", "ufc", "fight", "card"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -130,20 +120,13 @@ export class ChatSession extends DurableObject<Env> {
 				const docContext = matches.matches
 					.filter(m => {
 						const txt = m.metadata.text.toLowerCase();
-						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|favorite song/);
-						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
+						return txt.match(/scott|renee|josie|callan|bryana|dachshund|identity|heritage|style|song/) || !txt.match(/syllabus|quiz|exam|mid-term|assignment/);
 					})
 					.map(m => m.metadata.text).join("\n---\n");
 
-				const systemPrompt = `### IDENTITY
-You are Jolene, Scott Robbins' Agent. Office=Basement, Theater=Upstairs.
-### CONTEXT
-1. LIVE: ${liveContext}
-2. MEMORY: ${docContext}
-3. DNA: ${PERSONAL_GROUND_TRUTH}
-### STYLE
-- Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use ScottIdentityV7 details to discuss Renee's Portuguese and American Indian heritage. Mention grandkids like "Engine #9" by Deftones. No boring lists.`;
+				const systemPrompt = `### IDENTITY: Jolene. Office=Basement, Theater=Upstairs.
+### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | DNA: ${PERSONAL_GROUND_TRUTH}
+### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]} Reference Renee's heritage and grandkids' favorite song "Engine #9" (Rock Show). No lists.`;
 
 				const targetModel = body.model || "claude-3-opus-20240229";
 				const chatTxt = await this.runAI(targetModel, systemPrompt, userMsg, recentContext);
