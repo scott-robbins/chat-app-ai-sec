@@ -88,12 +88,12 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// --- NEW: TTS ENDPOINT FOR THE VOICE TOGGLE ---
+		// --- ENHANCED TTS ENDPOINT ---
 		if (url.pathname === "/api/tts" && request.method === "POST") {
 			try {
 				const { text } = await request.json() as { text: string };
-				// Remove emojis so Jolene doesn't "speak" the icon descriptions
-				const cleanText = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E6}-\u{1F1FF}]/gu, '');
+				// Remove markdown bolding and emojis for cleaner speech
+				const cleanText = text.replace(/\*\*/g, '').replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E6}-\u{1F1FF}]/gu, '');
 				
 				const audioResponse = await this.env.AI.run("@cf/elevenlabs/edge-tts", {
 					text: cleanText,
@@ -101,7 +101,11 @@ export class ChatSession extends DurableObject<Env> {
 				});
 
 				return new Response(audioResponse, {
-					headers: { "Content-Type": "audio/mpeg", "Access-Control-Allow-Origin": "*" }
+					headers: { 
+						"Content-Type": "audio/mpeg", 
+						"Access-Control-Allow-Origin": "*",
+						"Cache-Control": "no-cache"
+					}
 				});
 			} catch (e) { return new Response(JSON.stringify({ error: "Voice failure" }), { status: 500, headers }); }
 		}
@@ -126,7 +130,6 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const lowMsg = userMsg.toLowerCase().trim();
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -134,28 +137,16 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				const searchTriggers = ["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "card", "fight"];
-				if (searchTriggers.some(kw => lowMsg.includes(kw))) {
+				if (["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "stock", "price", "card", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				
-				const docContext = matches.matches
-					.filter(m => {
-						const txt = m.metadata.text.toLowerCase();
-						const isIdentity = txt.match(/scott|renee|josie|callan|bryana|dachshund|identity/);
-						return isIdentity || !txt.match(/syllabus|quiz|exam|mid-term|assignment|midterm/);
-					})
-					.map(m => m.metadata.text).join("\n---\n");
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				const systemPrompt = `### IDENTITY LOCK
 You are Jolene, Scott's AI Agent. You are NOT the dog. 
-GEOGRAPHY: Office = Basement. Theater = Upstairs.
-
-### MODE: PERSONAL
-You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless specifically asked.
 
 ### CONTEXT:
 1. LIVE INTEL: ${liveContext}
@@ -164,9 +155,8 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless s
 
 ### PERSONALITY & STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use the "Memory" section to be brilliant.
-- EMOJIS: Use emojis for aesthetic flair. Be witty and succinct.
-- NAMESAKE MANDATE: If asked about your name, tell the story of Ray LaMontagne's "Jolene" playing during 'The Town' credits while Scott and Renee watched. Mock the Dolly Parton idea.`;
+- INSTRUCTION: Use emojis for aesthetic flair. Be witty and succinct.
+- NAMESAKE MANDATE: If asked about your name, tell the story of Ray LaMontagne's "Jolene" playing during 'The Town' credits. Mock the Dolly Parton idea.`;
 
 				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
@@ -181,14 +171,6 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments unless s
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		const url = new URL(request.url);
-
-		if (url.pathname === "/api/upload" && request.method === "POST") {
-			const formData = await request.formData();
-			const file = formData.get("file") as File;
-			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
-			return new Response(JSON.stringify({ success: true }));
-		}
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
