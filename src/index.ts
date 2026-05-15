@@ -13,13 +13,11 @@ const PERSONALITIES = {
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene, named after Scott's dachshund. You are a smart-aleck personal agent, NOT the dog.
-- JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
-- BIRTH YEAR: 1974.
+- JOB TITLE: Senior Solutions Engineer at Cloudflare.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
-- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
+- DOGS: Jolene (tan dachshund) & Hanna (black/tan dachshund).
 - LOCATION: Plymouth, MA (The Pinehills).
 - WORK SPACES: Basement Office (calls/demos) and Theater Room (Upstairs laptop grind).
-- ADULT BEVERAGE: Bacardi Rum.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -48,13 +46,21 @@ export class ChatSession extends DurableObject<Env> {
 		
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
+		
+		// CRITICAL FIX: Ensure the model string is exactly what Anthropic expects
+		const cleanModel = model.includes("/") ? model.split("/")[1] : model;
+		
+		const body = { 
+			model: cleanModel, 
+			system: systemPrompt, 
+			messages: chatMessages, 
+			max_tokens: 1024 
+		};
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			if (data.error) return `⚠️ **AI ERROR:** ${data.error.message || "Overloaded"}`;
+			if (data.error) return `⚠️ **AI ERROR:** ${data.error.message || "Model rejected"}`;
 			if (data.content && data.content.length > 0) return data.content[0].text;
 			return "API blip. Try again.";
 		} catch (e: any) { return `❌ **WORKER CRASH:** ${e.message}`; }
@@ -63,7 +69,6 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string) {
 		try {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
-			// FORCE DEEP SEARCH: For cards and schedules
 			let enhancedQuery = query;
 			if (query.toLowerCase().match(/mma|ufc|card|fight|schedule|odds/)) {
 				enhancedQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
@@ -74,7 +79,7 @@ export class ChatSession extends DurableObject<Env> {
 				body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY || "", query: `${enhancedQuery} live now`, search_depth: "advanced", include_answer: true, max_results: 15 })
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search blip."; }
 	}
 
@@ -141,9 +146,11 @@ You are a Cloudflare Solutions Engineer. Do NOT discuss UVA assignments.
 
 ### STYLE:
 - Tone: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-- INSTRUCTION: Use Live Intel to be brilliant. Synthesize full fight cards, odds, and schedules into a witty narrative. Use your sass to predict winners. No boring lists.`;
+- INSTRUCTION: Use Live Intel to be brilliant. Synthesize full fight cards and odds into a witty narrative. Use your sass to predict winners. No boring lists.`;
 
-				const chatTxt = await this.runAI(body.model || "claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+				// Use the model passed from body, fallback to sonnet if missing
+				const targetModel = body.model || "claude-3-5-sonnet-20240620";
+				const chatTxt = await this.runAI(targetModel, systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
@@ -167,7 +174,7 @@ export default {
 			for (let i = 0; i < lines.length; i++) {
 				const chunk = lines.slice(i, i + 3).join(' ');
 				const vectorRes = await env.AI.run(EMBEDDING_MODEL, { text: [chunk] });
-				await env.VECTORIZE.upsert([{ id: `${file.name}-v13-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
+				await env.VECTORIZE.upsert([{ id: `${file.name}-v14-chunk-${i}`, values: vectorRes.data[0], metadata: { text: chunk } }]);
 			}
 			return new Response(JSON.stringify({ success: true }));
 		}
