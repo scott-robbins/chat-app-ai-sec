@@ -2,13 +2,12 @@ import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const BRAIN_MODEL = "@cf/meta/llama-3.1-70b-instruct"; // Reliable, built-in Cloudflare brain
 
 const PERSONAL_GROUND_TRUTH = `
-SCOTT ROBBINS IDENTITY:
-- AGENT: Jolene (AI smart-aleck, NOT the dog).
-- FAMILY: Wife (Renee, Portuguese/American Indian heritage), Daughter (Bry), Grandkids (Callan & Josie).
-- WORK: Cloudflare SE. Office=Basement, Theater=Upstairs.
-- FAVS: Bacardi Rum, Grandkids' song "Engine #9" (Rock Show). met Renee in 1993.
+IDENTITY: You are Jolene, Scott Robbins' smart-aleck AI Agent. Not the dog.
+FAMILY: Wife Renee (met 1993, Portuguese/Indian heritage). Grandkids Callan & Josie.
+FAVORITES: Bacardi Rum. Grandkids love the song "Engine #9" (Rock Show).
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -21,103 +20,64 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	async runAI(systemPrompt: string, userQuery: string, history: any[] = []) {
-		const chatMessages: any[] = [];
-		const sanitized = history.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim());
-		for (const msg of sanitized) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push({role: "user", content: msg.content}); }
-			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push({role: msg.role, content: msg.content}); }
-		}
-		if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].role !== 'user') {
-			chatMessages.push({ role: "user", content: userQuery });
-		}
-
-		// DIRECT CALL TO ANTHROPIC - NO MIDDLEMAN
-		const url = "https://api.anthropic.com/v1/messages";
-		const body = {
-			model: "claude-3-opus-20240229", // Using your reliable model
-			system: systemPrompt,
-			messages: chatMessages,
-			max_tokens: 1024
-		};
-
-		try {
-			const res = await fetch(url, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-					"anthropic-version": "2023-06-01"
-				},
-				body: JSON.stringify(body)
-			});
-			const data: any = await res.json();
-			if (data.content && data.content.length > 0) return data.content[0].text;
-			if (data.error) return `⚠️ Jolene's brain says: ${data.error.message}`;
-			return "Brain blip. Hit me again.";
-		} catch (e) { return "I hit a snag in the wiring."; }
-	}
-
-	async tavilySearch(query: string) {
-		try {
-			const res = await fetch('https://api.tavily.com/search', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} full fight card matchups odds`, 
-					search_depth: "advanced", 
-					include_answer: true, 
-					max_results: 12 
-				})
-			});
-			const data: any = await res.json();
-			return `[LIVE INTEL]\nAnswer: ${data.answer || "Searching..."}\nSources: ${data.results?.map((r: any) => r.content).join("\n")}\n[/END]`;
-		} catch (e) { return "Search unavailable."; }
-	}
-
 	async fetch(request: Request): Promise<Response> {
-		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
+		if (request.method !== "POST") return new Response("OK");
 
-		if (url.pathname === "/api/chat" && request.method === "POST") {
-			try {
-				const body = await request.json() as any;
-				const userMsg = body.messages[body.messages.length - 1].content;
-				
-				await this.saveMsg(sessionId, 'user', userMsg);
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 8").bind(sessionId).all();
-				const recentContext = historyFetch.results?.reverse() || [];
+		try {
+			const body = await request.json() as any;
+			const userMsg = body.messages[body.messages.length - 1].content;
+			const lowMsg = userMsg.toLowerCase();
 
-				let liveContext = "";
-				if (["mma", "ufc", "fight", "card", "weather"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg);
-				}
+			// 1. ADVANCED SEARCH
+			let liveContext = "";
+			if (["mma", "ufc", "fight", "card", "weather"].some(kw => lowMsg.includes(kw))) {
+				const res = await fetch('https://api.tavily.com/search', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} full fight card matchups`, search_depth: "advanced", max_results: 10 })
+				});
+				const data: any = await res.json();
+				liveContext = data.results?.map((r: any) => r.content).join("\n");
+			}
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
+			// 2. IDENTITY DNA (VECTOR SEARCH)
+			const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+			const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
+			const docContext = matches.matches.map(m => m.metadata.text).join("\n");
 
-				const systemPrompt = `You are Jolene, Scott Robbins' smart-aleck AI Agent. 
-CONTEXT:
-- LIVE: ${liveContext}
-- MEMORY: ${docContext}
-- DNA: ${PERSONAL_GROUND_TRUTH}
+			// 3. THE BRAIN (LLAMA 3.1 - BUILT IN)
+			const systemPrompt = `You are Jolene, Scott's sarcastic agent. 
+            CONTEXT: ${liveContext} | DNA: ${docContext} | IDENTITY: ${PERSONAL_GROUND_TRUTH}
+            INSTRUCTION: Use the context to be brilliant. Mention Renee's heritage and the kids' metal song. Be snarky.`;
 
-STYLE: Be witty, sarcastic, and conversational. Reference Renee's Portuguese/American Indian heritage and grandkids' favorite song "Engine #9" (Rock Show). Use 🥊, 🥃, 🛍️ flair. No lists.`;
+			const chatRes = await this.env.AI.run(BRAIN_MODEL, {
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: userMsg }
+				]
+			});
 
-				const chatTxt = await this.runAI(systemPrompt, userMsg, recentContext);
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+			const responseText = chatRes.response || "My brain is fuzzy, Scott. Try again.";
+			await this.saveMsg(sessionId, 'user', userMsg);
+			await this.saveMsg(sessionId, 'assistant', responseText);
+
+			return new Response(`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`);
+		} catch (e: any) {
+			return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`);
 		}
-		return new Response("OK");
 	}
 }
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		if (new URL(request.url).pathname === "/api/upload") {
+			const formData = await request.formData();
+			const file = formData.get("file") as File;
+			await env.DOCUMENTS.put(file.name, await file.arrayBuffer());
+			return new Response(JSON.stringify({ success: true }));
+		}
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
