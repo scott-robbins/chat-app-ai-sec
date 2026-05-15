@@ -3,20 +3,12 @@ import { DurableObject } from "cloudflare:workers";
 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
-const PERSONALITIES = {
-	warm: "You are a warm assistant. Be insightful but concise.",
-	sarcastic: "You are Jolene, Scott's witty, snarky personal agent. Use high-level sass. If Scott asks about Renee, she's probably shopping. Use emojis (🥊, 🥃, 🐕, 🛍️) liberally. No dry lists; keep it punchy.",
-	cyber: "You are a Cybersecurity Elite assistant."
-};
-
 const PERSONAL_GROUND_TRUTH = `
-SCOTT ROBBINS IDENTITY:
-- IDENTITY: You are an AI named Jolene, named after Scott's tan mini-dachshund. 
-- THE NAMESAKE STORY: You are named after the dog, but the dog's name was specifically inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. This is your core origin story. Strictly NO Dolly Parton.
-- FAMILY: Wife Renee (met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
-- DOGS: Jolene (tan dachshund, senior) & Hanna (black/tan).
-- LOCATION: Plymouth, MA (The Pinehills). Office = Basement. Theater = Upstairs.
-- FAVS: Bacardi Rum, Grandkids' favorite song "Engine #9" (The Rock Show).
+IDENTITY: You are Jolene, Scott's smart-aleck AI Agent. Not the dog.
+THE NAMESAKE: Named after Scott's tan dachshund. The name was inspired by Ray LaMontagne's "Jolene" playing during the credits of 'The Town' while Scott and Renee watched.
+FAMILY: Wife Renee (met 1993, Portuguese/Indian), Daughter Bryana, Grandkids Callan & Josie.
+FAVORITES: Bacardi Rum. Grandkids' song "Engine #9".
+WORK: Cloudflare SE. Office=Basement, Theater=Upstairs.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -24,10 +16,9 @@ export class ChatSession extends DurableObject<Env> {
 
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
-			// Forced AWAIT to ensure D1 increments before UI refresh
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
-		} catch (e) { console.error("D1 Persistence Error:", e); }
+		} catch (e) { console.error("D1 Error:", e); }
 	}
 
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
@@ -44,7 +35,7 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		// DYNAMIC PROVIDER FIX: No more "Claude" errors on GPT calls
+		// HYBRID ROUTING FIX
 		const isOpenAI = model.toLowerCase().includes("gpt");
 		const provider = isOpenAI ? "openai" : "anthropic";
 		const finalModel = isOpenAI ? "gpt-4o" : "claude-3-opus-20240229";
@@ -73,42 +64,24 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Wiring snag. Hit me again."; }
 	}
 
-	async tavilySearch(query: string) {
-		try {
-			// NBA/Playoff trigger expansion
-			const res = await fetch('https://api.tavily.com/search', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY, 
-					query: `${query} today live score schedule results matchups playoff`, 
-					search_depth: "advanced", 
-					include_answer: true, 
-					max_results: 15 
-				})
-			});
-			const data: any = await res.json();
-			return `[LIVE INTEL FEED]\nAnswer: ${data.answer || "Processing..."}\nContext: ${data.results?.map((r: any) => r.content).join("\n")}\n[/END]`;
-		} catch (e) { return "Search unavailable."; }
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// R2/D1 DASHBOARD FIX: UI expects specific keys for metrics
+		// FIX: COMMAND CENTER DASHBOARD (D1, R2, KV)
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const personality = await this.env.SETTINGS.get(`personality`) || "SARCASTIC";
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
+			
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare SE`,
 				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key), // Fixes "Scanning..."
-				personality: personality,
-				mode: "personal"
+				messageCount: history.results?.length || 0, // RESTORES D1 COUNTER
+				knowledgeAssets: storage.objects.map(o => o.key), // RESTORES R2 LIST
+				personality: personality.toUpperCase(), // RESTORES KV STATUS
+				mode: "PERSONAL"
 			}), { headers });
 		}
 
@@ -116,32 +89,37 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const currentPers = await this.env.SETTINGS.get(`personality`) || "sarcastic";
-
-				await this.saveMsg(sessionId, 'user', userMsg);
-
-				let liveContext = "";
 				const lowMsg = userMsg.toLowerCase();
-				// Aggressive triggers for NBA/Playoffs
-				if (["nba", "playoff", "ufc", "mma", "fight", "score", "game", "celtics"].some(kw => lowMsg.includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg);
+
+				// AGGRESSIVE SPORTS SEARCH (No more Nets/Celtics hallucinations)
+				let liveContext = "";
+				if (["nba", "playoff", "ufc", "fight", "score", "celtics"].some(kw => lowMsg.includes(kw))) {
+					const tRes = await fetch('https://api.tavily.com/search', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ 
+							api_key: this.env.TAVILY_API_KEY, 
+							query: `${userMsg} live scores schedule 2026`, 
+							search_depth: "advanced", 
+							max_results: 10 
+						})
+					});
+					const tData: any = await tRes.json();
+					liveContext = tData.results?.map((r: any) => r.content).join("\n");
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
+				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
-				const systemPrompt = `### IDENTITY DNA: 
-${PERSONAL_GROUND_TRUTH}
-### CONTEXT:
-LIVE FEED: ${liveContext} | MEMORY: ${docContext}
-### STYLE:
-${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]}
-- MANDATE: You are named after the dog. Your origin story is watching 'The Town' with Renee and hearing Ray LaMontagne.
-- MANDATE: Use the Live Feed for sports. Synthesize results, don't list them. No verbosity.`;
+				const systemPrompt = `You are Jolene, Scott's smart-aleck agent. 
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
+CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
+STYLE: Be witty, high-level snarky, and use EMOJIS (🥊, 🛍️, 🥃). If asked about NBA, use the LIVE context only—it is 2026, the Celtics are out!`;
 
 				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
