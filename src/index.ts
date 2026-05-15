@@ -4,10 +4,10 @@ import { DurableObject } from "cloudflare:workers";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONAL_GROUND_TRUTH = `
-IDENTITY: You are Jolene, Scott Robbins' smart-aleck AI Agent. 
-JOB: Senior Solutions Engineer at Cloudflare. Office=Basement, Theater=Upstairs.
-FAMILY: Wife Renee (Portuguese/Indian), Daughter Bryana, Grandkids Callan & Josie.
+IDENTITY: You are Jolene, Scott's smart-aleck AI Agent. Not the dog.
+FAMILY: Wife Renee (Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
 FAVORITES: Bacardi Rum. Grandkids' song "Engine #9" (Rock Show). Met Renee in 1993.
+WORK: Cloudflare SE. Office=Basement, Theater=Upstairs.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -31,12 +31,12 @@ export class ChatSession extends DurableObject<Env> {
 			chatMessages.push({ role: "user", content: userQuery });
 		}
 
-		// STABLE GATEWAY PATH
+		// STABLE GATEWAY PATH - Using /anthropic/messages for Universal Routing
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
-		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
+		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/messages`;
 		
-		let finalModel = model.includes("sonnet") ? "claude-3-5-sonnet-20240620" : "claude-3-opus-20240229";
+		let finalModel = model.toLowerCase().includes("opus") ? "claude-3-opus-20240229" : "claude-3-5-sonnet-20240620";
 
 		try {
 			const res = await fetch(url, {
@@ -50,8 +50,8 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const data: any = await res.json();
 			if (data.content && data.content.length > 0) return data.content[0].text;
-			return data.error ? `⚠️ AI ERROR: ${data.error.message}` : "Brain blip. Try again.";
-		} catch (e) { return "Wiring issue."; }
+			return data.error ? `⚠️ Error: ${data.error.message}` : "Brain blip.";
+		} catch (e) { return "Wiring snag."; }
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -59,11 +59,13 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-		// FIX: Dashboard Metrics
+		// --- FIX: SIDEBAR METRICS (D1 & R2) ---
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "sarcastic";
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 100").bind(sessionId).all();
+			const personality = await this.env.SETTINGS.get(`personality`) || "SARCASTIC";
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
+			
+			// UI expects 'knowledgeAssets' and 'messageCount'
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
@@ -79,13 +81,13 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 
-				// 1. ADVANCED TAVILY (The Fight Card Fix)
+				// 1. ENHANCED TAVILY SEARCH
 				let liveContext = "";
-				if (["mma", "ufc", "fight", "card"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				if (["mma", "ufc", "fight", "card", "weather"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					const tRes = await fetch('https://api.tavily.com/search', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} full fight card matchups`, search_depth: "advanced", max_results: 12 })
+						body: JSON.stringify({ api_key: this.env.TAVILY_API_KEY, query: `${userMsg} full card schedule odds`, search_depth: "advanced", max_results: 12 })
 					});
 					const tData: any = await tRes.json();
 					liveContext = tData.results?.map((r: any) => r.content).join("\n");
@@ -100,10 +102,10 @@ export class ChatSession extends DurableObject<Env> {
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
-				const systemPrompt = `You are Jolene, Scott's sarcastic agent. 
-IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+				const systemPrompt = `You are Jolene, Scott's smart-aleck AI Agent. 
+IDENTITY: ${PERSONAL_GROUND_TRUTH}
 CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}
-STYLE: Be witty and high-level snarky. Use emojis (🥊, 🛍️, 🥃). Mention Renee's heritage and the grandkids' favorite song "Engine #9". No boring lists.`;
+STYLE: Be witty, high-level snarky, and conversational. USE EMOJIS (🥊, 🛍️, 🥃). Reference Renee's heritage and the kids' song "Engine #9". No dry lists.`;
 
 				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
