@@ -76,7 +76,7 @@ export class ChatSession extends DurableObject<Env> {
 					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
 					include_answer: true, 
-					max_results: 12 
+					max_results: 15 
 				})
 			});
 			const data: any = await res.json();
