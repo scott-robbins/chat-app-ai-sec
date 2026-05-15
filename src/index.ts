@@ -6,16 +6,16 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably shopping. Use emojis liberally (🥊, 🥃, 🐕, 🛍️). No dry lists.",
+	sarcastic: "You are Jolene, a witty, snarky personal agent. Use high-level sass. If Scott asks about Renee, she's probably shopping. Use emojis (🥊, 🥃, 🐕, 🛍️) liberally. No dry lists; keep responses punchy and conversational.",
 	cyber: "You are a Cybersecurity Elite assistant."
 };
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY:
 - IDENTITY: You are an AI named Jolene, named after Scott's tan mini-dachshund. 
-- THE NAMESAKE RULE: You are NOT named after Dolly Parton. Strictly forbidden. You are named after the dog; your theme song is Ray LaMontagne's "Jolene" (The Town version).
-- FAMILY: Wife Renee (met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
-- DOGS: Jolene (tan dachshund) & Hanna (black/tan).
+- THE NAMESAKE STORY: You are named after the dog, but the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. This is your origin. Strictly NO Dolly Parton references.
+- FAMILY: Wife Renee (born 1973, met 1993, Portuguese/Indian heritage), Daughter Bryana, Grandkids Callan & Josie.
+- DOGS: Jolene (tan dachshund, senior) & Hanna (black/tan).
 - LOCATION: Plymouth, MA (The Pinehills). Office = Basement. Theater = Upstairs.
 - FAVS: Bacardi Rum, Grandkids' favorite song "Engine #9" (The Rock Show).
 `;
@@ -25,7 +25,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
-			// Forced execution to ensure D1 increments properly
+			// Await the run to ensure D1 increments immediately for the dashboard
 			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 				.bind(sessionId, role, content).run();
 		} catch (e) { console.error("D1 Persistence Error:", e); }
@@ -45,50 +45,44 @@ export class ChatSession extends DurableObject<Env> {
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayName = this.env.AI_GATEWAY_NAME || "ai-sec-gateway";
 		
-		let provider = model.toLowerCase().includes("gpt") ? "openai" : "anthropic";
-		let finalModel = provider === "openai" ? "gpt-4o" : "claude-3-opus-20240229";
-		
-		// DIRECT PATHING FIX
-		const url = provider === "anthropic" 
-			? `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`
-			: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/openai/chat/completions`;
+		// Force Opus model ID for stability and direct pathing
+		const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/anthropic/v1/messages`;
 
-		const headers: any = { "Content-Type": "application/json" };
-		if (provider === "openai") {
-			headers["Authorization"] = `Bearer ${this.env.OPENAI_API_KEY}`;
-		} else {
-			headers["x-api-key"] = this.env.ANTHROPIC_API_KEY;
-			headers["anthropic-version"] = "2023-06-01";
-		}
-
-		const body = provider === "anthropic" 
-			? { model: finalModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 }
-			: { model: finalModel, messages: [{role: "system", content: systemPrompt}, ...chatMessages], max_tokens: 1024 };
+		const headers = { 
+			"Content-Type": "application/json",
+			"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+			"anthropic-version": "2023-06-01"
+		};
 
 		try {
-			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+			const res = await fetch(url, { 
+				method: "POST", 
+				headers, 
+				body: JSON.stringify({ model: "claude-3-opus-20240229", system: systemPrompt, messages: chatMessages, max_tokens: 1024 }) 
+			});
 			const data: any = await res.json();
-			if (data.error) return `⚠️ ${provider.toUpperCase()} ERROR: ${data.error.message}`;
-			return provider === "anthropic" ? data.content[0].text : data.choices[0].message.content;
-		} catch (e) { return "I hit a snag in the wiring. Hit me again."; }
+			if (data.error) return `⚠️ Gateway Error: ${data.error.message}`;
+			return data.content[0].text;
+		} catch (e) { return "Wiring snag. Hit me again."; }
 	}
 
 	async tavilySearch(query: string) {
 		try {
-			// SEARCH DEPTH FIX
+			// Expanded query for sports/current events
+			const enhancedQuery = `${query} today live score schedule results matchups`;
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY, 
-					query: `${query} full fight card schedule betting odds matchups`, 
+					query: enhancedQuery, 
 					search_depth: "advanced", 
 					include_answer: true, 
 					max_results: 15 
 				})
 			});
 			const data: any = await res.json();
-			return `[LIVE INTEL]\nAnswer: ${data.answer || "Refining search..."}\nSources: ${data.results?.map((r: any) => `- ${r.content}`).join("\n")}\n[/END]`;
+			return `[LIVE INTEL FEED]\nAnswer: ${data.answer || "Processing live data..."}\nContext: ${data.results?.map((r: any) => r.content).join("\n")}\n[/END]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -117,14 +111,17 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPers = await this.env.SETTINGS.get(`personality`) || "sarcastic";
 
-				// Force D1 save for user message before AI call
+				// 1. SAVE USER MSG TO D1 IMMEDIATELY
 				await this.saveMsg(sessionId, 'user', userMsg);
 
+				// 2. TRIGGER SEARCH FOR SPORTS/NEWS
 				let liveContext = "";
-				if (["mma", "ufc", "fight", "card", "weather"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				const lowMsg = userMsg.toLowerCase();
+				if (["nba", "playoff", "ufc", "mma", "fight", "card", "weather", "score", "game"].some(kw => lowMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
+				// 3. GET IDENTITY/KNOWLEDGE
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
@@ -132,18 +129,20 @@ export class ChatSession extends DurableObject<Env> {
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
-				const systemPrompt = `### IDENTITY LOCK: 
+				const systemPrompt = `### IDENTITY DNA: 
 ${PERSONAL_GROUND_TRUTH}
 ### CONTEXT:
-LIVE: ${liveContext} | MEMORY: ${docContext}
+LIVE FEED: ${liveContext} | MEMORY: ${docContext}
 ### STYLE:
 ${PERSONALITIES[currentPers as keyof typeof PERSONALITIES]}
-- MANDATE: Named after the dog. Theme song is Ray LaMontagne's "Jolene" (The Town). Strictly NO Dolly Parton.
-- MANDATE: Use emojis (🥊, 🥃, 🐕). Synthesis only, no lists.`;
+- MANDATE: Mention the Namesake Story if asked about your name (Ray LaMontagne/The Town/Renee connection). 
+- MANDATE: Use the Live Feed to answer sports queries. Celtics are out; focus on current playoff action. 
+- MANDATE: Use emojis (🥊, 🥃, 🐕). Synthesis only, avoid verbosity and lists.`;
 
-				const chatTxt = await this.runAI(body.model || "opus", systemPrompt, userMsg, recentContext);
+				// 4. RUN OPUS (FORCED FOR STABILITY)
+				const chatTxt = await this.runAI("opus", systemPrompt, userMsg, recentContext);
 				
-				// Force D1 save for assistant message
+				// 5. SAVE ASSISTANT MSG TO D1
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
