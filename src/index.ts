@@ -68,7 +68,6 @@ export class ChatSession extends DurableObject<Env> {
 			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			let deepQuery = query;
 			
-			// Contextual query generation to force play-by-play box scores
 			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (query.toLowerCase().match(/nba|cavs|pistons|game|playoff|points|stats/)) {
