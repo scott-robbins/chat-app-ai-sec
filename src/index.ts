@@ -65,12 +65,24 @@ export class ChatSession extends DurableObject<Env> {
 
 	async tavilySearch(query: string) {
 		try {
+			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
+			let deepQuery = query;
+			
+			// Contextual query generation to force play-by-play box scores
+			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
+				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
+			} else if (query.toLowerCase().match(/nba|cavs|pistons|game|playoff|points|stats/)) {
+				deepQuery = `${query} live box score player stats play-by-play tracker ${dateStr}`;
+			} else {
+				deepQuery = `${query} live updates ${dateStr}`;
+			}
+
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${query} live scores schedule 2026`, 
+					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
 					include_answer: true, 
 					max_results: 15 
