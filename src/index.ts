@@ -52,6 +52,33 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
+	// === NATIVE ESPN LIVE SCOREBOARD DATA PIPELINE ===
+	async getLiveCavsScore(): Promise<string> {
+		try {
+			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
+			const data: any = await res.json();
+			
+			// Isolate Cleveland Cavaliers game metrics from the active list
+			const cavsGame = data.events?.find((e: any) => 
+				e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers")
+			);
+
+			if (!cavsGame) return "No active Cleveland Cavaliers game listed on today's NBA scoreboard loop right now.";
+
+			const status = cavsGame.status?.type?.detail || "Unknown State";
+			const competitors = cavsGame.competitions?.[0]?.competitors || [];
+			
+			const team1 = competitors[0]?.team?.displayName || "TBD";
+			const score1 = competitors[0]?.score || "0";
+			const team2 = competitors[1]?.team?.displayName || "TBD";
+			const score2 = competitors[1]?.score || "0";
+
+			return `[LIVE NBA API FEED] Status: ${status} | Matchup: ${team1}: ${score1} vs ${team2}: ${score2}.`;
+		} catch (err) {
+			return "ESPN scoreboard network link currently timing out.";
+		}
+	}
+
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -145,7 +172,10 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["weather", "score", "game", "now", "current", "news", "mma", "ufc", "playoff", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				// DETECT SPORTS TALK: Intercept and prioritize raw live ESPN API payload injection
+				if (["score", "game", "cavs", "cavaliers", "knicks", "nba"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.getLiveCavsScore();
+				} else if (["weather", "now", "current", "news", "mma", "ufc", "playoff", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
