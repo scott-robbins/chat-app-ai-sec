@@ -146,12 +146,12 @@
 						<option value="anthropic/claude-opus-4.7">Claude 4.7 Opus (Anthropic)</option>
 					</optgroup>
 				</select>
-                <select id="personality-selector" class="btn-secondary" style="border-color: var(--primary-color);">
+				<select id="personality-selector" class="btn-secondary" style="border-color: var(--primary-color);">
 					<option value="warm">Warm Personality</option>
 					<option value="sarcastic">Sarcastic Personality</option>
 					<option value="cyber">Cyber Security Mode</option>
 				</select>
-                <button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="theme-toggle-btn" class="btn-secondary"><i class="ph ph-magic-wand"></i> Theme</button>
 				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
 				<button id="toggle-sidebar-btn" class="btn-secondary"><i class="ph ph-database"></i> Memory</button>
 				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
@@ -201,7 +201,7 @@
 							<span style="color: var(--text-light)">Session Context:</span> 
 							<span id="kv-mode-display" style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
 						</div>
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+						<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
 							<span style="color: var(--text-light)">Personality:</span> 
 							<span id="kv-personality-display" style="color: #f6821f; font-weight: 800; text-transform: uppercase;">WARM</span>
 						</div>
@@ -266,13 +266,13 @@
 				appendMessage('system-indicator', `System: Jolene is now using ${modelName}`);
 			};
 
-            // Personality logic
-            const personalitySelector = document.getElementById('personality-selector');
-            personalitySelector.onchange = async () => {
-                const val = personalitySelector.value;
-                appendMessage('user-message', `Set personality to ${val}`);
-                await sendCustomMessage(`set personality to ${val}`);
-            };
+			// Personality logic
+			const personalitySelector = document.getElementById('personality-selector');
+			personalitySelector.onchange = async () => {
+				const val = personalitySelector.value;
+				appendMessage('user-message', `Set personality to ${val}`);
+				await sendCustomMessage(`set personality to ${val}`);
+			};
 
 			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
 			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
@@ -322,26 +322,26 @@
 				updateDashboard();
 			};
 
-            // FIX: RESET IDENTITY & HISTORY HANDLER
-            document.getElementById('clear-vector-btn').onclick = async () => {
-                if (!confirm("### ⚠️ WARNING\nThis will permanently wipe Scott's identity, tax records, and chat history from the edge. Proceed?")) return;
-                
-                try {
-                    const res = await fetch('/api/reset', { 
-                        method: 'POST', 
-                        headers: { 'x-session-id': sessionId } 
-                    });
-                    
-                    if (res.ok) {
-                        appendMessage('system-indicator', "System: Edge Wipe Complete. Refreshing environment...");
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        throw new Error("Reset failed on server.");
-                    }
-                } catch (e) {
-                    appendMessage('system-indicator', `Error: ${e.message}`);
-                }
-            };
+			// FIX: RESET IDENTITY & HISTORY HANDLER
+			document.getElementById('clear-vector-btn').onclick = async () => {
+				if (!confirm("### ⚠️ WARNING\nThis will permanently wipe Scott's identity, tax records, and chat history from the edge. Proceed?")) return;
+				
+				try {
+					const res = await fetch('/api/reset', { 
+						method: 'POST', 
+						headers: { 'x-session-id': sessionId } 
+					});
+					
+					if (res.ok) {
+						appendMessage('system-indicator', "System: Edge Wipe Complete. Refreshing environment...");
+						setTimeout(() => location.reload(), 1500);
+					} else {
+						throw new Error("Reset failed on server.");
+					}
+				} catch (e) {
+					appendMessage('system-indicator', `Error: ${e.message}`);
+				}
+			};
 
 			async function deleteFile(fullKey) {
 				if (!confirm(`Permanently remove ${fullKey}?`)) return;
@@ -386,10 +386,10 @@
 					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
 
-                    // Update Personality Dashboard display
-                    const personalityEl = document.getElementById('kv-personality-display');
-                    personalityEl.innerText = (data.personality || "warm").toUpperCase();
-                    personalitySelector.value = data.personality || "warm";
+					// Update Personality Dashboard display
+					const personalityEl = document.getElementById('kv-personality-display');
+					personalityEl.innerText = (data.personality || "warm").toUpperCase();
+					personalitySelector.value = data.personality || "warm";
 					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `
@@ -402,41 +402,41 @@
 				} catch (e) {}
 			}
 
-            // Internal helper to send logic commands without messy typing loop
-            async function sendCustomMessage(content) {
-                showTyping(true);
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-                    body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value })
-                });
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let assistantText = "";
-                const msgDiv = appendMessage('assistant-message', "");
-                const contentDiv = msgDiv.querySelector('.message-content');
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    const chunk = decoder.decode(value);
-                    const lines = chunk.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const raw = line.substring(6).trim();
-                            if (raw === '[DONE]') continue;
-                            try {
-                                const data = JSON.parse(raw);
-                                if (data.response) {
-                                    assistantText += data.response;
-                                    contentDiv.innerHTML = marked.parse(assistantText);
-                                }
-                            } catch (e) {}
-                        }
-                    }
-                }
-                showTyping(false);
-                updateDashboard();
-            }
+			// Internal helper to send logic commands without messy typing loop
+			async function sendCustomMessage(content) {
+				showTyping(true);
+				const res = await fetch('/api/chat', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+					body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value })
+				});
+				const reader = res.body.getReader();
+				const decoder = new TextDecoder();
+				let assistantText = "";
+				const msgDiv = appendMessage('assistant-message', "");
+				const contentDiv = msgDiv.querySelector('.message-content');
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					const chunk = decoder.decode(value);
+					const lines = chunk.split('\n');
+					for (const line of lines) {
+						if (line.startsWith('data: ')) {
+							const raw = line.substring(6).trim();
+							if (raw === '[DONE]') continue;
+							try {
+								const data = JSON.parse(raw);
+								if (data.response) {
+									assistantText += data.response;
+									contentDiv.innerHTML = marked.parse(assistantText);
+								}
+							} catch (e) {}
+						}
+					}
+				}
+				showTyping(false);
+				updateDashboard();
+			}
 
 			async function sendMessage() {
 				const input = document.getElementById('user-input');
@@ -504,7 +504,7 @@
 
 						try {
 							// Push the structured instruction down your active Cloudflare Tunnel endpoint
-							fetch("https://prefers-movers-receive-revenue.trycloudflare.com/api/tools/execute", {
+							fetch("https://oecd-attractive-precise-caps.trycloudflare.com/api/tools/execute", {
 								method: "POST",
 								headers: { "Content-Type": "application/json" },
 								body: jsonPayloadString
