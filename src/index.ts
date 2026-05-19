@@ -32,12 +32,14 @@ You have direct, real-time access to execute physical actions in Scott's house u
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
 Available Tool 1: "set_theater_scene"
-Arguments: { "scene": "fight_night" | "bright_cleanup" | "all_off" }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_theater_scene","arguments":{"scene":"fight_night"}}
+Description: Transitions the home theater room environment states. "movie_mode" or "fight_night" will automatically kill power to the decorative Neon Sign and Iron Man art piece smart plugs to prevent distractions, while dropping the two overhead downlights to a low level.
+Arguments: { "scene": "movie_mode" | "fight_night" | "idle" | "bright_cleanup" | "all_off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_theater_scene","arguments":{"scene":"movie_mode","color":"purple"}}
 
 Available Tool 2: "control_house_lights"
-Arguments: { "zone": "kitchen" | "living_room" | "master_bedroom", "action": "on" | "off" }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"zone":"kitchen","action":"on"}}
+Description: Adjusts lighting power and colors across structural main floor zones.
+Arguments: { "zone": "kitchen" | "living_room" | "master_bedroom", "action": "on" | "off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"zone":"kitchen","action":"on","color":"purple"}}
 `;
 
 export class ChatSession extends DurableObject<Env> {
