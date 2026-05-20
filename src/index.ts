@@ -190,23 +190,25 @@ export class ChatSession extends DurableObject<Env> {
 				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 
-				// === DYNAMIC OUT-OF-BAND TUNNEL DISPATCH FOR ALL MCP AGENT TOOLS ===
+				// === FUTURE-PROOF GLOBAL MCP TUNNEL DISPATCHER ===
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
 						if (triggerLine) {
-							// Strip out the trigger prefix dynamically to extract the raw tool payload
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// Asynchronously forward the command block straight down the secure local system pipe
-							this.ctx.waitUntil(
-								fetch("https://mcp.jolenesego.com/execute", {
-									method: "POST",
-									headers: { "Content-Type": "application/json" },
-									body: JSON.stringify(payload)
-								}).catch(err => console.error("MCP Pipeline Link Error:", err))
-							);
+							// Execute dispatch asynchronously natively within the runtime shell
+							const dispatchPromise = fetch("https://mcp.jolenesego.com/execute", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify(payload)
+							}).catch(err => console.error("MCP Pipeline Link Error:", err));
+
+							// Safely map to the DO runtime shell lifecycle if available
+							if (this.ctx && typeof this.ctx.waitUntil === "function") {
+								this.ctx.waitUntil(dispatchPromise);
+							}
 						}
 					} catch (parseErr) {
 						console.error("Failed to extract backend agent payload:", parseErr);
