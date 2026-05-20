@@ -43,7 +43,13 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"
 `;
 
 export class ChatSession extends DurableObject<Env> {
-	constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
+	private doCtx: DurableObjectState;
+
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
+		// Explicitly bind the execution context so it's fully accessible to methods
+		this.doCtx = ctx;
+	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
@@ -198,20 +204,24 @@ export class ChatSession extends DurableObject<Env> {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// Execute dispatch asynchronously natively within the runtime shell
-							const dispatchPromise = fetch("https://mcp.jolenesego.com/execute", {
+							// Force standard inline blocking await to prevent silent drops
+							const mcpResponse = await fetch("https://mcp.jolenesego.com/execute", {
 								method: "POST",
-								headers: { "Content-Type": "application/json" },
+								headers: { 
+									"Content-Type": "application/json",
+									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
+								},
 								body: JSON.stringify(payload)
-							}).catch(err => console.error("MCP Pipeline Link Error:", err));
+							});
 
-							// Safely map to the DO runtime shell lifecycle if available
-							if (this.ctx && typeof this.ctx.waitUntil === "function") {
-								this.ctx.waitUntil(dispatchPromise);
+							if (!mcpResponse.ok) {
+								const errText = await mcpResponse.text();
+								throw new Error(`Tunnel Endpoint responded with status ${mcpResponse.status}: ${errText.substring(0, 100)}`);
 							}
 						}
-					} catch (parseErr) {
-						console.error("Failed to extract backend agent payload:", parseErr);
+					} catch (parseErr: any) {
+						// Expose the raw connection or WAF blocking errors on the user chat banner
+						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
