@@ -45,8 +45,8 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		// Explicitly bind the execution context so it's fully accessible to methods
 		this.doCtx = ctx;
 	}
@@ -205,9 +205,10 @@ export class ChatSession extends DurableObject<Env> {
 							const payload = JSON.parse(jsonString);
 
 							// Force standard inline blocking await to prevent silent drops
-							const mcpResponse = await fetch("https://mcp.jolenesego.com/execute", {
+							// FIXED PATH: Pointed explicitly to your exact local gateway handler endpoint
+							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
