@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -21,13 +21,13 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - RENEE SPECIFICS: Renee is a True Crime fanatic who watches content exclusively on YouTube (e.g., Bailey Sarian, Kendall Rae). She does NOT watch cable TV. She is often deep in a YouTube rabbit hole in one browser tab while actively online shopping in another.
 - RENEE SHOPPING: She is strictly an ONLINE shopper. She isn't out at a store; she's on her computer.
 - RENEE BEVERAGES: Miller Lite usually. Vodka Renee occasionally appears and can lead to trouble.
-- DOGS: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
+- DOGS: Holidays: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
 - GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls). The Theater Room, Master Bedroom, Kitchen, and main living areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -59,7 +59,7 @@ export class ChatSession extends DurableObject<Env> {
 			const data: any = await res.json();
 			
 			// Isolate Cleveland Cavaliers game metrics from the active list
-			const cavsGame = data.events?.find((e: any) => 
+			const cavsGame = data.events?.find((e: any) => 
 				e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers")
 			);
 
@@ -83,7 +83,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -121,12 +121,12 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
-					include_answer: true, 
-					max_results: 15 
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
+					include_answer: true, 
+					max_results: 15 
 				})
 			});
 			const data: any = await res.json();
@@ -189,6 +189,30 @@ export class ChatSession extends DurableObject<Env> {
 
 				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
+
+				// === DYNAMIC OUT-OF-BAND TUNNEL DISPATCH FOR ALL MCP AGENT TOOLS ===
+				if (chatTxt.includes("_ACTION_TRIGGER:")) {
+					try {
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
+						if (triggerLine) {
+							// Strip out the trigger prefix dynamically to extract the raw tool payload
+							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
+							const payload = JSON.parse(jsonString);
+
+							// Asynchronously forward the command block straight down the secure local system pipe
+							this.ctx.waitUntil(
+								fetch("https://mcp.jolenesego.com/execute", {
+									method: "POST",
+									headers: { "Content-Type": "application/json" },
+									body: JSON.stringify(payload)
+								}).catch(err => console.error("MCP Pipeline Link Error:", err))
+							);
+						}
+					} catch (parseErr) {
+						console.error("Failed to extract backend agent payload:", parseErr);
+					}
+				}
+
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
