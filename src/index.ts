@@ -192,20 +192,20 @@ export class ChatSession extends DurableObject<Env> {
 
 				// CLIMATE TUNNEL DISPATCHER ENFORCEMENT
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the current temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
-				const systemPrompt = `### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+				let systemPrompt = `### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
 
-				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
+				// === TWO-PASS INTERCEPTION DISPATCHER ===
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
@@ -226,12 +226,22 @@ export class ChatSession extends DurableObject<Env> {
 								const errText = await mcpResponse.text();
 								throw new Error(`Tunnel Endpoint responded with status ${mcpResponse.status}: ${errText.substring(0, 100)}`);
 							}
+
+							const toolExecutionResult = await mcpResponse.text();
+							console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+
+							// Inject raw live state directly back into the context framing
+							systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+							
+							// Re-run execution generation pass so she addresses the data live
+							chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 						}
 					} catch (parseErr: any) {
 						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
+				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
