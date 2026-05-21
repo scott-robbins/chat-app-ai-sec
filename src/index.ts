@@ -143,12 +143,15 @@ export class ChatSession extends DurableObject<Env> {
 							contextPayload += `\n[${teamName} Player Splits]:\n`;
 							
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
+							
+							// CASE INSENSITIVE SANITIZATION FIX: Overwrites and down-cases keys from both uppercase/lowercase variations
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
 							const playersRows = targetStatsObj?.athletes || [];
 							
 							playersRows.slice(0, 11).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
 								let pts = "0", reb = "0", ast = "0", min = "0";
+								
 								if (statsKeys.length > 0 && p.stats) {
 									pts = p.stats[statsKeys.indexOf("pts")] || pts;
 									reb = p.stats[statsKeys.indexOf("reb")] || reb;
@@ -179,11 +182,10 @@ export class ChatSession extends DurableObject<Env> {
 			});
 			const text = await res.text();
 			
-			// Extract via dynamic string splitting to circumvent proxy blocking layers
 			if (text.includes("lastPrice")) {
 				const match = text.match(/"lastPrice":\s*\{\s*"value":\s*([0-9.]+)/);
 				if (match && match[1]) {
-					return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} | Last Closing/Active Price: $${match[1]} | Status: Verified Exchange Data Source.`;
+					return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} | Last Closing/Active Price: $${match[1]} | Status: Verified Data.`;
 				}
 			}
 			return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} trading at $210.13 per share.`;
