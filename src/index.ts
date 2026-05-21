@@ -78,7 +78,8 @@ export class ChatSession extends DurableObject<Env> {
 				return "[LIVE NBA FEED] No games scheduled or listed on the primary league slate today.";
 			}
 
-			if (normalizedQuery.includes("all games") || normalizedQuery.includes("every game") || normalizedQuery.includes("scores")) {
+			// Format entire active board layout if requested broadly
+			if (normalizedQuery.includes("all games") || normalizedQuery.includes("every game") || normalizedQuery.includes("scores") || normalizedQuery.includes("scoreboard")) {
 				let summary = "[LIVE NBA LEAGUE SUMMARY]\n";
 				for (const event of data.events) {
 					const status = event.status?.type?.detail || "Scheduled";
@@ -90,16 +91,22 @@ export class ChatSession extends DurableObject<Env> {
 				return summary;
 			}
 
+			// Target scanning loop across keyword arguments
 			const targetEvent = data.events.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
 				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
-			}) || data.events.find((e: any) => e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers"));
+			});
 
 			if (!targetEvent) {
-				return `[LIVE NBA FEED] Could not locate an active matchup matching your target keywords in today's loop.`;
+				// No specific team match found: return a list of current games so she doesn't default to the Cavs
+				let list = "[LIVE NBA FEED] Team match uncertain. Active matchups right now:\n";
+				data.events.forEach((e: any) => {
+					list += `- ${e.name} (${e.status?.type?.detail || "Scheduled"})\n`;
+				});
+				return list;
 			}
 
 			const gameId = targetEvent.id;
@@ -113,8 +120,8 @@ export class ChatSession extends DurableObject<Env> {
 
 			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Clock Status: ${status}`;
 
-			// DYNAMIC PASS: Deep box score interception handling via the Game ID Summary tunnel
-			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics/)) {
+			// Box score deep data processor array lookup
+			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`);
 					const summaryData: any = await summaryRes.json();
@@ -145,7 +152,6 @@ export class ChatSession extends DurableObject<Env> {
 				return contextPayload;
 			}
 
-			// Standard scoreboard fallback details if they just want quick parameters
 			let statsContext = "";
 			const leaders = targetEvent.competitions?.[0]?.leaders;
 			if (leaders && leaders.length > 0) {
@@ -247,89 +253,3 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
-
-				// CRITICAL MASTER TIME HORIZON ANCHOR FIX
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', 
-					day: 'numeric', 
-					year: 'numeric', 
-					hour: 'numeric', 
-					minute: 'numeric', 
-					second: 'numeric', 
-					hour12: true, 
-					timeZone: 'America/New_York' 
-				}).format(new Date());
-
-				await this.saveMsg(sessionId, 'user', userMsg);
-				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
-				const recentContext = historyFetch.results?.reverse() || [];
-
-				let liveContext = "";
-				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.getLiveCavsScore(userMsg);
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
-				}
-
-				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
-				}
-
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
-
-				// Hardcode the absolute current time into the face of her system prompt bounds
-				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
-The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
-
-### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
-### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
-
-				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
-
-				if (chatTxt.includes("_ACTION_TRIGGER:")) {
-					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
-						if (triggerLine) {
-							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
-							const payload = JSON.parse(jsonString);
-
-							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-								method: "POST",
-								headers: { 
-									"Content-Type": "application/json",
-									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
-								},
-								body: JSON.stringify(payload)
-							});
-
-							if (mcpResponse.ok) {
-								const toolExecutionResult = await mcpResponse.text();
-								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
-
-								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
-								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
-							}
-						}
-					} catch (parseErr: any) {
-						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
-					}
-				}
-
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
-		}
-		return new Response("OK");
-	}
-}
-
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
-	}
-} satisfies ExportedHandler<Env>;
