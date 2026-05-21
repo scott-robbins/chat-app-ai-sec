@@ -55,8 +55,8 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 	}
 
@@ -67,7 +67,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE (WITH BOX SCORE SUPPORT) ===
+	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE (BOX SCORE FIX) ===
 	async getLiveNBAScore(query: string): Promise<string> {
 		try {
 			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
@@ -95,7 +95,7 @@ export class ChatSession extends DurableObject<Env> {
 			const targetEvent = data.events.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
@@ -132,10 +132,10 @@ export class ChatSession extends DurableObject<Env> {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Box Score]:\n`;
 							
-							const statsKeys = teamBox.statistics?.[0]?.keys || [];
+							const statsKeys = (teamBox.statistics?.[0]?.keys || []).map((k: string) => k.toLowerCase());
 							const playersRows = teamBox.statistics?.[0]?.athletes || [];
 							
-							playersRows.slice(0, 8).forEach((p: any) => {
+							playersRows.slice(0, 10).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
 								const min = p.stats?.[statsKeys.indexOf("min")] || "0";
 								const pts = p.stats?.[statsKeys.indexOf("pts")] || "0";
@@ -173,7 +173,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -198,10 +198,13 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string, dateStr: string) {
 		try {
 			let deepQuery = query;
-			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
+			const lowerQ = query.toLowerCase();
+			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
-			} else if (query.toLowerCase().match(/weather/)) {
+			} else if (lowerQ.match(/weather/)) {
 				deepQuery = `${query} current temperature condition updates plymouth ma ${dateStr}`;
+			} else if (lowerQ.match(/stock|price|net|market|shares|close/)) {
+				deepQuery = `${query} ticker market close exact price today real time financial metrics ${dateStr}`;
 			} else {
 				deepQuery = `${query} live updates ${dateStr}`;
 			}
@@ -209,12 +212,12 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
-					include_answer: true, 
-					max_results: 10 
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
@@ -266,74 +269,4 @@ export class ChatSession extends DurableObject<Env> {
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
-				const recentContext = historyFetch.results?.reverse() || [];
-
-				let liveContext = "";
-				// FIXED RE-ROUTING CONDITION: Pointed cleanly to getLiveNBAScore to avoid reference faults
-				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.getLiveNBAScore(userMsg);
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
-				}
-
-				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
-				}
-
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
-
-				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
-The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
-
-### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
-### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
-
-				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
-
-				if (chatTxt.includes("_ACTION_TRIGGER:")) {
-					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
-						if (triggerLine) {
-							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
-							const payload = JSON.parse(jsonString);
-
-							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-								method: "POST",
-								headers: { 
-									"Content-Type": "application/json",
-									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
-								},
-								body: JSON.stringify(payload)
-							});
-
-							if (mcpResponse.ok) {
-								const toolExecutionResult = await mcpResponse.text();
-								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
-
-								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
-								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
-							}
-						}
-					} catch (parseErr: any) {
-						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
-					}
-				}
-
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
-
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
-		}
-		return new Response("OK");
-	}
-}
-
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
-	}
-} satisfies ExportedHandler<Env>;
+				const recentContext = history
