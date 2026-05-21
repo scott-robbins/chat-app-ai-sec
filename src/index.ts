@@ -67,29 +67,67 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	// === NATIVE ESPN LIVE SCOREBOARD DATA PIPELINE ===
-	async getLiveCavsScore(): Promise<string> {
+	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE ===
+	async getLiveNBAScore(query: string): Promise<string> {
 		try {
 			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
 			const data: any = await res.json();
-			
-			const cavsGame = data.events?.find((e: any) => 
-				e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers")
-			);
+			const normalizedQuery = query.toLowerCase();
 
-			if (!cavsGame) return "No active Cleveland Cavaliers game listed on today's NBA scoreboard loop right now.";
+			if (!data.events || data.events.length === 0) {
+				return "[LIVE NBA FEED] No games scheduled or listed on the primary league slate today.";
+			}
 
-			const status = cavsGame.status?.type?.detail || "Unknown State";
-			const competitors = cavsGame.competitions?.[0]?.competitors || [];
+			// If user asks broadly for all scores, generate a complete baseline summary list
+			if (normalizedQuery.includes("all games") || normalizedQuery.includes("every game") || normalizedQuery.includes("scores")) {
+				let summary = "[LIVE NBA LEAGUE SUMMARY]\n";
+				for (const event of data.events) {
+					const status = event.status?.type?.detail || "Scheduled";
+					const comps = event.competitions?.[0]?.competitors || [];
+					if (comps.length >= 2) {
+						summary += `• ${comps[0].team?.displayName} (${comps[0].score}) vs ${comps[1].team?.displayName} (${comps[1].score}) - Status: ${status}\n`;
+					}
+				}
+				return summary;
+			}
+
+			// Search for specific game via matched keywords (e.g. "Spurs", "OKC", "Thunder", "Doncic")
+			const targetEvent = data.events.find((e: any) => {
+				const name = e.name.toLowerCase();
+				const shortName = e.shortName.toLowerCase();
+				return normalizedQuery.split(/\s+/).some(word => 
+					word.length > 2 && (name.includes(word) || shortName.includes(word))
+				);
+			}) || data.events.find((e: any) => e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers")); // Default to Cavs fallback if uncertainty hits
+
+			if (!targetEvent) {
+				return `[LIVE NBA FEED] Could not locate an active matchup matching your target keywords in today's loop. Loaded teams: ${data.events.map((e: any) => e.shortName).join(", ")}`;
+			}
+
+			const status = targetEvent.status?.type?.detail || "Unknown State";
+			const competitors = targetEvent.competitions?.[0]?.competitors || [];
 			
 			const team1 = competitors[0]?.team?.displayName || "TBD";
 			const score1 = competitors[0]?.score || "0";
 			const team2 = competitors[1]?.team?.displayName || "TBD";
 			const score2 = competitors[1]?.score || "0";
 
-			return `[LIVE NBA API FEED] Status: ${status} | Matchup: ${team1}: ${score1} vs ${team2}: ${score2}.`;
+			// Extract deep situational telemetry context strings (ESPN packs leader performance parameters here)
+			let statsContext = "";
+			const leaders = targetEvent.competitions?.[0]?.leaders;
+			if (leaders && leaders.length > 0) {
+				statsContext = " | Key Performers: ";
+				leaders.forEach((l: any) => {
+					const category = l.name || "Stats";
+					const athlete = l.leaders?.[0]?.athlete?.displayName || "Player";
+					const displayValue = l.leaders?.[0]?.displayValue || "";
+					statsContext += `[${category}: ${athlete} ${displayValue}] `;
+				});
+			}
+
+			return `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Clock Status: ${status}${statsContext}`;
 		} catch (err) {
-			return "ESPN scoreboard network link currently timing out.";
+			return "[LIVE NBA FEED] The primary ESPN scoreboard network infrastructure is currently timing out.";
 		}
 	}
 
@@ -184,9 +222,10 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["score", "game", "cavs", "cavaliers", "knicks", "nba"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.getLiveCavsScore();
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "playoff", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				// BROAD BROADCAST ROUTER: Triggers native API feed on any basketball team, score lookups, or generic matching stats phrase
+				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.getLiveNBAScore(userMsg);
+				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
 				}
 
@@ -222,19 +261,13 @@ export class ChatSession extends DurableObject<Env> {
 								body: JSON.stringify(payload)
 							});
 
-							if (!mcpResponse.ok) {
-								const errText = await mcpResponse.text();
-								throw new Error(`Tunnel Endpoint responded with status ${mcpResponse.status}: ${errText.substring(0, 100)}`);
+							if (mcpResponse.ok) {
+								const toolExecutionResult = await mcpResponse.text();
+								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+
+								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 							}
-
-							const toolExecutionResult = await mcpResponse.text();
-							console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
-
-							// Inject raw live state directly back into the context framing
-							systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
-							
-							// Re-run execution generation pass so she addresses the data live
-							chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 						}
 					} catch (parseErr: any) {
 						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
