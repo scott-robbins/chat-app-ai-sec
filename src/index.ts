@@ -40,6 +40,11 @@ Available Tool 2: "control_house_lights"
 Description: Adjusts lighting power and colors across structural main floor zones.
 Arguments: { "zone": "kitchen" | "living_room" | "master_bedroom", "action": "on" | "off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"zone":"kitchen","action":"on","color":"purple"}}
+
+Available Tool 3: "set_house_temperature"
+Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
+Arguments: { "zone": "foyer" | "master_bedroom", "temperature": number }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone":"foyer","temperature":70}}
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -72,7 +77,7 @@ export class ChatSession extends DurableObject<Env> {
 			if (!cavsGame) return "No active Cleveland Cavaliers game listed on today's NBA scoreboard loop right now.";
 
 			const status = cavsGame.status?.type?.detail || "Unknown State";
-			const competitors = cavsGame.competitions?.[0]?.competitors || [];
+			const competitors = competitors = data.events?.find((e: any) =>  || [];
 			
 			const team1 = competitors[0]?.team?.displayName || "TBD";
 			const score1 = competitors[0]?.score || "0";
@@ -183,6 +188,11 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.getLiveCavsScore();
 				} else if (["weather", "now", "current", "news", "mma", "ufc", "playoff", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg);
+				}
+
+				// CLIMATE TUNNEL DISPATCHER ENFORCEMENT
+				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tool "set_house_temperature". If the user mentions 'main floor' or 'foyer' or 'downstairs', map the zone argument strictly to 'foyer'. If they mention 'bedroom' or 'master' or 'upstairs', map it to 'master_bedroom'. Always output the trigger payload at the absolute end of your turn if changes are requested.`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
