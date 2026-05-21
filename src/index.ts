@@ -151,21 +151,21 @@ export class ChatSession extends DurableObject<Env> {
 								let pts = "0", reb = "0", ast = "0", min = "0";
 								
 								if (statsKeys.length > 0 && p.stats && p.stats.length > 0) {
-									// Helper extractor function to handle nested objects vs string arrays
-									const getMetricValue = (keyName: string): string => {
-										const index = statsKeys.indexOf(keyName);
+									const extractValue = (key: string): string => {
+										const index = statsKeys.indexOf(key);
 										if (index === -1) return "0";
-										const rawVal = p.stats[index];
-										if (rawVal && typeof rawVal === 'object') {
-											return rawVal.displayValue || rawVal.value || "0";
+										const node = p.stats[index];
+										if (!node) return "0";
+										if (typeof node === 'object') {
+											return node.displayValue || node.value || "0";
 										}
-										return rawVal ? String(rawVal) : "0";
+										return String(node);
 									};
 
-									pts = getMetricValue("pts");
-									reb = getMetricValue("reb");
-									ast = getMetricValue("ast");
-									min = getMetricValue("min");
+									pts = extractValue("pts");
+									reb = extractValue("reb");
+									ast = extractValue("ast");
+									min = extractValue("min");
 								}
 								contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
 							});
@@ -236,11 +236,9 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
-			} else if (lowerQ.match(/weather/)) {
+			} else if (lowerQ.match(/weather|forecast|temperature|outside/)) {
 				topicMode = "news";
-				deepQuery = `current exact temperature weather condition hourly updates plymouth ma ${dateStr}`;
-			} else {
-				deepQuery = `${query} live updates ${dateStr}`;
+				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
 			}
 
 			const res = await fetch('https://api.tavily.com/search', {
@@ -309,12 +307,12 @@ export class ChatSession extends DurableObject<Env> {
 				let liveContext = "";
 				const lowerMsg = userMsg.toLowerCase();
 
-				// DIRECT DISPATCH ROUTER
-				if (["score", "game", "nba", "basketball", "points", "stats", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => lowerMsg.includes(kw))) {
+				// HARDENED EXPLICIT IDENTIFIER ROUTER
+				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
+				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
