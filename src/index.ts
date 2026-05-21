@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -55,8 +55,8 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 	}
 
@@ -95,13 +95,13 @@ export class ChatSession extends DurableObject<Env> {
 			const targetEvent = data.events.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
 
 			if (!targetEvent) {
-				let list = "[LIVE NBA FEED] Specific team matchup uncertain. Active matchups right now:\n";
+				let list = "[LIVE NBA FEED] Matchup uncertain. Active matchups right now:\n";
 				data.events.forEach((e: any) => {
 					list += `- ${e.name} (${e.status?.type?.detail || "Scheduled"})\n`;
 				});
@@ -133,17 +133,26 @@ export class ChatSession extends DurableObject<Env> {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Box Score]:\n`;
 							
-							// FIX: Look inside any available statistics entries to support final game objects
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
 							const playersRows = targetStatsObj?.athletes || [];
 							
 							playersRows.slice(0, 11).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
-								const min = p.stats?.[statsKeys.indexOf("min")] || "0";
-								const pts = p.stats?.[statsKeys.indexOf("pts")] || "0";
-								const reb = p.stats?.[statsKeys.indexOf("reb")] || "0";
-								const ast = p.stats?.[statsKeys.indexOf("ast")] || "0";
+								
+								// HARDENED POSITION PARSER: Safely reads data values if explicit string index alignment returns clean values
+								let pts = "0", reb = "0", ast = "0", min = "0";
+								if (statsKeys.length > 0 && p.stats) {
+									pts = p.stats[statsKeys.indexOf("pts")] || pts;
+									reb = p.stats[statsKeys.indexOf("reb")] || reb;
+									ast = p.stats[statsKeys.indexOf("ast")] || ast;
+									min = p.stats[statsKeys.indexOf("min")] || min;
+								} else if (p.position && p.stats) {
+									// Structural position layout fallback string matching
+									pts = p.stats[0] || pts;
+									reb = p.stats[1] || reb;
+									ast = p.stats[2] || ast;
+								}
 								contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
 							});
 						});
@@ -172,32 +181,11 @@ export class ChatSession extends DurableObject<Env> {
 		}
 	}
 
-	// === DIRECT TICKER STOCK PIPELINE ===
-	async getLiveStockPrice(ticker: string): Promise<string> {
-		try {
-			const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker.toUpperCase()}`, {
-				headers: { "User-Agent": "Mozilla/5.0" }
-			});
-			const data: any = await res.json();
-			const quote = data.quoteResponse?.result?.[0];
-			
-			if (!quote) return `[FINANCIAL ENGINE] Ticker ${ticker.toUpperCase()} could not be resolved directly.`;
-			
-			const price = quote.regularMarketPrice || quote.postMarketPrice || "N/A";
-			const change = quote.regularMarketChangePercent || 0;
-			const name = quote.longName || ticker.toUpperCase();
-			
-			return `[REAL-TIME MARKET FEED] Asset: ${name} (${ticker.toUpperCase()}) | Price: $${price} | Day Change: ${change.toFixed(2)}% | Status: Market Closed (Official Quote Summary)`;
-		} catch (err) {
-			return `[FINANCIAL ENGINE] Real-time asset verification link temporarily offline.`;
-		}
-	}
-
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -230,6 +218,9 @@ export class ChatSession extends DurableObject<Env> {
 			} else if (lowerQ.match(/weather/)) {
 				topicMode = "news";
 				deepQuery = `current exact temperature weather condition hourly updates plymouth ma ${dateStr}`;
+			} else if (lowerQ.match(/stock|price|net|market|shares|close|cloudflare/)) {
+				topicMode = "news";
+				deepQuery = `NYSE NET Cloudflare stock ticker exact final closing price per share today ${dateStr}`;
 			} else {
 				deepQuery = `${query} live updates ${dateStr}`;
 			}
@@ -237,13 +228,13 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
@@ -282,15 +273,15 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', 
-					day: 'numeric', 
-					year: 'numeric', 
-					hour: 'numeric', 
-					minute: 'numeric', 
-					second: 'numeric', 
-					hour12: true, 
-					timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', 
+					day: 'numeric', 
+					year: 'numeric', 
+					hour: 'numeric', 
+					minute: 'numeric', 
+					second: 'numeric', 
+					hour12: true, 
+					timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -299,13 +290,10 @@ export class ChatSession extends DurableObject<Env> {
 
 				let liveContext = "";
 				
-				// INTERCEPTION ENGINE
+				// FIXED SELECTION MAP: Direct stock lookups are routed straight through our verified query filter channel
 				if (["score", "game", "nba", "basketball", "points", "stats", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
-				} else if (["stock", "shares", "ticker", "close", "price", "market", "net"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					// Route Cloudflare/NET stock commands directly to native asset quote tracker
-					liveContext = await this.getLiveStockPrice("NET");
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today", "stock", "shares", "close", "price", "market", "net", "cloudflare"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
@@ -335,7 +323,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
