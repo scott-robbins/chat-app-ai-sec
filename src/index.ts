@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -55,8 +55,8 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 	}
 
@@ -72,12 +72,10 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const normalizedQuery = query.toLowerCase();
 			
-			// 1. Fetch Today's Scoreboard
 			const resToday = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } });
 			const dataToday: any = await resToday.json();
 			let allEvents = dataToday.events || [];
 
-			// 2. Fetch Yesterday's Scoreboard to catch concluded playoff games
 			try {
 				const yesterday = new Date();
 				yesterday.setDate(yesterday.getDate() - 1);
@@ -108,7 +106,7 @@ export class ChatSession extends DurableObject<Env> {
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
@@ -144,28 +142,34 @@ export class ChatSession extends DurableObject<Env> {
 							
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
-							const playersRows = targetStatsObj?.athletes || [];
+							const playersRows = teamBox.athletes || teamBox.statistics?.[0]?.athletes || [];
 							
 							playersRows.slice(0, 11).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
 								let pts = "0", reb = "0", ast = "0", min = "0";
 								
-								if (statsKeys.length > 0 && p.stats && p.stats.length > 0) {
-									const extractValue = (key: string): string => {
-										const index = statsKeys.indexOf(key);
-										if (index === -1) return "0";
-										const node = p.stats[index];
-										if (!node) return "0";
-										if (typeof node === 'object') {
-											return node.displayValue || node.value || "0";
-										}
-										return String(node);
-									};
-
-									pts = extractValue("pts");
-									reb = extractValue("reb");
-									ast = extractValue("ast");
-									min = extractValue("min");
+								// BALANCED ADAPTIVE EXTRACTION MATRIX
+								const rawStatsArray = p.stats || [];
+								if (rawStatsArray.length > 0) {
+									if (statsKeys.length > 0) {
+										const extractNode = (key: string): string => {
+											const idx = statsKeys.indexOf(key);
+											if (idx === -1) return "0";
+											const node = rawStatsArray[idx];
+											if (node && typeof node === 'object') return node.displayValue || node.value || "0";
+											return node ? String(node) : "0";
+										};
+										pts = extractNode("pts");
+										reb = extractNode("reb");
+										ast = extractNode("ast");
+										min = extractNode("min");
+									} else {
+										// Hardcoded positioning logic for concluded table frames
+										min = String(rawStatsArray[0] || "0");
+										pts = String(rawStatsArray[13] || "0");
+										reb = String(rawStatsArray[6] || "0");
+										ast = String(rawStatsArray[7] || "0");
+									}
 								}
 								contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
 							});
@@ -207,7 +211,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -237,20 +241,21 @@ export class ChatSession extends DurableObject<Env> {
 			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (lowerQ.match(/weather|forecast|temperature|outside/)) {
-				topicMode = "news";
-				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
+				// FIXED: Switched topic mode back to general to hit core weather observation trackers natively
+				topicMode = "general";
+				deepQuery = `current outdoor temperature weather conditions forecast plymouth ma weather.com ${dateStr}`;
 			}
 
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
@@ -289,15 +294,15 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', 
-					day: 'numeric', 
-					year: 'numeric', 
-					hour: 'numeric', 
-					minute: 'numeric', 
-					second: 'numeric', 
-					hour12: true, 
-					timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', 
+					day: 'numeric', 
+					year: 'numeric', 
+					hour: 'numeric', 
+					minute: 'numeric', 
+					second: 'numeric', 
+					hour12: true, 
+					timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -307,8 +312,10 @@ export class ChatSession extends DurableObject<Env> {
 				let liveContext = "";
 				const lowerMsg = userMsg.toLowerCase();
 
-				// HARDENED EXPLICIT IDENTIFIER ROUTER
-				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard"].some(kw => lowerMsg.includes(kw))) {
+				// DIRECT RE-ROUTING ENGINE MAP
+				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers"].some(kw => lowerMsg.includes(kw))) {
+					liveContext = await this.getLiveNBAScore(userMsg);
+				} else if (["boxscore", "box score", "stats", "playoff", "scoreboard"].some(kw => lowerMsg.includes(kw)) && !lowerMsg.includes("weather")) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
@@ -342,7 +349,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
