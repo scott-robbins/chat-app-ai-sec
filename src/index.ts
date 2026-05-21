@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -50,13 +50,18 @@ Available Tool 4: "get_house_temperatures"
 Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
 Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
+
+Available Tool 5: "generate_camera_stream"
+Description: Generates a fresh live video stream protocol link for a specified Nest camera or doorbell feed location.
+Arguments: { "camera": "front_door" | "living_room" | "garage" | "entryway" }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"generate_camera_stream","arguments":{"camera":"garage"}}
 `;
 
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 	}
 
@@ -106,7 +111,7 @@ export class ChatSession extends DurableObject<Env> {
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
@@ -211,7 +216,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -241,7 +246,6 @@ export class ChatSession extends DurableObject<Env> {
 			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (lowerQ.match(/weather|forecast|temperature|outside/)) {
-				// FIXED: Switched topic mode back to general to hit core weather observation trackers natively
 				topicMode = "general";
 				deepQuery = `current outdoor temperature weather conditions forecast plymouth ma weather.com ${dateStr}`;
 			}
@@ -249,13 +253,13 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
@@ -294,15 +298,15 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', 
-					day: 'numeric', 
-					year: 'numeric', 
-					hour: 'numeric', 
-					minute: 'numeric', 
-					second: 'numeric', 
-					hour12: true, 
-					timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', 
+					day: 'numeric', 
+					year: 'numeric', 
+					hour: 'numeric', 
+					minute: 'numeric', 
+					second: 'numeric', 
+					hour12: true, 
+					timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -319,12 +323,17 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
-				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
+				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw)) && !["camera", "feed", "doorbell", "stream", "garage"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+				}
+
+				// INTERCEPT & PROVISION SECURITY CLEARANCE FOR CAMERA ACTIONS
+				if (["camera", "feed", "doorbell", "stream", "garage", "front door", "entryway", "living room"].some(kw => lowerMsg.includes(kw))) {
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified, real-time security clearance to use the tool "generate_camera_stream" for Scott's physical security network. Valid choices are strictly "front_door", "living_room", "garage", or "entryway". If Scott asks to look at a feed or stream, execute the tool call instantly. Always append the trigger block on its own raw line at the absolute end of your response.`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
@@ -349,7 +358,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
