@@ -67,7 +67,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE ===
+	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE (WITH BOX SCORE SUPPORT) ===
 	async getLiveNBAScore(query: string): Promise<string> {
 		try {
 			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
@@ -78,7 +78,6 @@ export class ChatSession extends DurableObject<Env> {
 				return "[LIVE NBA FEED] No games scheduled or listed on the primary league slate today.";
 			}
 
-			// If user asks broadly for all scores, generate a complete baseline summary list
 			if (normalizedQuery.includes("all games") || normalizedQuery.includes("every game") || normalizedQuery.includes("scores")) {
 				let summary = "[LIVE NBA LEAGUE SUMMARY]\n";
 				for (const event of data.events) {
@@ -91,19 +90,19 @@ export class ChatSession extends DurableObject<Env> {
 				return summary;
 			}
 
-			// Search for specific game via matched keywords (e.g. "Spurs", "OKC", "Thunder", "Doncic")
 			const targetEvent = data.events.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
-			}) || data.events.find((e: any) => e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers")); // Default to Cavs fallback if uncertainty hits
+			}) || data.events.find((e: any) => e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers"));
 
 			if (!targetEvent) {
-				return `[LIVE NBA FEED] Could not locate an active matchup matching your target keywords in today's loop. Loaded teams: ${data.events.map((e: any) => e.shortName).join(", ")}`;
+				return `[LIVE NBA FEED] Could not locate an active matchup matching your target keywords in today's loop.`;
 			}
 
+			const gameId = targetEvent.id;
 			const status = targetEvent.status?.type?.detail || "Unknown State";
 			const competitors = targetEvent.competitions?.[0]?.competitors || [];
 			
@@ -112,7 +111,41 @@ export class ChatSession extends DurableObject<Env> {
 			const team2 = competitors[1]?.team?.displayName || "TBD";
 			const score2 = competitors[1]?.score || "0";
 
-			// Extract deep situational telemetry context strings (ESPN packs leader performance parameters here)
+			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Clock Status: ${status}`;
+
+			// DYNAMIC PASS: Deep box score interception handling via the Game ID Summary tunnel
+			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics/)) {
+				try {
+					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`);
+					const summaryData: any = await summaryRes.json();
+					
+					const boxscores = summaryData.boxscore?.players;
+					if (boxscores && boxscores.length > 0) {
+						contextPayload += `\n\n=== LIVE PLAYER BOX SCORE METRICS (DETAILED) ===\n`;
+						boxscores.forEach((teamBox: any) => {
+							const teamName = teamBox.team?.displayName || "Team";
+							contextPayload += `\n[${teamName} Box Score]:\n`;
+							
+							const statsKeys = teamBox.statistics?.[0]?.keys || [];
+							const playersRows = teamBox.statistics?.[0]?.athletes || [];
+							
+							playersRows.slice(0, 8).forEach((p: any) => {
+								const name = p.athlete?.displayName || "Player";
+								const min = p.stats?.[statsKeys.indexOf("min")] || "0";
+								const pts = p.stats?.[statsKeys.indexOf("pts")] || "0";
+								const reb = p.stats?.[statsKeys.indexOf("reb")] || "0";
+								const ast = p.stats?.[statsKeys.indexOf("ast")] || "0";
+								contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
+							});
+						});
+					}
+				} catch (boxErr) {
+					contextPayload += " | (Player box score array currently assembling on standard latency lock...)";
+				}
+				return contextPayload;
+			}
+
+			// Standard scoreboard fallback details if they just want quick parameters
 			let statsContext = "";
 			const leaders = targetEvent.competitions?.[0]?.leaders;
 			if (leaders && leaders.length > 0) {
@@ -125,7 +158,7 @@ export class ChatSession extends DurableObject<Env> {
 				});
 			}
 
-			return `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Clock Status: ${status}${statsContext}`;
+			return `${contextPayload}${statsContext}`;
 		} catch (err) {
 			return "[LIVE NBA FEED] The primary ESPN scoreboard network infrastructure is currently timing out.";
 		}
@@ -157,15 +190,13 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "I hit a snag. Let's try that again."; }
 	}
 
-	async tavilySearch(query: string) {
+	async tavilySearch(query: string, dateStr: string) {
 		try {
-			const dateStr = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', timeZone: 'America/New_York' }).format(new Date());
 			let deepQuery = query;
-			
 			if (query.toLowerCase().match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
-			} else if (query.toLowerCase().match(/nba|cavs|pistons|game|playoff|points|stats/)) {
-				deepQuery = `${query} live box score player stats play-by-play tracker ${dateStr}`;
+			} else if (query.toLowerCase().match(/weather/)) {
+				deepQuery = `${query} current temperature condition updates plymouth ma ${dateStr}`;
 			} else {
 				deepQuery = `${query} live updates ${dateStr}`;
 			}
@@ -178,11 +209,11 @@ export class ChatSession extends DurableObject<Env> {
 					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
 					include_answer: true, 
-					max_results: 15 
+					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
-			return `[LIVE FEED ACTIVATED]\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE TAVILY WEBHook FEED] Verified Eastern Time Horizon Anchor: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -217,34 +248,47 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
+				// CRITICAL MASTER TIME HORIZON ANCHOR FIX
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', 
+					day: 'numeric', 
+					year: 'numeric', 
+					hour: 'numeric', 
+					minute: 'numeric', 
+					second: 'numeric', 
+					hour12: true, 
+					timeZone: 'America/New_York' 
+				}).format(new Date());
+
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				// BROAD BROADCAST ROUTER: Triggers native API feed on any basketball team, score lookups, or generic matching stats phrase
-				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.getLiveNBAScore(userMsg);
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg);
+				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.getLiveCavsScore(userMsg);
+				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
-				// CLIMATE TUNNEL DISPATCHER ENFORCEMENT
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the current temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
-				let systemPrompt = `### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+				// Hardcode the absolute current time into the face of her system prompt bounds
+				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
+
+### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
-				// === TWO-PASS INTERCEPTION DISPATCHER ===
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
