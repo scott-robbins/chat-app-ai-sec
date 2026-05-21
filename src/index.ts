@@ -143,8 +143,6 @@ export class ChatSession extends DurableObject<Env> {
 							contextPayload += `\n[${teamName} Player Splits]:\n`;
 							
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
-							
-							// CASE INSENSITIVE SANITIZATION FIX: Overwrites and down-cases keys from both uppercase/lowercase variations
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
 							const playersRows = targetStatsObj?.athletes || [];
 							
@@ -152,11 +150,22 @@ export class ChatSession extends DurableObject<Env> {
 								const name = p.athlete?.displayName || "Player";
 								let pts = "0", reb = "0", ast = "0", min = "0";
 								
-								if (statsKeys.length > 0 && p.stats) {
-									pts = p.stats[statsKeys.indexOf("pts")] || pts;
-									reb = p.stats[statsKeys.indexOf("reb")] || reb;
-									ast = p.stats[statsKeys.indexOf("ast")] || ast;
-									min = p.stats[statsKeys.indexOf("min")] || min;
+								if (statsKeys.length > 0 && p.stats && p.stats.length > 0) {
+									// Helper extractor function to handle nested objects vs string arrays
+									const getMetricValue = (keyName: string): string => {
+										const index = statsKeys.indexOf(keyName);
+										if (index === -1) return "0";
+										const rawVal = p.stats[index];
+										if (rawVal && typeof rawVal === 'object') {
+											return rawVal.displayValue || rawVal.value || "0";
+										}
+										return rawVal ? String(rawVal) : "0";
+									};
+
+									pts = getMetricValue("pts");
+									reb = getMetricValue("reb");
+									ast = getMetricValue("ast");
+									min = getMetricValue("min");
 								}
 								contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
 							});
