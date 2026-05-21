@@ -67,9 +67,12 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
+	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE ===
 	async getLiveNBAScore(query: string): Promise<string> {
 		try {
-			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
+			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", {
+				headers: { "User-Agent": "Mozilla/5.0" }
+			});
 			const data: any = await res.json();
 			const normalizedQuery = query.toLowerCase();
 
@@ -118,20 +121,24 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
-					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`);
+					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, {
+						headers: { "User-Agent": "Mozilla/5.0" }
+					});
 					const summaryData: any = await summaryRes.json();
-					
 					const boxscores = summaryData.boxscore?.players;
+					
 					if (boxscores && boxscores.length > 0) {
-						contextPayload += `\n\n=== LIVE PLAYER BOX SCORE METRICS (DETAILED) ===\n`;
+						contextPayload += `\n\n=== PLAYER BOX SCORE DATA (LIVE/FINAL) ===\n`;
 						boxscores.forEach((teamBox: any) => {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Box Score]:\n`;
 							
-							const statsKeys = (teamBox.statistics?.[0]?.keys || []).map((k: string) => k.toLowerCase());
-							const playersRows = teamBox.statistics?.[0]?.athletes || [];
+							// FIX: Look inside any available statistics entries to support final game objects
+							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
+							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
+							const playersRows = targetStatsObj?.athletes || [];
 							
-							playersRows.slice(0, 10).forEach((p: any) => {
+							playersRows.slice(0, 11).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
 								const min = p.stats?.[statsKeys.indexOf("min")] || "0";
 								const pts = p.stats?.[statsKeys.indexOf("pts")] || "0";
@@ -142,7 +149,7 @@ export class ChatSession extends DurableObject<Env> {
 						});
 					}
 				} catch (boxErr) {
-					contextPayload += " | (Player box score data array processing on temporary delay...)";
+					contextPayload += " | (Player statistics details currently processing upstream...)";
 				}
 				return contextPayload;
 			}
@@ -162,6 +169,27 @@ export class ChatSession extends DurableObject<Env> {
 			return `${contextPayload}${statsContext}`;
 		} catch (err) {
 			return "[LIVE NBA FEED] Scoreboard network infrastructure timing out.";
+		}
+	}
+
+	// === DIRECT TICKER STOCK PIPELINE ===
+	async getLiveStockPrice(ticker: string): Promise<string> {
+		try {
+			const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker.toUpperCase()}`, {
+				headers: { "User-Agent": "Mozilla/5.0" }
+			});
+			const data: any = await res.json();
+			const quote = data.quoteResponse?.result?.[0];
+			
+			if (!quote) return `[FINANCIAL ENGINE] Ticker ${ticker.toUpperCase()} could not be resolved directly.`;
+			
+			const price = quote.regularMarketPrice || quote.postMarketPrice || "N/A";
+			const change = quote.regularMarketChangePercent || 0;
+			const name = quote.longName || ticker.toUpperCase();
+			
+			return `[REAL-TIME MARKET FEED] Asset: ${name} (${ticker.toUpperCase()}) | Price: $${price} | Day Change: ${change.toFixed(2)}% | Status: Market Closed (Official Quote Summary)`;
+		} catch (err) {
+			return `[FINANCIAL ENGINE] Real-time asset verification link temporarily offline.`;
 		}
 	}
 
@@ -202,9 +230,6 @@ export class ChatSession extends DurableObject<Env> {
 			} else if (lowerQ.match(/weather/)) {
 				topicMode = "news";
 				deepQuery = `current exact temperature weather condition hourly updates plymouth ma ${dateStr}`;
-			} else if (lowerQ.match(/stock|price|net|market|shares|close/)) {
-				topicMode = "news";
-				deepQuery = `NYSE NET Cloudflare stock ticker exact final closing price per share today ${dateStr}`;
 			} else {
 				deepQuery = `${query} live updates ${dateStr}`;
 			}
@@ -273,9 +298,14 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				
+				// INTERCEPTION ENGINE
+				if (["score", "game", "nba", "basketball", "points", "stats", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
-				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today", "stock", "shares", "close", "price", "net"].some(kw => userMsg.toLowerCase().includes(kw))) {
+				} else if (["stock", "shares", "ticker", "close", "price", "market", "net"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					// Route Cloudflare/NET stock commands directly to native asset quote tracker
+					liveContext = await this.getLiveStockPrice("NET");
+				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
