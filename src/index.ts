@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -67,7 +67,6 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	// === UNIVERSAL DYNAMIC NBA REAL-TIME DATA ENGINE (BOX SCORE FIX) ===
 	async getLiveNBAScore(query: string): Promise<string> {
 		try {
 			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
@@ -78,7 +77,6 @@ export class ChatSession extends DurableObject<Env> {
 				return "[LIVE NBA FEED] No games scheduled or listed on the primary league slate today.";
 			}
 
-			// Format entire active board layout if requested broadly
 			if (normalizedQuery.includes("all games") || normalizedQuery.includes("every game") || normalizedQuery.includes("scores") || normalizedQuery.includes("scoreboard")) {
 				let summary = "[LIVE NBA LEAGUE SUMMARY]\n";
 				for (const event of data.events) {
@@ -91,7 +89,6 @@ export class ChatSession extends DurableObject<Env> {
 				return summary;
 			}
 
-			// Target scanning loop across keyword arguments
 			const targetEvent = data.events.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
@@ -101,7 +98,7 @@ export class ChatSession extends DurableObject<Env> {
 			});
 
 			if (!targetEvent) {
-				let list = "[LIVE NBA FEED] Specific team matchup match uncertain. Active matchups on the slate right now:\n";
+				let list = "[LIVE NBA FEED] Specific team matchup uncertain. Active matchups right now:\n";
 				data.events.forEach((e: any) => {
 					list += `- ${e.name} (${e.status?.type?.detail || "Scheduled"})\n`;
 				});
@@ -119,7 +116,6 @@ export class ChatSession extends DurableObject<Env> {
 
 			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Clock Status: ${status}`;
 
-			// Box score deep data processor array lookup
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`);
@@ -146,7 +142,7 @@ export class ChatSession extends DurableObject<Env> {
 						});
 					}
 				} catch (boxErr) {
-					contextPayload += " | (Player box score array currently assembling on standard latency lock...)";
+					contextPayload += " | (Player box score data array processing on temporary delay...)";
 				}
 				return contextPayload;
 			}
@@ -165,7 +161,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			return `${contextPayload}${statsContext}`;
 		} catch (err) {
-			return "[LIVE NBA FEED] The primary ESPN scoreboard network infrastructure is currently timing out.";
+			return "[LIVE NBA FEED] Scoreboard network infrastructure timing out.";
 		}
 	}
 
@@ -198,13 +194,17 @@ export class ChatSession extends DurableObject<Env> {
 	async tavilySearch(query: string, dateStr: string) {
 		try {
 			let deepQuery = query;
+			let topicMode = "general";
 			const lowerQ = query.toLowerCase();
+
 			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (lowerQ.match(/weather/)) {
-				deepQuery = `${query} current temperature condition updates plymouth ma ${dateStr}`;
+				topicMode = "news";
+				deepQuery = `current exact temperature weather condition hourly updates plymouth ma ${dateStr}`;
 			} else if (lowerQ.match(/stock|price|net|market|shares|close/)) {
-				deepQuery = `${query} ticker market close exact price today real time financial metrics ${dateStr}`;
+				topicMode = "news";
+				deepQuery = `NYSE NET Cloudflare stock ticker exact final closing price per share today ${dateStr}`;
 			} else {
 				deepQuery = `${query} live updates ${dateStr}`;
 			}
@@ -216,12 +216,13 @@ export class ChatSession extends DurableObject<Env> {
 					api_key: this.env.TAVILY_API_KEY || "", 
 					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
+					topic: topicMode,
 					include_answer: true, 
 					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
-			return `[LIVE TAVILY WEBHook FEED] Verified Eastern Time Horizon Anchor: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
+			return `[LIVE TAVILY FEED] Current Time Horizon: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { return "Search unavailable."; }
 	}
 
@@ -269,4 +270,73 @@ export class ChatSession extends DurableObject<Env> {
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
-				const recentContext = history
+				const recentContext = historyFetch.results?.reverse() || [];
+
+				let liveContext = "";
+				if (["score", "game", "nba", "basketball", "points", "stats", "cavs", "cavaliers", "spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "playoff", "boxscore", "box score"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.getLiveNBAScore(userMsg);
+				} else if (["weather", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today", "stock", "shares", "close", "price", "net"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+				}
+
+				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+				}
+
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
+
+				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
+
+### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
+
+				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+
+				if (chatTxt.includes("_ACTION_TRIGGER:")) {
+					try {
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
+						if (triggerLine) {
+							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
+							const payload = JSON.parse(jsonString);
+
+							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+								method: "POST",
+								headers: { 
+									"Content-Type": "application/json",
+									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
+								},
+								body: JSON.stringify(payload)
+							});
+
+							if (mcpResponse.ok) {
+								const toolExecutionResult = await mcpResponse.text();
+								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+
+								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+							}
+						}
+					} catch (parseErr: any) {
+						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+
+				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		}
+		return new Response("OK");
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
