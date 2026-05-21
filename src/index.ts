@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -45,6 +45,11 @@ Available Tool 3: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
 Arguments: { "zone": "foyer" | "master_bedroom", "temperature": number }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone":"foyer","temperature":70}}
+
+Available Tool 4: "get_house_temperatures"
+Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
+Arguments: {}
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -186,8 +191,8 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// CLIMATE TUNNEL DISPATCHER ENFORCEMENT
-				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate"].some(kw => userMsg.toLowerCase().includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tool "set_house_temperature". If the user mentions 'main floor' or 'foyer' or 'downstairs', map the zone argument strictly to 'foyer'. If they mention 'bedroom' or 'master' or 'upstairs', map it to 'master_bedroom'. Always output the trigger payload at the absolute end of your turn if changes are requested.`;
+				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => userMsg.toLowerCase().includes(kw))) {
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
