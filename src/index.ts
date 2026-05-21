@@ -52,7 +52,6 @@ export class ChatSession extends DurableObject<Env> {
 
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
-		// Explicitly bind the execution context so it's fully accessible to methods
 		this.doCtx = ctx;
 	}
 
@@ -69,7 +68,6 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard");
 			const data: any = await res.json();
 			
-			// Isolate Cleveland Cavaliers game metrics from the active list
 			const cavsGame = data.events?.find((e: any) => 
 				e.shortName.includes("CLE") || e.name.toLowerCase().includes("cavaliers")
 			);
@@ -77,7 +75,7 @@ export class ChatSession extends DurableObject<Env> {
 			if (!cavsGame) return "No active Cleveland Cavaliers game listed on today's NBA scoreboard loop right now.";
 
 			const status = cavsGame.status?.type?.detail || "Unknown State";
-			const competitors = competitors = data.events?.find((e: any) =>  || [];
+			const competitors = cavsGame.competitions?.[0]?.competitors || [];
 			
 			const team1 = competitors[0]?.team?.displayName || "TBD";
 			const score1 = competitors[0]?.score || "0";
@@ -156,8 +154,6 @@ export class ChatSession extends DurableObject<Env> {
 
 		if (url.pathname === "/api/profile") {
 			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
-			
-			// REFRESH CAP FIXED: Pulls the 100 most recent items from the D1 history stack and sub-sorts them back to chronological order
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
@@ -183,7 +179,6 @@ export class ChatSession extends DurableObject<Env> {
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-				// DETECT SPORTS TALK: Intercept and prioritize raw live ESPN API payload injection
 				if (["score", "game", "cavs", "cavaliers", "knicks", "nba"].some(kw => userMsg.toLowerCase().includes(kw))) {
 					liveContext = await this.getLiveCavsScore();
 				} else if (["weather", "now", "current", "news", "mma", "ufc", "playoff", "fight"].some(kw => userMsg.toLowerCase().includes(kw))) {
@@ -206,7 +201,6 @@ export class ChatSession extends DurableObject<Env> {
 				const chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 
-				// === FUTURE-PROOF GLOBAL MCP TUNNEL DISPATCHER ===
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
@@ -214,8 +208,6 @@ export class ChatSession extends DurableObject<Env> {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// Force standard inline blocking await to prevent silent drops
-							// FIXED PATH: Pointed explicitly to your exact local gateway handler endpoint
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
 								headers: { 
@@ -231,7 +223,6 @@ export class ChatSession extends DurableObject<Env> {
 							}
 						}
 					} catch (parseErr: any) {
-						// Expose the raw connection or WAF blocking errors on the user chat banner
 						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
 					}
 				}
