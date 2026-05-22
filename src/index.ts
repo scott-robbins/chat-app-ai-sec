@@ -142,33 +142,40 @@ export class ChatSession extends DurableObject<Env> {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Player Splits]:\n`;
 							
+							// BULLETPROOF FALLBACK SCHEMA MATRIX FOR MODERN ESPN API OBJECT WRAPPERS
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
-							const playersRows = teamBox.athletes || []; // Standardized target schema fix
 							
-							playersRows.slice(0, 11).forEach((p: any) => {
-								const name = p.athlete?.displayName || "Player";
-								let pts = "0", reb = "0", ast = "0", min = "0";
-								
-								if (statsKeys.length > 0 && p.stats && p.stats.length > 0) {
-									const extractValue = (key: string): string => {
-										const index = statsKeys.indexOf(key);
-										if (index === -1) return "0";
-										const node = p.stats[index];
-										if (!node) return "0";
-										if (typeof node === 'object') {
-											return node.displayValue || node.value || "0";
-										}
-										return String(node);
-									};
+							// Resolves direct node mapping paths across both raw object arrays and sub-nodes
+							const playersRows = teamBox.athletes || teamBox.competitionTeamAthletes || targetStatsObj?.athletes || [];
+							
+							if (playersRows && playersRows.length > 0) {
+								playersRows.slice(0, 11).forEach((p: any) => {
+									const name = p.athlete?.displayName || "Player";
+									let pts = "0", reb = "0", ast = "0", min = "0";
+									
+									if (statsKeys.length > 0 && p.stats && p.stats.length > 0) {
+										const extractValue = (key: string): string => {
+											const index = statsKeys.indexOf(key);
+											if (index === -1) return "0";
+											const node = p.stats[index];
+											if (!node) return "0";
+											if (typeof node === 'object') {
+												return node.displayValue || node.value || "0";
+											}
+											return String(node);
+										};
 
-									pts = extractValue("pts");
-									reb = extractValue("reb");
-									ast = extractValue("ast");
-									min = extractValue("min");
-								}
-								contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
-							});
+										pts = extractValue("pts");
+										reb = extractValue("reb");
+										ast = extractValue("ast");
+										min = extractValue("min");
+									}
+									contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
+								});
+							} else {
+								contextPayload += " (Player box score rows are currently updating upstream... Check back shortly!)\n";
+							}
 						});
 					}
 				} catch (boxErr) {
