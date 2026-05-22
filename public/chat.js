@@ -118,66 +118,6 @@ async function updateSidebarContent() {
     } catch (e) { console.error("Sidebar sync failed:", e); }
 }
 
-// --- NATIVE FRONTEND WEBRTC HANDSHAKE MANAGER ---
-async function executeWebRtcHandshake(cameraLocation) {
-    try {
-        console.log(`🚀 Dispatching dynamic browser WebRTC tracks for target: [${cameraLocation}]`);
-        
-        const pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-        });
-
-        pc.addTransceiver('audio', { direction: 'recvonly' });
-        pc.addTransceiver('video', { direction: 'recvonly' });
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        const response = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                tool: "generate_camera_stream",
-                arguments: {
-                    camera: cameraLocation,
-                    clientSdpOffer: offer.sdp
-                }
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.status === "Success" && data.answerSdp) {
-            console.log("✅ Google media engine authorized answer SDP! Binding video elements...");
-            
-            await pc.setRemoteDescription(new RTCSessionDescription({
-                type: 'answer',
-                sdp: data.answerSdp
-            }));
-
-            pc.ontrack = (event) => {
-                const existingPlayer = document.getElementById("jolene-live-video");
-                if (existingPlayer) existingPlayer.remove();
-
-                const video = document.createElement("video");
-                video.id = "jolene-live-video";
-                video.srcObject = event.streams[0];
-                video.autoplay = true;
-                video.controls = true;
-                video.playsInline = true;
-                video.style = "width: 100%; max-width: 550px; margin-top: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: block;";
-                
-                chatMessages.appendChild(video);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            };
-        } else {
-            console.error("❌ Handshake rejected down pipeline:", data.error);
-        }
-    } catch (err) {
-        console.error("❌ WebRTC Engine Exception: ", err);
-    }
-}
-
 // --- CHAT LOGIC ---
 async function sendMessage() {
     const message = userInput.value.trim();
@@ -196,26 +136,31 @@ async function sendMessage() {
         });
         typingIndicator?.classList.remove("visible");
 
-        const data = await response.json();
-
-        // 1. Check if the server is passing a WebRTC Handshake Directive Block
-        if (data.status === "WEBRTC_HANDSHAKE_REQUIRED") {
-            addMessageToChat("assistant", data.assistant_response);
-            chatHistory.push({ role: "assistant", content: data.assistant_response });
-            speak(data.assistant_response);
-            
-            // Fire the native browser media threads out down the tunnel proxy
-            await executeWebRtcHandshake(data.camera);
-            if (sidebar.classList.contains("open")) updateSidebarContent();
-            return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const msgEl = createMessageElement("assistant");
+        chatMessages.appendChild(msgEl);
+        const contentEl = msgEl.querySelector(".message-content");
+        let text = "";
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value).split("\n");
+            for (const line of chunk) {
+                if (line.startsWith("data: ")) {
+                    const dataString = line.slice(6).trim();
+                    if (dataString === "[DONE]") break;
+                    try {
+                        const json = JSON.parse(dataString);
+                        text += json.response || "";
+                        contentEl.innerHTML = marked.parse(text);
+                    } catch (e) {}
+                }
+            }
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-
-        // 2. Standard message path handling for general text responses
-        const textOutput = data.response || "Brain blip. Try again.";
-        addMessageToChat("assistant", textOutput);
-        chatHistory.push({ role: "assistant", content: textOutput });
-        speak(textOutput);
-
+        chatHistory.push({ role: "assistant", content: text });
+        speak(text);
         if (sidebar.classList.contains("open")) updateSidebarContent();
     } catch (err) { 
         addMessageToChat("assistant", "Error: " + err.message); 
@@ -239,11 +184,13 @@ function createMessageElement(role) {
 }
 
 // --- MEMORIZE ---
-fileInput?.addEventListener("change", () => {});
 memorizeBtn?.addEventListener("click", async () => {
     let file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
-    if (file.size > 10 * 1024 * 1024) return alert("File under 10MB please.");
+    
+    if (file.size > 10 * 1024 * 1024) {
+        return alert("File is too large! Please keep it under 10MB.");
+    }
 
     memorizeBtn.innerText = "Uploading to Brain...";
     memorizeBtn.disabled = true;
@@ -253,17 +200,31 @@ memorizeBtn?.addEventListener("click", async () => {
     formData.append("file", file);
 
     try {
-        const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
+        const res = await fetch("/api/memorize", { 
+            method: "POST", 
+            headers: { "x-session-id": sessionId }, 
+            body: formData 
+        });
+        
         const data = await res.json();
+
         if (res.ok) {
             const feedbackText = `I've successfully memorized **${file.name}**.`;
             addMessageToChat("assistant", feedbackText);
             speak(feedbackText);
             fileInput.value = "";
             updateSidebarContent();
-        } else { throw new Error(data.error || "Server error"); }
-    } catch (e) { addMessageToChat("assistant", `Snag: ${e.message}`); } 
-    finally { memorizeBtn.innerText = "Memorize File"; memorizeBtn.disabled = false; typingIndicator?.classList.remove("visible"); }
+        } else {
+            throw new Error(data.error || "Server error");
+        }
+    } catch (e) { 
+        console.error("Memorize Error:", e);
+        addMessageToChat("assistant", `Sorry, I hit a snag: ${e.message}`);
+    } finally { 
+        memorizeBtn.innerText = "Memorize File"; 
+        memorizeBtn.disabled = false;
+        typingIndicator?.classList.remove("visible");
+    }
 });
 
 sendButton?.addEventListener("click", sendMessage);
@@ -287,10 +248,12 @@ async function init() {
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
         }
+
         const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
         if (profileRes.ok) {
             const data = await profileRes.json();
             document.body.classList.toggle("theme-fancy", data.theme === "fancy");
+            
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
@@ -298,6 +261,9 @@ async function init() {
             }
             updateSidebarContent();
         }
-    } catch (e) { console.error("Initialization failed:", e); }
+    } catch (e) {
+        console.error("Initialization failed:", e);
+    }
 }
+
 init();
