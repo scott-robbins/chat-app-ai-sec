@@ -196,67 +196,25 @@ async function sendMessage() {
         });
         typingIndicator?.classList.remove("visible");
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        const msgEl = createMessageElement("assistant");
-        chatMessages.appendChild(msgEl);
-        const contentEl = msgEl.querySelector(".message-content");
-        
-        let fullAccumulatedText = "";
+        const data = await response.json();
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value).split("\n");
-            for (const line of chunk) {
-                if (line.startsWith("data: ")) {
-                    const dataString = line.slice(6).trim();
-                    if (dataString === "[DONE]") break;
-                    try {
-                        const json = JSON.parse(dataString);
-                        fullAccumulatedText += json.response || "";
-                        
-                        // Clean visual string replacement to keep chat bubble beautiful while typing
-                        let cleaningView = fullAccumulatedText;
-                        if (cleaningView.includes("||WEBRTC_SIGNAL_START:")) {
-                            const parts = cleaningView.split("||");
-                            cleaningView = parts.length > 2 ? parts.slice(2).join("").trim() : "";
-                        }
-                        contentEl.innerHTML = marked.parse(cleaningView);
-                    } catch (e) {}
-                }
-            }
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        // --- BULLETPROOF POST-STREAM EXTRACTION ENGINE ---
-        let targetCamera = "";
-        let isWebRtcHandshake = false;
-        let finalCleanText = fullAccumulatedText;
-
-        if (fullAccumulatedText.includes("||WEBRTC_SIGNAL_START:")) {
-            isWebRtcHandshake = true;
+        // 1. Check if the server is passing a WebRTC Handshake Directive Block
+        if (data.status === "WEBRTC_HANDSHAKE_REQUIRED") {
+            addMessageToChat("assistant", data.assistant_response);
+            chatHistory.push({ role: "assistant", content: data.assistant_response });
+            speak(data.assistant_response);
             
-            // Explicit array slicing strategy bypassing regex newline blocks entirely
-            const splitTokens = fullAccumulatedText.split("||WEBRTC_SIGNAL_START:");
-            if (splitTokens.length > 1) {
-                const rightSideString = splitTokens[1]; // e.g., "garage||On it, Scott..."
-                const targetCameraTokens = rightSideString.split("||");
-                
-                targetCamera = targetCameraTokens[0].trim(); // Safely extracts "garage"
-                finalCleanText = targetCameraTokens.slice(1).join("||").trim(); // Safely compiles text response
-            }
+            // Fire the native browser media threads out down the tunnel proxy
+            await executeWebRtcHandshake(data.camera);
+            if (sidebar.classList.contains("open")) updateSidebarContent();
+            return;
         }
 
-        // Commit clean conversational text to D1 state histories
-        contentEl.innerHTML = marked.parse(finalCleanText);
-        chatHistory.push({ role: "assistant", content: finalCleanText });
-        speak(finalCleanText);
-
-        // Fire the WebRTC tracks
-        if (isWebRtcHandshake && targetCamera) {
-            await executeWebRtcHandshake(targetCamera);
-        }
+        // 2. Standard message path handling for general text responses
+        const textOutput = data.response || "Brain blip. Try again.";
+        addMessageToChat("assistant", textOutput);
+        chatHistory.push({ role: "assistant", content: textOutput });
+        speak(textOutput);
 
         if (sidebar.classList.contains("open")) updateSidebarContent();
     } catch (err) { 
