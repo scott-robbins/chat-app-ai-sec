@@ -201,9 +201,8 @@ async function sendMessage() {
         const msgEl = createMessageElement("assistant");
         chatMessages.appendChild(msgEl);
         const contentEl = msgEl.querySelector(".message-content");
+        
         let text = "";
-        let isWebRtcHandshake = false;
-        let targetCamera = "";
 
         while (true) {
             const { done, value } = await reader.read();
@@ -215,24 +214,28 @@ async function sendMessage() {
                     if (dataString === "[DONE]") break;
                     try {
                         const json = JSON.parse(dataString);
-                        const rawResponseChunk = json.response || "";
-
-                        // Catch our streamlined streaming signal intercept
-                        if (rawResponseChunk.includes("||WEBRTC_SIGNAL_START:")) {
-                            isWebRtcHandshake = true;
-                            const match = rawResponseChunk.match(/\|\|WEBRTC_SIGNAL_START:(.*?)\|\|(.*)/);
-                            if (match) {
-                                targetCamera = match[1];
-                                text = match[2] || ""; // Filter code wrapper out of visible text bubble
-                            }
-                        } else {
-                            text += rawResponseChunk;
-                        }
-                        contentEl.innerHTML = marked.parse(text);
+                        text += json.response || "";
+                        
+                        // Dynamically hide the signal wrapper characters from the user during streaming
+                        let displayRef = text.replace(/\|\|WEBRTC_SIGNAL_START:.*?\|\|/g, "");
+                        contentEl.innerHTML = marked.parse(displayRef);
                     } catch (e) {}
                 }
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // POST-STREAM EVALUATION LAYER: Read and clean completed transmission frame safely
+        let targetCamera = "";
+        let isWebRtcHandshake = false;
+
+        if (text.includes("||WEBRTC_SIGNAL_START:")) {
+            isWebRtcHandshake = true;
+            const match = text.match(/\|\|WEBRTC_SIGNAL_START:(.*?)\|\|/);
+            if (match) {
+                targetCamera = match[1];
+                text = text.replace(/\|\|WEBRTC_SIGNAL_START:.*?\|\|/g, "").trim();
+            }
         }
 
         chatHistory.push({ role: "assistant", content: text });
