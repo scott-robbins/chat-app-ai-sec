@@ -202,7 +202,7 @@ async function sendMessage() {
         chatMessages.appendChild(msgEl);
         const contentEl = msgEl.querySelector(".message-content");
         
-        let text = "";
+        let fullAccumulatedText = "";
 
         while (true) {
             const { done, value } = await reader.read();
@@ -214,34 +214,46 @@ async function sendMessage() {
                     if (dataString === "[DONE]") break;
                     try {
                         const json = JSON.parse(dataString);
-                        text += json.response || "";
+                        fullAccumulatedText += json.response || "";
                         
-                        // Dynamically hide the signal wrapper characters from the user during streaming
-                        let displayRef = text.replace(/\|\|WEBRTC_SIGNAL_START:.*?\|\|/g, "");
-                        contentEl.innerHTML = marked.parse(displayRef);
+                        // Clean visual string replacement to keep chat bubble beautiful while typing
+                        let cleaningView = fullAccumulatedText;
+                        if (cleaningView.includes("||WEBRTC_SIGNAL_START:")) {
+                            const parts = cleaningView.split("||");
+                            cleaningView = parts.length > 2 ? parts.slice(2).join("").trim() : "";
+                        }
+                        contentEl.innerHTML = marked.parse(cleaningView);
                     } catch (e) {}
                 }
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        // POST-STREAM EVALUATION LAYER: Read and clean completed transmission frame safely
+        // --- BULLETPROOF POST-STREAM EXTRACTION ENGINE ---
         let targetCamera = "";
         let isWebRtcHandshake = false;
+        let finalCleanText = fullAccumulatedText;
 
-        if (text.includes("||WEBRTC_SIGNAL_START:")) {
+        if (fullAccumulatedText.includes("||WEBRTC_SIGNAL_START:")) {
             isWebRtcHandshake = true;
-            const match = text.match(/\|\|WEBRTC_SIGNAL_START:(.*?)\|\|/);
-            if (match) {
-                targetCamera = match[1];
-                text = text.replace(/\|\|WEBRTC_SIGNAL_START:.*?\|\|/g, "").trim();
+            
+            // Explicit array slicing strategy bypassing regex newline blocks entirely
+            const splitTokens = fullAccumulatedText.split("||WEBRTC_SIGNAL_START:");
+            if (splitTokens.length > 1) {
+                const rightSideString = splitTokens[1]; // e.g., "garage||On it, Scott..."
+                const targetCameraTokens = rightSideString.split("||");
+                
+                targetCamera = targetCameraTokens[0].trim(); // Safely extracts "garage"
+                finalCleanText = targetCameraTokens.slice(1).join("||").trim(); // Safely compiles text response
             }
         }
 
-        chatHistory.push({ role: "assistant", content: text });
-        speak(text);
+        // Commit clean conversational text to D1 state histories
+        contentEl.innerHTML = marked.parse(finalCleanText);
+        chatHistory.push({ role: "assistant", content: finalCleanText });
+        speak(finalCleanText);
 
-        // Execute the WebRTC operation out across the tunnel pipeline cleanly
+        // Fire the WebRTC tracks
         if (isWebRtcHandshake && targetCamera) {
             await executeWebRtcHandshake(targetCamera);
         }
