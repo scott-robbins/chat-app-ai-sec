@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -60,8 +60,8 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"generate_camera_stream","arguments":
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 	}
 
@@ -111,7 +111,7 @@ export class ChatSession extends DurableObject<Env> {
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
@@ -204,7 +204,7 @@ export class ChatSession extends DurableObject<Env> {
 				const match = text.match(/"lastPrice":\s*\{\s*"value":\s*([0-9.]+)/);
 				if (match && match[1]) {
 					return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} | Last Closing/Active Price: $${match[1]} | Status: Verified Data.`;
-				}
+                }
 			}
 			return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} trading at $210.13 per share.`;
 		} catch (e) {
@@ -216,7 +216,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -253,13 +253,13 @@ export class ChatSession extends DurableObject<Env> {
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({ 
+					api_key: this.env.TAVILY_API_KEY || "", 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 			const data: any = await res.json();
@@ -298,15 +298,15 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', 
-					day: 'numeric', 
-					year: 'numeric', 
-					hour: 'numeric', 
-					minute: 'numeric', 
-					second: 'numeric', 
-					hour12: true, 
-					timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', 
+					day: 'numeric', 
+					year: 'numeric', 
+					hour: 'numeric', 
+					minute: 'numeric', 
+					second: 'numeric', 
+					hour12: true, 
+					timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -356,17 +356,18 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// INSTEAD OF RETURNING AN ABRUPT FLAT OBJECT response.json(), 
-							// STREAM THE CONTROL INTERCEPT BLOCK DOWN THE EXACT SAME TEXT CHANNEL!
+							// INTERCEPT CAMERA ACTIONS FOR DIRECT WEBRTC RENDERING PAYLOAD BACK TO CLIENT
 							if (payload.tool === "generate_camera_stream") {
-								const cleanAssistantResponse = chatTxt.split("🚨THEATER_ACTION_TRIGGER:")[0].trim();
-								const streamPayload = `data: ${JSON.stringify({ response: `||WEBRTC_SIGNAL_START:${payload.arguments?.camera}||${cleanAssistantResponse}` })}\n\ndata: [DONE]\n\n`;
-								return new Response(streamPayload, { headers: { "Content-Type": "text/event-stream", "Access-Control-Allow-Origin": "*" } });
+								return new Response(JSON.stringify({
+									status: "WEBRTC_HANDSHAKE_REQUIRED",
+									camera: payload.arguments?.camera,
+									assistant_response: chatTxt.split("🚨THEATER_ACTION_TRIGGER:")[0].trim()
+								}), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
 							}
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
@@ -387,9 +388,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 				}
 
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+				return new Response(JSON.stringify({ response: chatTxt }), { headers: { "Content-Type": "application/json" } });
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(JSON.stringify({ response: "Error: " + e.message }), { headers: { "Content-Type": "application/json" } }); }
 		}
 		return new Response("OK");
 	}
