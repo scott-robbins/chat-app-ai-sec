@@ -144,7 +144,7 @@ export class ChatSession extends DurableObject<Env> {
 							
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
-							const playersRows = teamBox.athletes || []; // Adaptive mapping directly onto modern array targets
+							const playersRows = teamBox.athletes || []; // Standardized target schema fix
 							
 							playersRows.slice(0, 11).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
