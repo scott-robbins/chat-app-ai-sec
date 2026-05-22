@@ -70,12 +70,13 @@ modelSelector?.addEventListener("change", () => {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 });
 
-// --- DASHBOARD UPDATER ---
+// --- DASHBOARD UPDATER (UPDATED WITH DO & D1 VOLUME FIX) ---
 async function updateSidebarContent() {
     try {
         const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const data = await res.json();
         
+        // 1. Update Profile/Identity Info
         kvDisplay.innerHTML = `
             <div class="dash-card">
                 <p class="dash-label">Global Identity (KV)</p>
@@ -97,13 +98,13 @@ async function updateSidebarContent() {
             </div>
         `;
 
+        // 2. Update Durable Object Metrics (New Card)
         if (data.durableObject) {
-            const doIdEl = document.getElementById('do-id-display');
-            const doStatEl = document.getElementById('do-status-display');
-            if (doIdEl) doIdEl.innerText = data.durableObject.id;
-            if (doStatEl) doStatEl.innerText = data.durableObject.state;
+            document.getElementById('do-id-display').innerText = data.durableObject.id;
+            document.getElementById('do-status-display').innerText = data.durableObject.state;
         }
 
+        // 3. Update Knowledge Assets (R2)
         fileListDisplay.innerHTML = ""; 
         if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
             data.knowledgeAssets.forEach(fileName => {
@@ -135,7 +136,6 @@ async function sendMessage() {
             body: JSON.stringify({ messages: chatHistory, model: modelSelector?.value })
         });
         typingIndicator?.classList.remove("visible");
-
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const msgEl = createMessageElement("assistant");
@@ -236,6 +236,7 @@ clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; a
 
 window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
 
+// --- INITIALIZATION ---
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
@@ -259,6 +260,7 @@ async function init() {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
+            // Populate metrics immediately on load
             updateSidebarContent();
         }
     } catch (e) {
