@@ -23,7 +23,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - RENEE BEVERAGES: Miller Lite usually. Vodka Renee occasionally appears and can lead to trouble.
 - DOGS: Holidays: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
-- GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls). The Theater Room, Master Bedroom, Kitchen, and main living areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
+- GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls and where your Lava Lamp smart plug sits). The Theater Room, Master Bedroom, Kitchen, and main living areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
@@ -37,9 +37,9 @@ Arguments: { "scene": "movie_mode" | "fight_night" | "playoff_mode" | "sports_ba
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_theater_scene","arguments":{"scene":"playoff_mode"}}
 
 Available Tool 2: "control_house_lights"
-Description: Adjusts lighting power and colors across structural main floor zones.
-Arguments: { "zone": "kitchen" | "living_room" | "master_bedroom", "action": "on" | "off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"zone":"kitchen","action":"on","color":"purple"}}
+Description: Adjusts lighting power and colors across structural zones including the main floor and basement environment points.
+Arguments: { "zone": "kitchen" | "living_room" | "master_bedroom" | "office", "action": "on" | "off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"zone":"office","action":"on"}}
 
 Available Tool 3: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
@@ -318,6 +318,11 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+				}
+
+				// INTERCEPT & PROVISION SECURITY CLEARANCE FOR CORE HOUSE LIGHTING ACCENTS
+				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".`;
 				}
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
