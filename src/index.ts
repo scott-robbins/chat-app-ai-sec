@@ -356,6 +356,15 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
+							// INTERCEPT CAMERA ACTIONS FOR FRONT-END WEBRTC CLIENT RENDERING
+							if (payload.tool === "generate_camera_stream") {
+								return new Response(JSON.stringify({
+									status: "WEBRTC_HANDSHAKE_REQUIRED",
+									camera: payload.arguments?.camera,
+									assistant_response: chatTxt.split("🚨THEATER_ACTION_TRIGGER:")[0].trim()
+								}), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+							}
+
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
 								headers: { 
