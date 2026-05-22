@@ -33,7 +33,7 @@ function speak(text) {
     const voices = synth.getVoices();
     const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
                         voices.find(v => v.name.includes("Siri")) || 
-                        voices.find(v => v.lang === "en-US");
+                        voices.find(v => v.name.includes("en-US"));
     
     if (joleneVoice) utterance.voice = joleneVoice;
     utterance.pitch = 1.2; 
@@ -119,6 +119,80 @@ async function updateSidebarContent() {
     } catch (e) { console.error("Sidebar sync failed:", e); }
 }
 
+// --- NATIVE FRONTEND WEBRTC HANDSHAKE MANAGER ---
+async function executeWebRtcHandshake(cameraLocation, originalAssistantText) {
+    try {
+        console.log(`🚀 Starting WebRTC negotiation with camera: [${cameraLocation}]`);
+        
+        // 1. Initialize browser peer context layer mapping Google's open STUN tracker network
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
+
+        // 2. Provision native tracks for incoming audio/video feeds
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.addTransceiver('video', { direction: 'recvonly' });
+
+        // 3. Generate genuine cryptographic session allocation parameters
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // 4. Send client SDP configuration directly down the pipeline
+        const response = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                tool: "generate_camera_stream",
+                arguments: {
+                    camera: cameraLocation,
+                    clientSdpOffer: offer.sdp
+                }
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.status === "Success" && data.answerSdp) {
+            console.log("✅ WebRTC SDP Answer received from camera engine!");
+            
+            // 5. Connect the remote answer description back into Chrome's streaming matrix
+            await pc.setRemoteDescription(new RTCSessionDescription({
+                type: 'answer',
+                sdp: data.answerSdp
+            }));
+
+            // 6. Watch for inbound media track allocation hooks
+            pc.ontrack = (event) => {
+                console.log("🎯 Live camera track landed! Rendering player inside UI container...");
+                
+                // Remove player if one exists to handle live scene updates cleanly
+                const existingPlayer = document.getElementById("jolene-live-video");
+                if (existingPlayer) existingPlayer.remove();
+
+                const video = document.createElement("video");
+                video.id = "jolene-live-video";
+                video.srcObject = event.streams[0];
+                video.autoplay = true;
+                video.controls = true;
+                video.playsInline = true;
+                video.style = "width: 100%; max-width: 550px; margin-top: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: block;";
+                
+                // Mount player module directly underneath her text response wrapper frame
+                chatMessages.appendChild(video);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            };
+        } else {
+            console.error("❌ Pipeline handshake rejected:", data.error);
+            const errDiv = document.createElement("div");
+            errDiv.style = "color: #ef4444; font-size: 0.8rem; margin-top: 8px; opacity: 0.85;";
+            errDiv.innerText = `⚠️ Media Gateway Connection Warning: ${data.error || 'Check local hardware proxy configurations.'}`;
+            chatMessages.appendChild(errDiv);
+        }
+    } catch (err) {
+        console.error("❌ WebRTC Execution Engine Fault:", err);
+    }
+}
+
 // --- CHAT LOGIC ---
 async function sendMessage() {
     const message = userInput.value.trim();
@@ -136,6 +210,27 @@ async function sendMessage() {
             body: JSON.stringify({ messages: chatHistory, model: modelSelector?.value })
         });
         typingIndicator?.classList.remove("visible");
+
+        // Intercept block check for specialized non-streaming JSON control objects (WebRTC Handshake Triggers)
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            const controlData = await response.json();
+            
+            if (controlData.status === "WEBRTC_HANDSHAKE_REQUIRED") {
+                // 1. Output her text response cleanly up to your desktop layout dashboard
+                addMessageToChat("assistant", controlData.assistant_response);
+                chatHistory.push({ role: "assistant", content: controlData.assistant_response });
+                speak(controlData.assistant_response);
+                
+                // 2. Dispatch network handshake protocols to fire up video feed directly
+                await executeWebRtcHandshake(controlData.camera, controlData.assistant_response);
+                
+                if (sidebar.classList.contains("open")) updateSidebarContent();
+                return;
+            }
+        }
+
+        // Standard Text Response Chunk Processing Flow (Main Lighting/Ambiance Streams)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const msgEl = createMessageElement("assistant");
@@ -260,7 +355,6 @@ async function init() {
                 chatHistory = data.messages;
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
-            // Populate metrics immediately on load
             updateSidebarContent();
         }
     } catch (e) {
