@@ -63,6 +63,10 @@
 		{
 			"binding": "DOCUMENTS",
 			"bucket_name": "chat-docs"
+		},
+		{
+			"binding": "JOLENE_AUDIO_BUCKET",
+			"bucket_name": "jolene-audio"
 		}
 	],
 	"analytics_engine_datasets": [
