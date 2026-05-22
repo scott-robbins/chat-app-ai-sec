@@ -33,7 +33,7 @@ function speak(text) {
     const voices = synth.getVoices();
     const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
                         voices.find(v => v.name.includes("Siri")) || 
-                        voices.find(v => v.name.includes("en-US"));
+                        voices.find(v => v.lang === "en-US");
     
     if (joleneVoice) utterance.voice = joleneVoice;
     utterance.pitch = 1.2; 
@@ -70,13 +70,12 @@ modelSelector?.addEventListener("change", () => {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 });
 
-// --- DASHBOARD UPDATER (UPDATED WITH DO & D1 VOLUME FIX) ---
+// --- DASHBOARD UPDATER ---
 async function updateSidebarContent() {
     try {
         const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
         const data = await res.json();
         
-        // 1. Update Profile/Identity Info
         kvDisplay.innerHTML = `
             <div class="dash-card">
                 <p class="dash-label">Global Identity (KV)</p>
@@ -98,13 +97,13 @@ async function updateSidebarContent() {
             </div>
         `;
 
-        // 2. Update Durable Object Metrics (New Card)
         if (data.durableObject) {
-            document.getElementById('do-id-display').innerText = data.durableObject.id;
-            document.getElementById('do-status-display').innerText = data.durableObject.state;
+            const doIdEl = document.getElementById('do-id-display');
+            const doStatEl = document.getElementById('do-status-display');
+            if (doIdEl) doIdEl.innerText = data.durableObject.id;
+            if (doStatEl) doStatEl.innerText = data.durableObject.state;
         }
 
-        // 3. Update Knowledge Assets (R2)
         fileListDisplay.innerHTML = ""; 
         if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
             data.knowledgeAssets.forEach(fileName => {
@@ -120,24 +119,20 @@ async function updateSidebarContent() {
 }
 
 // --- NATIVE FRONTEND WEBRTC HANDSHAKE MANAGER ---
-async function executeWebRtcHandshake(cameraLocation, originalAssistantText) {
+async function executeWebRtcHandshake(cameraLocation) {
     try {
-        console.log(`🚀 Starting WebRTC negotiation with camera: [${cameraLocation}]`);
+        console.log(`🚀 Dispatching dynamic browser WebRTC tracks for target: [${cameraLocation}]`);
         
-        // 1. Initialize browser peer context layer mapping Google's open STUN tracker network
         const pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
         });
 
-        // 2. Provision native tracks for incoming audio/video feeds
         pc.addTransceiver('audio', { direction: 'recvonly' });
         pc.addTransceiver('video', { direction: 'recvonly' });
 
-        // 3. Generate genuine cryptographic session allocation parameters
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        // 4. Send client SDP configuration directly down the pipeline
         const response = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -153,19 +148,14 @@ async function executeWebRtcHandshake(cameraLocation, originalAssistantText) {
         const data = await response.json();
 
         if (data.status === "Success" && data.answerSdp) {
-            console.log("✅ WebRTC SDP Answer received from camera engine!");
+            console.log("✅ Google media engine authorized answer SDP! Binding video elements...");
             
-            // 5. Connect the remote answer description back into Chrome's streaming matrix
             await pc.setRemoteDescription(new RTCSessionDescription({
                 type: 'answer',
                 sdp: data.answerSdp
             }));
 
-            // 6. Watch for inbound media track allocation hooks
             pc.ontrack = (event) => {
-                console.log("🎯 Live camera track landed! Rendering player inside UI container...");
-                
-                // Remove player if one exists to handle live scene updates cleanly
                 const existingPlayer = document.getElementById("jolene-live-video");
                 if (existingPlayer) existingPlayer.remove();
 
@@ -177,19 +167,14 @@ async function executeWebRtcHandshake(cameraLocation, originalAssistantText) {
                 video.playsInline = true;
                 video.style = "width: 100%; max-width: 550px; margin-top: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: block;";
                 
-                // Mount player module directly underneath her text response wrapper frame
                 chatMessages.appendChild(video);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             };
         } else {
-            console.error("❌ Pipeline handshake rejected:", data.error);
-            const errDiv = document.createElement("div");
-            errDiv.style = "color: #ef4444; font-size: 0.8rem; margin-top: 8px; opacity: 0.85;";
-            errDiv.innerText = `⚠️ Media Gateway Connection Warning: ${data.error || 'Check local hardware proxy configurations.'}`;
-            chatMessages.appendChild(errDiv);
+            console.error("❌ Handshake rejected down pipeline:", data.error);
         }
     } catch (err) {
-        console.error("❌ WebRTC Execution Engine Fault:", err);
+        console.error("❌ WebRTC Engine Exception: ", err);
     }
 }
 
@@ -211,32 +196,15 @@ async function sendMessage() {
         });
         typingIndicator?.classList.remove("visible");
 
-        // Intercept block check for specialized non-streaming JSON control objects (WebRTC Handshake Triggers)
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-            const controlData = await response.json();
-            
-            if (controlData.status === "WEBRTC_HANDSHAKE_REQUIRED") {
-                // 1. Output her text response cleanly up to your desktop layout dashboard
-                addMessageToChat("assistant", controlData.assistant_response);
-                chatHistory.push({ role: "assistant", content: controlData.assistant_response });
-                speak(controlData.assistant_response);
-                
-                // 2. Dispatch network handshake protocols to fire up video feed directly
-                await executeWebRtcHandshake(controlData.camera, controlData.assistant_response);
-                
-                if (sidebar.classList.contains("open")) updateSidebarContent();
-                return;
-            }
-        }
-
-        // Standard Text Response Chunk Processing Flow (Main Lighting/Ambiance Streams)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const msgEl = createMessageElement("assistant");
         chatMessages.appendChild(msgEl);
         const contentEl = msgEl.querySelector(".message-content");
         let text = "";
+        let isWebRtcHandshake = false;
+        let targetCamera = "";
+
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -247,15 +215,34 @@ async function sendMessage() {
                     if (dataString === "[DONE]") break;
                     try {
                         const json = JSON.parse(dataString);
-                        text += json.response || "";
+                        const rawResponseChunk = json.response || "";
+
+                        // Catch our streamlined streaming signal intercept
+                        if (rawResponseChunk.includes("||WEBRTC_SIGNAL_START:")) {
+                            isWebRtcHandshake = true;
+                            const match = rawResponseChunk.match(/\|\|WEBRTC_SIGNAL_START:(.*?)\|\|(.*)/);
+                            if (match) {
+                                targetCamera = match[1];
+                                text = match[2] || ""; // Filter code wrapper out of visible text bubble
+                            }
+                        } else {
+                            text += rawResponseChunk;
+                        }
                         contentEl.innerHTML = marked.parse(text);
                     } catch (e) {}
                 }
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+
         chatHistory.push({ role: "assistant", content: text });
         speak(text);
+
+        // Execute the WebRTC operation out across the tunnel pipeline cleanly
+        if (isWebRtcHandshake && targetCamera) {
+            await executeWebRtcHandshake(targetCamera);
+        }
+
         if (sidebar.classList.contains("open")) updateSidebarContent();
     } catch (err) { 
         addMessageToChat("assistant", "Error: " + err.message); 
@@ -279,13 +266,11 @@ function createMessageElement(role) {
 }
 
 // --- MEMORIZE ---
+fileInput?.addEventListener("change", () => {});
 memorizeBtn?.addEventListener("click", async () => {
     let file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
-    
-    if (file.size > 10 * 1024 * 1024) {
-        return alert("File is too large! Please keep it under 10MB.");
-    }
+    if (file.size > 10 * 1024 * 1024) return alert("File under 10MB please.");
 
     memorizeBtn.innerText = "Uploading to Brain...";
     memorizeBtn.disabled = true;
@@ -295,31 +280,17 @@ memorizeBtn?.addEventListener("click", async () => {
     formData.append("file", file);
 
     try {
-        const res = await fetch("/api/memorize", { 
-            method: "POST", 
-            headers: { "x-session-id": sessionId }, 
-            body: formData 
-        });
-        
+        const res = await fetch("/api/memorize", { method: "POST", headers: { "x-session-id": sessionId }, body: formData });
         const data = await res.json();
-
         if (res.ok) {
             const feedbackText = `I've successfully memorized **${file.name}**.`;
             addMessageToChat("assistant", feedbackText);
             speak(feedbackText);
             fileInput.value = "";
             updateSidebarContent();
-        } else {
-            throw new Error(data.error || "Server error");
-        }
-    } catch (e) { 
-        console.error("Memorize Error:", e);
-        addMessageToChat("assistant", `Sorry, I hit a snag: ${e.message}`);
-    } finally { 
-        memorizeBtn.innerText = "Memorize File"; 
-        memorizeBtn.disabled = false;
-        typingIndicator?.classList.remove("visible");
-    }
+        } else { throw new Error(data.error || "Server error"); }
+    } catch (e) { addMessageToChat("assistant", `Snag: ${e.message}`); } 
+    finally { memorizeBtn.innerText = "Memorize File"; memorizeBtn.disabled = false; typingIndicator?.classList.remove("visible"); }
 });
 
 sendButton?.addEventListener("click", sendMessage);
@@ -331,7 +302,6 @@ clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; a
 
 window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
 
-// --- INITIALIZATION ---
 async function init() {
     try {
         const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
@@ -344,12 +314,10 @@ async function init() {
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
         }
-
         const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
         if (profileRes.ok) {
             const data = await profileRes.json();
             document.body.classList.toggle("theme-fancy", data.theme === "fancy");
-            
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
@@ -357,9 +325,6 @@ async function init() {
             }
             updateSidebarContent();
         }
-    } catch (e) {
-        console.error("Initialization failed:", e);
-    }
+    } catch (e) { console.error("Initialization failed:", e); }
 }
-
 init();
