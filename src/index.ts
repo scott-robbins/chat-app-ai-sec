@@ -77,7 +77,7 @@ export class ChatSession extends DurableObject<Env> {
 			const dataToday: any = await resToday.json();
 			let allEvents = dataToday.events || [];
 
-			// 2. Fetch Yesterday's Scoreboard to catch concluded playoff games
+			// 2. Fetch Yesterday's Scoreboard to catch concluded playoff/finals games
 			try {
 				const yesterday = new Date();
 				yesterday.setDate(yesterday.getDate() - 1);
@@ -144,7 +144,7 @@ export class ChatSession extends DurableObject<Env> {
 							
 							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
 							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
-							const playersRows = targetStatsObj?.athletes || [];
+							const playersRows = teamBox.athletes || []; // Adaptive mapping directly onto modern array targets
 							
 							playersRows.slice(0, 11).forEach((p: any) => {
 								const name = p.athlete?.displayName || "Player";
@@ -308,7 +308,7 @@ export class ChatSession extends DurableObject<Env> {
 				const lowerMsg = userMsg.toLowerCase();
 
 				// HARDENED EXPLICIT IDENTIFIER ROUTER
-				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard"].some(kw => lowerMsg.includes(kw))) {
+				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
