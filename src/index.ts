@@ -380,7 +380,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
 				
-				// Reverted back to pristine Server-Sent Events stream initialization response layout
+				// Standard Server-Sent Events stream initialization response layout
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`, {
 					headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
 				});
