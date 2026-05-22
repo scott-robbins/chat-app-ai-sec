@@ -134,31 +134,32 @@ export class ChatSession extends DurableObject<Env> {
 				try {
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
-					const boxscores = summaryData.boxscore?.players;
+					const boxGroup = summaryData.boxscore?.players;
 					
-					if (boxscores && boxscores.length > 0) {
+					if (boxGroup && boxGroup.length > 0) {
 						contextPayload += `\n\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS ===\n`;
-						boxscores.forEach((teamBox: any) => {
+						boxGroup.forEach((teamBox: any) => {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Player Splits]:\n`;
 							
-							// BULLETPROOF FALLBACK SCHEMA MATRIX FOR MODERN ESPN API OBJECT WRAPPERS
-							const targetStatsObj = teamBox.statistics?.find((s: any) => s.keys && s.keys.length > 0) || teamBox.statistics?.[0];
-							const statsKeys = (targetStatsObj?.keys || []).map((k: string) => k.toLowerCase());
+							// ADAPTIVE STRUCTURAL TUNNEL: Read keys or names from nested summary tree nodes safely
+							const statWrapper = teamBox.statistics?.[0] || {};
+							const rawKeysArray = statWrapper.names || statWrapper.keys || [];
+							const statsKeys = rawKeysArray.map((k: string) => String(k).toLowerCase());
 							
-							// Resolves direct node mapping paths across both raw object arrays and sub-nodes
-							const playersRows = teamBox.athletes || teamBox.competitionTeamAthletes || targetStatsObj?.athletes || [];
+							const playersRows = teamBox.athletes || statWrapper.athletes || [];
 							
 							if (playersRows && playersRows.length > 0) {
 								playersRows.slice(0, 11).forEach((p: any) => {
 									const name = p.athlete?.displayName || "Player";
 									let pts = "0", reb = "0", ast = "0", min = "0";
 									
-									if (statsKeys.length > 0 && p.stats && p.stats.length > 0) {
+									const rawStatsArray = p.stats || [];
+									if (statsKeys.length > 0 && rawStatsArray.length > 0) {
 										const extractValue = (key: string): string => {
 											const index = statsKeys.indexOf(key);
 											if (index === -1) return "0";
-											const node = p.stats[index];
+											const node = rawStatsArray[index];
 											if (!node) return "0";
 											if (typeof node === 'object') {
 												return node.displayValue || node.value || "0";
