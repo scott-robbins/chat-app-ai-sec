@@ -277,8 +277,8 @@ export class ChatSession extends DurableObject<Env> {
 			return "";
 		}
 		try {
-			// Universal open access system fallback voice identifier token
-			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
+			// Upgraded native modern English pre-cloned voice token layout
+			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			// Clean out any appended JSON system action triggers from the synthesis text payload
