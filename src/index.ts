@@ -277,8 +277,8 @@ export class ChatSession extends DurableObject<Env> {
 			return "";
 		}
 		try {
-			// Built-in fine-tuned stock "Bella" voice profile identity token
-			const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; 
+			// Universal wide-open default voice token matching all system profiles
+			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const res = await fetch(url, {
@@ -350,9 +350,9 @@ export class ChatSession extends DurableObject<Env> {
 					month: 'long', 
 					day: 'numeric', 
 					year: 'numeric', 
-					hour: 'numeric',  
+					hour: 'numeric', 
 					minute: 'numeric', 
-					second: 'numeric', 
+					second: 'numeric',  
 					hour12: true, 
 					timeZone: 'America/New_York' 
 				}).format(new Date());
