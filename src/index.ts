@@ -281,6 +281,13 @@ export class ChatSession extends DurableObject<Env> {
 			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
+			// Clean out any appended JSON system action triggers from the synthesis text payload
+			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
+				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
+				.trim();
+
+			if (!cleanText) return "";
+
 			const res = await fetch(url, {
 				method: 'POST',
 				headers: {
@@ -288,7 +295,7 @@ export class ChatSession extends DurableObject<Env> {
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify({
-					text: textToSpeak.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, ""), // Strip emoticons for elegant pronounciation
+					text: cleanText,
 					model_id: "eleven_multilingual_v2",
 					voice_settings: { stability: 0.75, similarity_boost: 0.85 }
 				})
