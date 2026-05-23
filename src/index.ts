@@ -350,7 +350,7 @@ export class ChatSession extends DurableObject<Env> {
 					month: 'long', 
 					day: 'numeric', 
 					year: 'numeric', 
-					hour: 'numeric', 
+					hour: 'numeric',  
 					minute: 'numeric', 
 					second: 'numeric', 
 					hour12: true, 
