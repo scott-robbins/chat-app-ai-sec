@@ -41,12 +41,17 @@ Description: Adjusts lighting power and colors across structural zones including
 Arguments: { "zone": "kitchen" | "living_room" | "master_bedroom" | "office", "action": "on" | "off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"zone":"office","action":"on"}}
 
-Available Tool 3: "set_house_temperature"
+Available Tool 3: "control_sonos_audio"
+Description: Streams dynamic text-to-speech audio announcements directly to physical whole-house speaker master zones.
+Arguments: { "zone": "theater" | "office" | "main_bedroom" | "kitchen", "audioUrl": string }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"https://jolene-audio.jolenesego.com/sample.mp3"}}
+
+Available Tool 4: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
 Arguments: { "zone": "foyer" | "master_bedroom", "temperature": number }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone":"foyer","temperature":70}}
 
-Available Tool 4: "get_house_temperatures"
+Available Tool 5: "get_house_temperatures"
 Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
 Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
@@ -142,7 +147,6 @@ export class ChatSession extends DurableObject<Env> {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Player Splits]:\n`;
 							
-							// ADAPTIVE STRUCTURAL TUNNEL: Read keys or names from nested summary tree nodes safely
 							const statWrapper = teamBox.statistics?.[0] || {};
 							const rawKeysArray = statWrapper.names || statWrapper.keys || [];
 							const statsKeys = rawKeysArray.map((k: string) => String(k).toLowerCase());
@@ -266,6 +270,51 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search unavailable."; }
 	}
 
+	// === CLOUD RE-ROUTING ELEVENLABS AUDIO SYNTHESIS ENGINE ===
+	async generateHerAudioStream(textToSpeak: string): Promise<string> {
+		if (!this.env.ELEVEN_LABS_API_KEY) {
+			console.error("Missing ELEVEN_LABS_API_KEY variable context flag.");
+			return "";
+		}
+		try {
+			// Built-in fine-tuned stock "Bella" voice profile identity token
+			const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; 
+			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
+
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: {
+					'xi-api-key': this.env.ELEVEN_LABS_API_KEY,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					text: textToSpeak.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, ""), // Strip emoticons for elegant pronounciation
+					model_id: "eleven_monolingual_v1",
+					voice_settings: { stability: 0.75, similarity_boost: 0.85 }
+				})
+			});
+
+			if (!res.ok) {
+				console.error(`ElevenLabs rejected synthesis request with status: ${res.status}`);
+				return "";
+			}
+
+			const audioBuffer = await res.arrayBuffer();
+			const fileKey = `announcement_${Date.now()}.mp3`;
+
+			// Put the file stream asset directly onto Cloudflare R2 Global Architecture
+			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
+				httpMetadata: { contentType: "audio/mpeg" }
+			});
+
+			// Map back to our authenticated proxy custom CDN domain path
+			return `http://jolene-audio.jolenesego.com/${fileKey}`;
+		} catch (err) {
+			console.error("Audio Generation Loop Failed:", err);
+			return "";
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
@@ -333,6 +382,17 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".`;
 				}
 
+				// DETECT AND ISOLATE TARGET WHOLE-HOUSE AUDIO DIRECTIVES
+				let sonosTargetZone = "";
+				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.includes(kw))) {
+					if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
+					else if (lowerMsg.includes("theater") || lowerMsg.includes("game")) sonosTargetZone = "theater";
+					else if (lowerMsg.includes("kitchen")) sonosTargetZone = "kitchen";
+					else sonosTargetZone = "office";
+
+					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.`;
+				}
+
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
@@ -345,6 +405,14 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+
+				// INTENT INTERCEPTION FOR BACKGROUND TTS STREAM COMPILATION
+				if (sonosTargetZone !== "" && !chatTxt.includes("_ACTION_TRIGGER:")) {
+					const generatedUrl = await this.generateHerAudioStream(chatTxt);
+					if (generatedUrl !== "") {
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
+					}
+				}
 
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
