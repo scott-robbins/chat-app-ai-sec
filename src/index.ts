@@ -277,8 +277,8 @@ export class ChatSession extends DurableObject<Env> {
 			return "";
 		}
 		try {
-			// Built-in fine-tuned stock "Bella" voice profile identity token
-			const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; 
+			// Universal open access system fallback voice identifier token
+			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const res = await fetch(url, {
@@ -289,7 +289,7 @@ export class ChatSession extends DurableObject<Env> {
 				},
 				body: JSON.stringify({
 					text: textToSpeak.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, ""), // Strip emoticons for elegant pronounciation
-					model_id: "eleven_monolingual_v1",
+					model_id: "eleven_multilingual_v2",
 					voice_settings: { stability: 0.75, similarity_boost: 0.85 }
 				})
 			});
@@ -300,7 +300,7 @@ export class ChatSession extends DurableObject<Env> {
 			}
 
 			const audioBuffer = await res.arrayBuffer();
-			const fileKey = `announcement_${Date.now()}.mp3`;
+			const fileKey = "voice-system-online.mp3";
 
 			// Put the file stream asset directly onto Cloudflare R2 Global Architecture
 			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
@@ -407,9 +407,11 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
 				// INTENT INTERCEPTION FOR BACKGROUND TTS STREAM COMPILATION
-				if (sonosTargetZone !== "" && !chatTxt.includes("_ACTION_TRIGGER:")) {
+				if (sonosTargetZone !== "") {
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
 					if (generatedUrl !== "") {
+						// Clean out potential redundant AI model appended triggers to ensure absolute pipeline integrity
+						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					}
 				}
