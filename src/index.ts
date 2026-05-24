@@ -77,11 +77,11 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const normalizedQuery = query.toLowerCase();
 			
-			// Concurrently pull today's feed, yesterday's fallback, and the global postseason summary bracket array
-			const [resToday, resYesterday, resSummary] = await Promise.all([
+			// Concurrently pull today's slate, yesterday's fallback, and the entire active postseason series cluster array
+			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
 				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
-				fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1`, { headers: { "User-Agent": "Mozilla/5.0" } }),
-				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary", { headers: { "User-Agent": "Mozilla/5.0" } }).catch(() => null)
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100", { headers: { "User-Agent": "Mozilla/5.0" } })
 			]);
 
 			const dataToday: any = await resToday.json();
@@ -94,19 +94,20 @@ export class ChatSession extends DurableObject<Env> {
 				}
 			} catch (e) { console.error("Failed merging fallback calendar rows:", e); }
 
-			// Fallback string collector parsing potential postseason summaries
-			let seriesContextSummary = "";
-			if (resSummary && resSummary.ok) {
-				try {
-					const summaryData: any = await resSummary.json();
-					if (summaryData.playoffs || summaryData.postseason) {
-						seriesContextSummary = `\n[PLAYOFF SERIES BRACKET INTELLIGENCE]: ${JSON.stringify(summaryData.playoffs || summaryData.postseason)}`;
-					}
-				} catch (jsonErr) { /* Fail silently to prevent routine timeouts */ }
-			}
+			try {
+				const dataPlayoffs: any = await resPlayoffs.json();
+				if (dataPlayoffs.events) {
+					// Merge all active playoff events safely ensuring absolute coverage across tournament boundaries
+					dataPlayoffs.events.forEach((pe: any) => {
+						if (!allEvents.some((e: any) => e.id === pe.id)) {
+							allEvents.push(pe);
+						}
+					});
+				}
+			} catch (e) { console.error("Failed parsing deep tournament group array indices:", e); }
 
-			if (allEvents.length === 0 && !seriesContextSummary) {
-				return "[LIVE NBA FEED] No active playoff matchups or recent scoreboard arrays discovered on the league slate.";
+			if (allEvents.length === 0) {
+				return "[LIVE NBA FEED] No active playoff matchups discovered on the league scoreboard slate.";
 			}
 
 			if (normalizedQuery.match(/all games|every game|scores|scoreboard/)) {
@@ -118,10 +119,10 @@ export class ChatSession extends DurableObject<Env> {
 						summary += `• ${comps[0].team?.displayName} (${comps[0].score}) vs ${comps[1].team?.displayName} (${comps[1].score}) - Status: ${status}\n`;
 					}
 				}
-				return summary + seriesContextSummary;
+				return summary;
 			}
 
-			// Surgical keyword scanning for matching rosters
+			// Search for matching team names anywhere in our expanded multi-day playoff game matrix
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
@@ -131,13 +132,13 @@ export class ChatSession extends DurableObject<Env> {
 			});
 
 			if (!targetEvent) {
-				let list = "[LIVE NBA FEED] Matching active calendar game event not found. Current slate tracking:\n";
+				let list = "[LIVE NBA FEED] Matchup context not active on the immediate calendar. Available items:\n";
 				allEvents.forEach((e: any) => { list += `- ${e.name} (${e.status?.type?.detail || "Scheduled"})\n`; });
-				return list + `\nHistorical Series Data Feed Hook: ${seriesContextSummary || "Active Postseason Playoff Bracket Context Locked."}`;
+				return list;
 			}
 
 			const gameId = targetEvent.id;
-			const status = targetEvent.status?.type?.detail || "Unknown Postseason State";
+			const status = targetEvent.status?.type?.detail || "Unknown State";
 			const competitors = targetEvent.competitions?.[0]?.competitors || [];
 			
 			const team1 = competitors[0]?.team?.displayName || "TBD";
@@ -145,7 +146,7 @@ export class ChatSession extends DurableObject<Env> {
 			const team2 = competitors[1]?.team?.displayName || "TBD";
 			const score2 = competitors[1]?.score || "0";
 
-			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status} ${seriesContextSummary}`;
+			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
@@ -196,7 +197,7 @@ export class ChatSession extends DurableObject<Env> {
 						});
 					}
 				} catch (boxErr) {
-					contextPayload += " | (Deep team box statistics are processing upstream...)";
+					contextPayload += " | (Deep individual player split statistics are currently updating upstream...)";
 				}
 				return contextPayload;
 			}
@@ -437,7 +438,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: {  
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
