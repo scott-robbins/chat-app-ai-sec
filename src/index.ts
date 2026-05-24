@@ -77,7 +77,6 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const normalizedQuery = query.toLowerCase();
 			
-			// Concurrently pull today's slate, yesterday's fallback, and the entire active postseason series cluster array
 			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
 				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
 				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1", { headers: { "User-Agent": "Mozilla/5.0" } }),
@@ -97,7 +96,6 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const dataPlayoffs: any = await resPlayoffs.json();
 				if (dataPlayoffs.events) {
-					// Merge all active playoff events safely ensuring absolute coverage across tournament boundaries
 					dataPlayoffs.events.forEach((pe: any) => {
 						if (!allEvents.some((e: any) => e.id === pe.id)) {
 							allEvents.push(pe);
@@ -122,7 +120,6 @@ export class ChatSession extends DurableObject<Env> {
 				return summary;
 			}
 
-			// Search for matching team names anywhere in our expanded multi-day playoff game matrix
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
@@ -131,10 +128,11 @@ export class ChatSession extends DurableObject<Env> {
 				);
 			});
 
+			// CRITICAL FALLBACK: If the ESPN API layout engine doesn't have the historic series item on today's active radar, trigger a real-time news search
 			if (!targetEvent) {
-				let list = "[LIVE NBA FEED] Matchup context not active on the immediate calendar. Available items:\n";
-				allEvents.forEach((e: any) => { list += `- ${e.name} (${e.status?.type?.detail || "Scheduled"})\n`; });
-				return list;
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
+				const searchResults = await this.tavilySearch(`${query} box score stats results game score`, easternTimeStr);
+				return `[LIVE POSTSEASON FALLBACK FEED] Scoreboard snapshot missing. Real-time web data found:\n${searchResults}`;
 			}
 
 			const gameId = targetEvent.id;
