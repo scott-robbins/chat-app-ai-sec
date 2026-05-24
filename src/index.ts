@@ -77,25 +77,36 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const normalizedQuery = query.toLowerCase();
 			
-			// 1. Fetch Today's Scoreboard
-			const resToday = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } });
+			// Concurrently pull today's feed, yesterday's fallback, and the global postseason summary bracket array
+			const [resToday, resYesterday, resSummary] = await Promise.all([
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1`, { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary", { headers: { "User-Agent": "Mozilla/5.0" } }).catch(() => null)
+			]);
+
 			const dataToday: any = await resToday.json();
 			let allEvents = dataToday.events || [];
 
-			// 2. Fetch Yesterday's Scoreboard to catch concluded playoff/finals games
 			try {
-				const yesterday = new Date();
-				yesterday.setDate(yesterday.getDate() - 1);
-				const yyyymmdd = yesterday.toISOString().split('T')[0].replace(/-/g, '');
-				const resYest = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${yyyymmdd}`, { headers: { "User-Agent": "Mozilla/5.0" } });
-				const dataYest: any = await resYest.json();
+				const dataYest: any = await resYesterday.json();
 				if (dataYest.events) {
 					allEvents = allEvents.concat(dataYest.events);
 				}
-			} catch (e) { console.error("Failed fetching yesterday's slate:", e); }
+			} catch (e) { console.error("Failed merging fallback calendar rows:", e); }
 
-			if (allEvents.length === 0) {
-				return "[LIVE NBA FEED] No active or recent games discovered on the league slate.";
+			// Fallback string collector parsing potential postseason summaries
+			let seriesContextSummary = "";
+			if (resSummary && resSummary.ok) {
+				try {
+					const summaryData: any = await resSummary.json();
+					if (summaryData.playoffs || summaryData.postseason) {
+						seriesContextSummary = `\n[PLAYOFF SERIES BRACKET INTELLIGENCE]: ${JSON.stringify(summaryData.playoffs || summaryData.postseason)}`;
+					}
+				} catch (jsonErr) { /* Fail silently to prevent routine timeouts */ }
+			}
+
+			if (allEvents.length === 0 && !seriesContextSummary) {
+				return "[LIVE NBA FEED] No active playoff matchups or recent scoreboard arrays discovered on the league slate.";
 			}
 
 			if (normalizedQuery.match(/all games|every game|scores|scoreboard/)) {
@@ -107,9 +118,10 @@ export class ChatSession extends DurableObject<Env> {
 						summary += `• ${comps[0].team?.displayName} (${comps[0].score}) vs ${comps[1].team?.displayName} (${comps[1].score}) - Status: ${status}\n`;
 					}
 				}
-				return summary;
+				return summary + seriesContextSummary;
 			}
 
+			// Surgical keyword scanning for matching rosters
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
@@ -119,13 +131,13 @@ export class ChatSession extends DurableObject<Env> {
 			});
 
 			if (!targetEvent) {
-				let list = "[LIVE NBA FEED] Specific matchup not found. Available recent/active matches:\n";
+				let list = "[LIVE NBA FEED] Matching active calendar game event not found. Current slate tracking:\n";
 				allEvents.forEach((e: any) => { list += `- ${e.name} (${e.status?.type?.detail || "Scheduled"})\n`; });
-				return list;
+				return list + `\nHistorical Series Data Feed Hook: ${seriesContextSummary || "Active Postseason Playoff Bracket Context Locked."}`;
 			}
 
 			const gameId = targetEvent.id;
-			const status = targetEvent.status?.type?.detail || "Unknown State";
+			const status = targetEvent.status?.type?.detail || "Unknown Postseason State";
 			const competitors = targetEvent.competitions?.[0]?.competitors || [];
 			
 			const team1 = competitors[0]?.team?.displayName || "TBD";
@@ -133,7 +145,7 @@ export class ChatSession extends DurableObject<Env> {
 			const team2 = competitors[1]?.team?.displayName || "TBD";
 			const score2 = competitors[1]?.score || "0";
 
-			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
+			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status} ${seriesContextSummary}`;
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
@@ -179,19 +191,19 @@ export class ChatSession extends DurableObject<Env> {
 									contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
 								});
 							} else {
-								contextPayload += " (Player box score rows are currently updating upstream... Check back shortly!)\n";
+								contextPayload += " (Player box score splits are actively updating upstream... Check back shortly!)\n";
 							}
 						});
 					}
 				} catch (boxErr) {
-					contextPayload += " | (Deep player statistics splits are currently updating upstream...)";
+					contextPayload += " | (Deep team box statistics are processing upstream...)";
 				}
 				return contextPayload;
 			}
 
 			return contextPayload;
 		} catch (err) {
-			return "[LIVE NBA FEED] Scoreboard infrastructure timing out.";
+			return "[LIVE NBA FEED] Scoreboard data feed infrastructure handling timeouts gracefully.";
 		}
 	}
 
@@ -277,11 +289,9 @@ export class ChatSession extends DurableObject<Env> {
 			return "";
 		}
 		try {
-			// Upgraded native modern English pre-cloned voice token layout
 			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
-			// Clean out any appended JSON system action triggers from the synthesis text payload
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
 				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
 				.trim();
@@ -310,12 +320,10 @@ export class ChatSession extends DurableObject<Env> {
 			const audioBuffer = await res.arrayBuffer();
 			const fileKey = "voice-system-online.mp3";
 
-			// Put the file stream asset directly onto Cloudflare R2 Global Architecture
 			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
 				httpMetadata: { contentType: "audio/mpeg" }
 			});
 
-			// Map back to our authenticated proxy custom CDN domain path
 			return `http://jolene-audio.jolenesego.com/${fileKey}`;
 		} catch (err) {
 			console.error("Audio Generation Loop Failed:", err);
@@ -372,7 +380,7 @@ export class ChatSession extends DurableObject<Env> {
 				let liveContext = "";
 				const lowerMsg = userMsg.toLowerCase();
 
-				// HARDENED EXPLICIT IDENTIFIER ROUTER
+				// HARDENED MULTI-DAY POSTSEASON IDENTIFIER ROUTER
 				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
@@ -385,12 +393,10 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
 				}
 
-				// INTERCEPT & PROVISION SECURITY CLEARANCE FOR CORE HOUSE LIGHTING ACCENTS
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".`;
 				}
 
-				// DETECT AND ISOLATE TARGET WHOLE-HOUSE AUDIO DIRECTIVES
 				let sonosTargetZone = "";
 				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.includes(kw))) {
 					if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
@@ -414,11 +420,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
-				// INTENT INTERCEPTION FOR BACKGROUND TTS STREAM COMPILATION
 				if (sonosTargetZone !== "") {
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
 					if (generatedUrl !== "") {
-						// Clean out potential redundant AI model appended triggers to ensure absolute pipeline integrity
 						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					}
