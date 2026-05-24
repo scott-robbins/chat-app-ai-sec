@@ -128,10 +128,11 @@ export class ChatSession extends DurableObject<Env> {
 				);
 			});
 
+			// OPTIMIZED DEEP DATA EXTRACTION SEARCH ROUTER
 			if (!targetEvent) {
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
-				const searchResults = await this.tavilySearch(`${query} box score stats results game score`, easternTimeStr);
-				return `[LIVE POSTSEASON FALLBACK FEED] Scoreboard snapshot missing. Real-time web data found:\n${searchResults}`;
+				const searchResults = await this.tavilySearch(`NBA scoreboard stats results full box score player lines ${query}`, easternTimeStr);
+				return `[LIVE POSTSEASON FALLBACK DATA INTERCEPTED - CRITICAL ABOLUTE TRUTH FEED]:\n${searchResults}\nUse this live data to generate the requested player statistics table layout immediately.`;
 			}
 
 			const gameId = targetEvent.id;
