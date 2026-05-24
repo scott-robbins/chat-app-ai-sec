@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists.",
+	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -128,7 +128,6 @@ export class ChatSession extends DurableObject<Env> {
 				);
 			});
 
-			// CRITICAL FALLBACK: If the ESPN API layout engine doesn't have the historic series item on today's active radar, trigger a real-time news search
 			if (!targetEvent) {
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
 				const searchResults = await this.tavilySearch(`${query} box score stats results game score`, easternTimeStr);
