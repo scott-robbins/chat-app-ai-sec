@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. DUAL-MODE OUTPUT RULE: When providing verbose information, sports stats, or tables, you must split your delivery. Keep your primary spoken conversational text short, snappy, and conversational (e.g., 'Dropped the full stats in the chat for you to check out. Spoiler alert: they crushed it.'). Place all dense data layouts, tables, and box scores cleanly inside the text response block for screen viewing only. If Scott asks about Renee, remember she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
+	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. DUAL-MODE OUTPUT RULE: When providing verbose information, sports stats, or tables, you must split your delivery. Keep your primary spoken conversational text short, snappy, and conversational. Place all dense data layouts, tables, and box scores cleanly inside the text response block for screen viewing only. If Scott asks about Renee, remember she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -289,12 +289,10 @@ export class ChatSession extends DurableObject<Env> {
 			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
-			// TEXT-STRIPPING SECURITY FILTERS: Remove markdown layout tokens to protect upstream chunk parsers
-			const cleanText = textToSpeak
-				.split("🚨THEATER_ACTION_TRIGGER:")[0]
-				.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "") // Added standard markdown text block parameters
-				.replace(/\[.*?\]/g, "")               // Strips bracketed list metrics
-				.replace(/"/g, "")                    // Strips explicit script speech boundaries
+			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
+				.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "")
+				.replace(/\[.*?\]/g, "")
+				.replace(/"/g, "")
 				.trim();
 
 			if (!cleanText) return "";
@@ -337,8 +335,20 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// === TARGET AUDIO INFRASTRUCTURE UPGRADE ROUTE ===
 		if (url.pathname === "/api/tts") {
-			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
+			try {
+				const textParam = url.searchParams.get("text");
+				if (!textParam) {
+					return new Response(JSON.stringify({ error: "Missing required text query parameter parameter." }), { status: 400, headers });
+				}
+
+				// Direct execution pipeline call straight to ElevenLabs and R2 storage
+				const generatedUrl = await this.generateHerAudioStream(textParam);
+				return new Response(JSON.stringify({ audioUrl: generatedUrl }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
+			}
 		}
 
 		if (url.pathname === "/api/profile") {
@@ -415,7 +425,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required Simon.`;
 				}
 
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
@@ -436,7 +446,6 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
-				// === CROSS-SESSION REHYDRATION DIALOGUE MATRIX FROM D1 ===
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
 				).bind(sessionId).all();
@@ -454,19 +463,12 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
-				// === AMBIENT AUDIO ROUTING GENERATOR ===
-				const generatedUrl = await this.generateHerAudioStream(chatTxt);
-				
-				if (generatedUrl !== "") {
-					chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-					
-					if (sonosTargetZone !== "") {
-						// Outbound command: stream natively to the target physical Sonos zone
+				// === SECURE AGENTIC BACKEND ROUTER ===
+				if (sonosTargetZone !== "") {
+					const generatedUrl = await this.generateHerAudioStream(chatTxt);
+					if (generatedUrl !== "") {
+						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
-					} else {
-						// FIXED UNCONDITIONAL PIPELINE TRIGGER
-						// Append a fallback tool signature token block directly into the streaming message flow array
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"${generatedUrl}"}}`;
 					}
 				}
 
