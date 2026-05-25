@@ -354,31 +354,28 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === SURGICAL FIX: ADD DEDICATED VECTORIZING ROUTE INTERCEPTOR ===
-		if (url.pathname === "/api/memorize" && request.method === "POST") {
+		// === TARGET EMBEDDING PIPELINE ROUTE INTERCEPTOR (METHOD INDEPENDENT FOR BROWSER URL TRIGGER) ===
+		if (url.pathname === "/api/memorize") {
 			try {
-				// Pull the plain text straight from the file asset we just dropped onto R2
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
 				if (!r2Object) {
-					return new Response(JSON.stringify({ success: false, error: "File not discovered in R2 root." }), { status: 404, headers });
+					return new Response(JSON.stringify({ success: false, error: "Target V8 text artifact missing from R2 root." }), { status: 404, headers });
 				}
 
 				const rawText = await r2Object.text();
 				
-				// Clean any pre-existing vectorized frames matching this file tag to ensure fresh indexes
+				// Purge legacy coordinate frames safely to keep indices pristine
 				await this.env.VECTORIZE.deleteIds(["v8-identity-chunk-0"]);
 
-				// Pass the raw string array through Cloudflare's serverless GPU embedding infrastructure
 				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
 				
-				// Store coordinates straight into your Vectorize database index container
 				await this.env.VECTORIZE.upsert([{
 					id: "v8-identity-chunk-0",
 					values: embeddingResult.data[0],
 					metadata: { text: rawText }
 				}]);
 
-				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly." }), { headers });
+				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
 			}
@@ -464,7 +461,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: { 
+								headers: {  
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
