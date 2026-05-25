@@ -45,6 +45,7 @@
 				background-color: var(--app-bg);
 			}
 
+			#user-input { background-color: var(--app-bg); color: inherit; }
 			body.theme-fancy #user-input { background-color: rgba(0, 0, 0, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.1); }
 			body.theme-fancy header h1 { color: #ffffff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.4); }
 
@@ -109,7 +110,6 @@
 			.sidebar.open { right: 0; }
 
 			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
-			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
 			.dash-desc { font-size: 0.7 micro; color: var(--text-light); margin-top: 4px; font-style: italic; }
@@ -170,8 +170,7 @@
 			</div>
 			
 			<div id="typing-indicator" class="message assistant-message">
-				<div class="message-content"><div class="typing-dots"><span></span> // Update Personality Dashboard display
-					const personalityEl = document.getElementById('kv-personality-display');<span></span><span></span></div></div>
+				<div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>
 			</div>
 
 			<div class="message-input">
@@ -190,7 +189,7 @@
 
 		<div id="memory-sidebar" class="sidebar">
 			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-				<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
+				<h2 style="color: var(--primary-color); font-weight: 700;">Command Command Center</h2>
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
@@ -268,7 +267,6 @@
 				appendMessage('system-indicator', `System: Jolene is now using ${modelName}`);
 			};
 
-			// Personality logic
 			const personalitySelector = document.getElementById('personality-selector');
 			personalitySelector.onchange = async () => {
 				const val = personalitySelector.value;
@@ -387,8 +385,11 @@
 					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
 
+					// FIXED PLACEMENT: Re-routed dashboard variable compiler cleanly inside active scope logic parameters
 					const personalityEl = document.getElementById('kv-personality-display');
-					personalityEl.innerText = (data.personality || "warm").toUpperCase();
+					if (personalityEl) {
+						personalityEl.innerText = (data.personality || "warm").toUpperCase();
+					}
 					personalitySelector.value = data.personality || "warm";
 					
 					const list = document.getElementById('file-list-display');
@@ -402,7 +403,22 @@
 				} catch (e) {}
 			}
 
-			// Internal helper to send logic commands without messy typing loop
+			async function executeTtsFetchPipeline(textToVoice) {
+				if (!voiceEnabled || !textToVoice.trim()) return;
+				try {
+					console.log("📡 Dispatched async outbound audio task for text:", textToVoice);
+					const ttsRes = await fetch(`/api/tts?text=${encodeURIComponent(textToVoice)}`);
+					const ttsData = await ttsRes.json();
+					if (ttsData.audioUrl) {
+						console.log("🎵 Streaming audio file binary to laptop browser array:", ttsData.audioUrl);
+						const audioPlayer = new Audio(ttsData.audioUrl);
+						audioPlayer.play().catch(e => console.error("Chrome policy intercepted media execution:", e.message));
+					}
+				} catch (err) {
+					console.error("Audio task worker aborted:", err);
+				}
+			}
+
 			async function sendCustomMessage(content) {
 				showTyping(true);
 				const res = await fetch('/api/chat', {
@@ -436,6 +452,7 @@
 				}
 				showTyping(false);
 				updateDashboard();
+				executeTtsFetchPipeline(assistantText.replace(/[#*_\-`]/g, ""));
 			}
 
 			async function sendMessage() {
@@ -500,7 +517,6 @@
 						try {
 							const payload = JSON.parse(jsonPayloadString);
 							
-							// Intercept client-side browser playback loop triggers locally
 							if (payload.tool === "browser_native_audio" && payload.arguments && payload.arguments.audioUrl) {
 								if (voiceEnabled) {
 									console.log("🎵 Front-end executing laptop voice playback pipeline:", payload.arguments.audioUrl);
@@ -510,7 +526,6 @@
 									});
 								}
 							} else {
-								// Standard hardware actions go out down the secure tunnel route handler
 								fetch("https://oecd-attractive-precise-caps.trycloudflare.com/api/tools/execute", {
 									method: "POST",
 									headers: { "Content-Type": "application/json" },
@@ -523,21 +538,7 @@
 						}
 					} else {
 						contentDiv.innerHTML = marked.parse(assistantText);
-						
-						// FALLBACK CONVERSATIONAL TURNS: Trigger on-demand audio generation when voice is toggled on
-						if (voiceEnabled && assistantText.trim()) {
-							try {
-								const ttsRes = await fetch(`/api/tts?text=${encodeURIComponent(assistantText.replace(/[#*_\-`]/g, ""))}`);
-								const ttsData = await ttsRes.json();
-								if (ttsData.audioUrl) {
-									console.log("🎵 Fallback logic streaming conversational response to laptop:", ttsData.audioUrl);
-									const audioPlayer = new Audio(ttsData.audioUrl);
-									audioPlayer.play().catch(e => console.error("Autoplay blocked baseline audio:", e.message));
-								}
-							} catch (ttsErr) {
-								console.error("Fallback audio generation failed:", ttsErr);
-							}
-						}
+						executeTtsFetchPipeline(assistantText.replace(/[#*_\-`]/g, ""));
 					}
 					// ==========================================
 
