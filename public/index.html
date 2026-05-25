@@ -109,6 +109,7 @@
 			.sidebar.open { right: 0; }
 
 			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
 			.dash-desc { font-size: 0.7 micro; color: var(--text-light); margin-top: 4px; font-style: italic; }
@@ -169,7 +170,8 @@
 			</div>
 			
 			<div id="typing-indicator" class="message assistant-message">
-				<div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+				<div class="message-content"><div class="typing-dots"><span></span> // Update Personality Dashboard display
+					const personalityEl = document.getElementById('kv-personality-display');<span></span><span></span></div></div>
 			</div>
 
 			<div class="message-input">
@@ -322,7 +324,6 @@
 				updateDashboard();
 			};
 
-			// FIX: RESET IDENTITY & HISTORY HANDLER
 			document.getElementById('clear-vector-btn').onclick = async () => {
 				if (!confirm("### ⚠️ WARNING\nThis will permanently wipe Scott's identity, tax records, and chat history from the edge. Proceed?")) return;
 				
@@ -386,7 +387,6 @@
 					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
 
-					// Update Personality Dashboard display
 					const personalityEl = document.getElementById('kv-personality-display');
 					personalityEl.innerText = (data.personality || "warm").toUpperCase();
 					personalitySelector.value = data.personality || "warm";
@@ -477,12 +477,9 @@
 									if (data.response) { 
 										assistantText += data.response; 
 										
-										// Render standard streaming markdown updates safely
 										if (!assistantText.includes("🚨THEATER_ACTION_TRIGGER:")) {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										} else {
-											// If the string contains a trigger halfway through, strip the raw tag 
-											// from visually rendering to prevent chat bubble clutter
 											contentDiv.innerHTML = marked.parse(assistantText.split("🚨THEATER_ACTION_TRIGGER:")[0]);
 										}
 										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
@@ -492,29 +489,55 @@
 						}
 					}
 					
-					// ====== JOLENE AGENTIC TRANSIT LAYER ======
-					// Stream completion check: Process tool intercept down the tunnel
+					// ====== JOLENE AGENTIC TRANSIT & AUDIO LAYER ======
 					if (assistantText.includes("🚨THEATER_ACTION_TRIGGER:")) {
 						const parts = assistantText.split("🚨THEATER_ACTION_TRIGGER:");
 						const visibleMessageText = parts[0]; 
 						const jsonPayloadString = parts[1].trim(); 
 
-						// Final clean message rendering
 						contentDiv.innerHTML = marked.parse(visibleMessageText);
 
 						try {
-							// Push the structured instruction down your active Cloudflare Tunnel endpoint
-							fetch("https://oecd-attractive-precise-caps.trycloudflare.com/api/tools/execute", {
-								method: "POST",
-								headers: { "Content-Type": "application/json" },
-								body: jsonPayloadString
-							});
-							console.log("🚀 Secure tool payload dispatched down the tunnel successfully.");
+							const payload = JSON.parse(jsonPayloadString);
+							
+							// Intercept client-side browser playback loop triggers locally
+							if (payload.tool === "browser_native_audio" && payload.arguments && payload.arguments.audioUrl) {
+								if (voiceEnabled) {
+									console.log("🎵 Front-end executing laptop voice playback pipeline:", payload.arguments.audioUrl);
+									const audioPlayer = new Audio(payload.arguments.audioUrl);
+									audioPlayer.play().catch(err => {
+										console.error("Chrome autoplay policy blocked programmatic media execution:", err.message);
+									});
+								}
+							} else {
+								// Standard hardware actions go out down the secure tunnel route handler
+								fetch("https://oecd-attractive-precise-caps.trycloudflare.com/api/tools/execute", {
+									method: "POST",
+									headers: { "Content-Type": "application/json" },
+									body: jsonPayloadString
+								});
+								console.log("🚀 Secure tool payload dispatched down the tunnel successfully.");
+							}
 						} catch (tunnelError) {
 							console.error("Tunnel routing issue:", tunnelError);
 						}
 					} else {
 						contentDiv.innerHTML = marked.parse(assistantText);
+						
+						// FALLBACK CONVERSATIONAL TURNS: Trigger on-demand audio generation when voice is toggled on
+						if (voiceEnabled && assistantText.trim()) {
+							try {
+								const ttsRes = await fetch(`/api/tts?text=${encodeURIComponent(assistantText.replace(/[#*_\-`]/g, ""))}`);
+								const ttsData = await ttsRes.json();
+								if (ttsData.audioUrl) {
+									console.log("🎵 Fallback logic streaming conversational response to laptop:", ttsData.audioUrl);
+									const audioPlayer = new Audio(ttsData.audioUrl);
+									audioPlayer.play().catch(e => console.error("Autoplay blocked baseline audio:", e.message));
+								}
+							} catch (ttsErr) {
+								console.error("Fallback audio generation failed:", ttsErr);
+							}
+						}
 					}
 					// ==========================================
 
