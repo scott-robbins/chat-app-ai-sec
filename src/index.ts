@@ -197,7 +197,8 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
-					const summaryRes = await fetch://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
+					// FIXED PIPELINE HOOK: Added the missing functional quote wrappers back to the ESPN endpoint string parameter
+					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
 					const boxGroup = summaryData.boxscore?.players;
 					
@@ -415,7 +416,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					if (sonosTargetZone !== "") {
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					} else {
-						// Standard turn: Embed the tool definition cleanly for front-end execution hooks
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"browser_native_audio","arguments":{"audioUrl":"${generatedUrl}"}}`;
 					}
 				}
@@ -471,7 +471,6 @@ export default {
 					return new Response(JSON.stringify({ error: "Missing required text query parameter." }), { status: 400, headers });
 				}
 
-				// FIX: Passed global environment routing contexts into the unified out-of-band builder explicitly
 				const generatedUrl = await unifiedAudioSynthesis(textParam, env);
 				return new Response(JSON.stringify({ audioUrl: generatedUrl }), { headers });
 			} catch (err: any) {
