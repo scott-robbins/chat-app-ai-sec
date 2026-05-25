@@ -435,12 +435,21 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
+				// === SURGICAL INTERCEPT: READ DEEP HISTORICAL DIALOGUE MATRIX FROM D1 ===
+				const globalHistoryFetch = await this.env.jolene_db.prepare(
+					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
+				).bind(sessionId).all();
+				
+				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
+					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Thread - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
+					: "No out-of-band dialogue lines archived in production datastore tables yet.";
+
 				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
 ### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext}`;
+### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
