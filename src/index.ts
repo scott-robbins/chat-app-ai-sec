@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. DUAL-MODE OUTPUT RULE: When providing verbose information, sports stats, or tables, you must split your delivery. Keep your primary spoken conversational text short, snappy, and conversational (e.g., 'Dropped the full stats in the chat for you to check out. Spoiler alert: they crushed it.'). Place all dense data layouts, tables, and box scores cleanly inside the text response block for screen viewing only. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
+	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. DUAL-MODE OUTPUT RULE: When providing verbose information, sports stats, or tables, you must split your delivery. Keep your primary spoken conversational text short, snappy, and conversational (e.g., 'Dropped the full stats in the chat for you to check out. Spoiler alert: they crushed it.'). Place all dense data layouts, tables, and box scores cleanly inside the text response block for screen viewing only. If Scott asks about Renee, remember she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -18,7 +18,6 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
 - NEW ARRIVAL: Bry is currently pregnant with her third child—a boy! He is due in early November 2026.
-- RENEE SPECIFICS: Renee is a True Crime fanatic who watches content exclusively on YouTube (e.g., Bailey Sarian, Kendall Rae). She does NOT watch cable TV. She is often deep in a YouTube rabbit hole in one browser tab while actively online shopping in another.
 - RENEE SHOPPING: She is strictly an ONLINE shopper. She isn't out at a store; she's on her computer.
 - RENEE BEVERAGES: Miller Lite usually. Vodka Renee occasionally appears and can lead to trouble.
 - DOGS: Holidays: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
@@ -290,8 +289,10 @@ export class ChatSession extends DurableObject<Env> {
 			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
+			// Strip clean textual elements safely to prevent audio synthesis generation failures
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
 				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
+				.replace(/<audio[^>]*><\/audio>/g, "")
 				.trim();
 
 			if (!cleanText) return "";
@@ -316,7 +317,9 @@ export class ChatSession extends DurableObject<Env> {
 			}
 
 			const audioBuffer = await res.arrayBuffer();
-			const fileKey = "voice-system-online.mp3";
+			
+			// FIX: Swapped key dynamically using a unique timestamp to force asset cache reloads inside R2
+			const fileKey = `voice-stream-${Date.now()}.mp3`;
 
 			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
 				httpMetadata: { contentType: "audio/mpeg" }
@@ -461,14 +464,16 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 						// Outbound command: stream natively to the target physical Sonos zone
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					} else {
-						// Standard turn: embed an auto-playing hidden HTML5 audio container straight into the screen text chunk
-						chatTxt += `\n<audio autoplay src="${generatedUrl}" style="display:none;"></audio>`;
+						// FIXED NATIVE TRIGGER PIPELINE PAYLOAD
+						// Pass the media URL string explicitly inside a standalone JSON action block token
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"browser_native_audio","arguments":{"audioUrl":"${generatedUrl}"}}`;
 					}
 				}
 
-				if (chatTxt.includes("_ACTION_TRIGGER:") && sonosTargetZone !== "") {
+				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && line.includes("control_sonos_audio"));
+						// Target only outbound hardware calls for the MCP local server network bridge connection
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
