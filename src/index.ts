@@ -128,7 +128,6 @@ export class ChatSession extends DurableObject<Env> {
 				);
 			});
 
-			// OPTIMIZED DEEP DATA EXTRACTION SEARCH ROUTER
 			if (!targetEvent) {
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
 				const searchResults = await this.tavilySearch(`NBA scoreboard stats results full box score player lines ${query}`, easternTimeStr);
@@ -355,6 +354,36 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
+		// === SURGICAL FIX: ADD DEDICATED VECTORIZING ROUTE INTERCEPTOR ===
+		if (url.pathname === "/api/memorize" && request.method === "POST") {
+			try {
+				// Pull the plain text straight from the file asset we just dropped onto R2
+				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
+				if (!r2Object) {
+					return new Response(JSON.stringify({ success: false, error: "File not discovered in R2 root." }), { status: 404, headers });
+				}
+
+				const rawText = await r2Object.text();
+				
+				// Clean any pre-existing vectorized frames matching this file tag to ensure fresh indexes
+				await this.env.VECTORIZE.deleteIds(["v8-identity-chunk-0"]);
+
+				// Pass the raw string array through Cloudflare's serverless GPU embedding infrastructure
+				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
+				
+				// Store coordinates straight into your Vectorize database index container
+				await this.env.VECTORIZE.upsert([{
+					id: "v8-identity-chunk-0",
+					values: embeddingResult.data[0],
+					metadata: { text: rawText }
+				}]);
+
+				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly." }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
+			}
+		}
+
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
@@ -379,7 +408,6 @@ export class ChatSession extends DurableObject<Env> {
 				let liveContext = "";
 				const lowerMsg = userMsg.toLowerCase();
 
-				// HARDENED MULTI-DAY POSTSEASON IDENTIFIER ROUTER
 				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
@@ -436,7 +464,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: {  
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
