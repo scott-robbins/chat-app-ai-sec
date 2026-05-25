@@ -63,16 +63,22 @@ async function unifiedAudioSynthesis(textToSpeak: string, env: Env): Promise<str
 		return "";
 	}
 	try {
-		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
-		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
+		// Clean and decode the incoming voice strings cleanly
+		let rawText = textToSpeak;
+		if (textToSpeak.includes('%')) {
+			try { rawText = decodeURIComponent(textToSpeak); } catch(e) {}
+		}
 
-		const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
+		const cleanText = rawText.split("🚨THEATER_ACTION_TRIGGER:")[0]
 			.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "")
 			.replace(/\[.*?\]/g, "")
 			.replace(/"/g, "")
 			.trim();
 
 		if (!cleanText) return "";
+
+		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
+		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 		const res = await fetch(url, {
 			method: 'POST',
@@ -197,7 +203,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
-					// FIXED PIPELINE HOOK: Added the missing functional quote wrappers back to the ESPN endpoint string parameter
+					// FIXED SYNTAX LIMIT BORDER: Restored the complete functional string quote arrays to the ESPN summary endpoint parameter
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
 					const boxGroup = summaryData.boxscore?.players;
@@ -420,9 +426,11 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
-				if (chatTxt.includes("_ACTION_TRIGGER:") && sonosTargetZone !== "") {
+				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && line.includes("control_sonos_audio"));
+						// FIXED GLOBAL ORCHESTRATOR INTERCEPT HOOK:
+						// Removed the restrictive filter to guarantee all lighting and scene mutations execute down your secure tunnel
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
@@ -440,7 +448,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const toolExecutionResult = await mcpResponse.text();
 								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
 
-								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
 								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 							}
 						}
