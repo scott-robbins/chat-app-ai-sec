@@ -354,7 +354,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === TARGET EMBEDDING PIPELINE ROUTE INTERCEPTOR (METHOD INDEPENDENT FOR BROWSER URL TRIGGER) ===
+		// === TARGET EMBEDDING PIPELINE ROUTE INTERCEPTOR (FIXED RUNTIME FUNCTION METHOD) ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -364,8 +364,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				// Purge legacy coordinate frames safely to keep indices pristine
-				await this.env.VECTORIZE.deleteIds(["v8-identity-chunk-0"]);
+				// CORRECTED METHOD CALL: Changed from deleteIds to deleteByIds
+				await this.env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
 
 				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
 				
@@ -461,7 +461,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: {  
+								headers: { 
 									"Content-Type": "application/json",
 									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 								},
