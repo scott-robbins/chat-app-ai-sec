@@ -289,10 +289,12 @@ export class ChatSession extends DurableObject<Env> {
 			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
-			// Strip clean textual elements safely to prevent audio synthesis generation failures
-			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
-				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
-				.replace(/<audio[^>]*><\/audio>/g, "")
+			// TEXT-STRIPPING SECURITY FILTERS: Remove markdown layout tokens to protect upstream chunk parsers
+			const cleanText = textToSpeak
+				.split("🚨THEATER_ACTION_TRIGGER:")[0]
+				.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "") // Added standard markdown text block parameters
+				.replace(/\[.*?\]/g, "")               // Strips bracketed list metrics
+				.replace(/"/g, "")                    // Strips explicit script speech boundaries
 				.trim();
 
 			if (!cleanText) return "";
@@ -317,8 +319,6 @@ export class ChatSession extends DurableObject<Env> {
 			}
 
 			const audioBuffer = await res.arrayBuffer();
-			
-			// FIX: Swapped key dynamically using a unique timestamp to force asset cache reloads inside R2
 			const fileKey = `voice-stream-${Date.now()}.mp3`;
 
 			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
@@ -464,16 +464,15 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 						// Outbound command: stream natively to the target physical Sonos zone
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					} else {
-						// FIXED NATIVE TRIGGER PIPELINE PAYLOAD
-						// Pass the media URL string explicitly inside a standalone JSON action block token
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"browser_native_audio","arguments":{"audioUrl":"${generatedUrl}"}}`;
+						// FIXED UNCONDITIONAL PIPELINE TRIGGER
+						// Append a fallback tool signature token block directly into the streaming message flow array
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"${generatedUrl}"}}`;
 					}
 				}
 
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						// Target only outbound hardware calls for the MCP local server network bridge connection
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && line.includes("control_sonos_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
