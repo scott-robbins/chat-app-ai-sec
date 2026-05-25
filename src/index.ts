@@ -22,7 +22,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - RENEE BEVERAGES: Miller Lite usually. Vodka Renee occasionally appears and can lead to trouble.
 - DOGS: Holidays: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
-- GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls and where your Lava Lamp smart plug sits). The Theater Room, Master Bedroom, Kitchen, and main living areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
+- GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls and where your Lava Lamp smart plug sits). The Theater Room, Master Bedroom, Kitchen, and main living areas areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
@@ -55,6 +55,57 @@ Description: Pulls real-time readouts from all physical thermostats including cu
 Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 `;
+
+// Helper utility function decoupled from internal Durable Object class scope structures
+async function unifiedAudioSynthesis(textToSpeak: string, env: Env): Promise<string> {
+	if (!env.ELEVEN_LABS_API_KEY) {
+		console.error("Missing Global Environment Binding contextual token variable flag.");
+		return "";
+	}
+	try {
+		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
+		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
+
+		const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
+			.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "")
+			.replace(/\[.*?\]/g, "")
+			.replace(/"/g, "")
+			.trim();
+
+		if (!cleanText) return "";
+
+		const res = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'xi-api-key': env.ELEVEN_LABS_API_KEY,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				text: cleanText,
+				model_id: "eleven_monolingual_v2",
+				language_id: "en",
+				voice_settings: { stability: 0.75, similarity_boost: 0.85 }
+			})
+		});
+
+		if (!res.ok) {
+			console.error(`ElevenLabs edge engine returned validation error status: ${res.status}`);
+			return "";
+		}
+
+		const audioBuffer = await res.arrayBuffer();
+		const fileKey = `voice-stream-${Date.now()}.mp3`;
+
+		await env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
+			httpMetadata: { contentType: "audio/mpeg" }
+		});
+
+		return `http://jolene-audio.jolenesego.com/${fileKey}`;
+	} catch (err) {
+		console.error("Upstream Synthesis Runtime Exception:", err);
+		return "";
+	}
+}
 
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
@@ -146,7 +197,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
-					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
+					const summaryRes = await fetch://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
 					const boxGroup = summaryData.boxscore?.players;
 					
@@ -279,118 +330,10 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search unavailable."; }
 	}
 
-	// === CLOUD RE-ROUTING ELEVENLABS AUDIO SYNTHESIS ENGINE ===
-	async generateHerAudioStream(textToSpeak: string): Promise<string> {
-		if (!this.env.ELEVEN_LABS_API_KEY) {
-			console.error("Missing ELEVEN_LABS_API_KEY variable context flag.");
-			return "";
-		}
-		try {
-			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
-			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
-
-			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
-				.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "")
-				.replace(/\[.*?\]/g, "")
-				.replace(/"/g, "")
-				.trim();
-
-			if (!cleanText) return "";
-
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: {
-					'xi-api-key': this.env.ELEVEN_LABS_API_KEY,
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					text: cleanText,
-					model_id: "eleven_monolingual_v2",
-					language_id: "en",
-					voice_settings: { stability: 0.75, similarity_boost: 0.85 }
-				})
-			});
-
-			if (!res.ok) {
-				console.error(`ElevenLabs rejected synthesis request with status: ${res.status}`);
-				return "";
-			}
-
-			const audioBuffer = await res.arrayBuffer();
-			const fileKey = `voice-stream-${Date.now()}.mp3`;
-
-			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
-				httpMetadata: { contentType: "audio/mpeg" }
-			});
-
-			return `http://jolene-audio.jolenesego.com/${fileKey}`;
-		} catch (err) {
-			console.error("Audio Generation Loop Failed:", err);
-			return "";
-		}
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
-
-		// === TARGET AUDIO INFRASTRUCTURE UPGRADE ROUTE ===
-		if (url.pathname === "/api/tts") {
-			try {
-				const textParam = url.searchParams.get("text");
-				if (!textParam) {
-					return new Response(JSON.stringify({ error: "Missing required text query parameter parameter." }), { status: 400, headers });
-				}
-
-				// Direct execution pipeline call straight to ElevenLabs and R2 storage
-				const generatedUrl = await this.generateHerAudioStream(textParam);
-				return new Response(JSON.stringify({ audioUrl: generatedUrl }), { headers });
-			} catch (err: any) {
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
-			}
-		}
-
-		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
-			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
-			const storage = await this.env.DOCUMENTS.list();
-			
-			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
-				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: "personal",
-				personality: personality,
-				durableObject: { id: sessionId, state: "Active" }
-			}), { headers });
-		}
-
-		if (url.pathname === "/api/memorize") {
-			try {
-				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
-				if (!r2Object) {
-					return new Response(JSON.stringify({ success: false, error: "Target V8 text artifact missing from R2 root." }), { status: 404, headers });
-				}
-
-				const rawText = await r2Object.text();
-				
-				await this.env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
-
-				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
-				
-				await this.env.VECTORIZE.upsert([{
-					id: "v8-identity-chunk-0",
-					values: embeddingResult.data[0],
-					metadata: { text: rawText }
-				}]);
-
-				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
-			} catch (err: any) {
-				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
-			}
-		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
@@ -463,16 +406,21 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
-				// === SECURE AGENTIC BACKEND ROUTER ===
-				if (sonosTargetZone !== "") {
-					const generatedUrl = await this.generateHerAudioStream(chatTxt);
-					if (generatedUrl !== "") {
-						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+				// === STATIC TRIGGER DISCOVERY MATRIX ===
+				const generatedUrl = await unifiedAudioSynthesis(chatTxt, this.env);
+				
+				if (generatedUrl !== "") {
+					chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+					
+					if (sonosTargetZone !== "") {
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
+					} else {
+						// Standard turn: Embed the tool definition cleanly for front-end execution hooks
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"browser_native_audio","arguments":{"audioUrl":"${generatedUrl}"}}`;
 					}
 				}
 
-				if (chatTxt.includes("_ACTION_TRIGGER:")) {
+				if (chatTxt.includes("_ACTION_TRIGGER:") && sonosTargetZone !== "") {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && line.includes("control_sonos_audio"));
 						if (triggerLine) {
@@ -512,7 +460,67 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "global";
+		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+
+		if (url.pathname === "/api/tts") {
+			try {
+				const textParam = url.searchParams.get("text");
+				if (!textParam) {
+					return new Response(JSON.stringify({ error: "Missing required text query parameter." }), { status: 400, headers });
+				}
+
+				// FIX: Passed global environment routing contexts into the unified out-of-band builder explicitly
+				const generatedUrl = await unifiedAudioSynthesis(textParam, env);
+				return new Response(JSON.stringify({ audioUrl: generatedUrl }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
+			}
+		}
+
+		if (url.pathname === "/api/profile") {
+			const personality = await env.SETTINGS.get(`personality`) || "warm";
+			const history = await env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
+			const storage = await env.DOCUMENTS.list();
+			
+			return new Response(JSON.stringify({
+				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
+				messages: history.results || [],
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
+				mode: "personal",
+				personality: personality,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
+		}
+
+		if (url.pathname === "/api/memorize") {
+			try {
+				const r2Object = await env.DOCUMENTS.get("ScottIdentityV8.txt");
+				if (!r2Object) {
+					return new Response(JSON.stringify({ success: false, error: "Target V8 text artifact missing from R2 root." }), { status: 404, headers });
+				}
+
+				const rawText = await r2Object.text();
+				
+				await env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
+
+				const embeddingResult = await env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
+				
+				await env.VECTORIZE.upsert([{
+					id: "v8-identity-chunk-0",
+					values: embeddingResult.data[0],
+					metadata: { text: rawText }
+				}]);
+
+				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
+			}
+		}
+
+		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
