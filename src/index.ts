@@ -419,7 +419,6 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".`;
 				}
 
-				// === UNCONDITIONAL SONOS ROUTING MODIFICATION ===
 				let sonosTargetZone = "";
 				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.includes(kw))) {
 					if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
@@ -452,20 +451,18 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
-				// === SURGICAL INTERCEPT: AMBIENT LAPTOP BROWSER AUDIO PIPELINE GENERATOR ===
-				// Generate voice synthesis via ElevenLabs for EVERY conversation turn automatically
+				// === AMBIENT AUDIO ROUTING GENERATOR ===
 				const generatedUrl = await this.generateHerAudioStream(chatTxt);
 				
 				if (generatedUrl !== "") {
-					// Clean out any raw action trigger artifacts from the voiced string array to prevent audio pollution
 					chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 					
 					if (sonosTargetZone !== "") {
-						// Outbound command is present, stream audio natively to a physical home speaker zone
+						// Outbound command: stream natively to the target physical Sonos zone
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					} else {
-						// Standard interaction turn, pass the stream back to the UI to execute out of the laptop window browser
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"browser_native_audio","arguments":{"audioUrl":"${generatedUrl}"}}`;
+						// Standard turn: embed an auto-playing hidden HTML5 audio container straight into the screen text chunk
+						chatTxt += `\n<audio autoplay src="${generatedUrl}" style="display:none;"></audio>`;
 					}
 				}
 
