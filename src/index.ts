@@ -56,27 +56,23 @@ Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 `;
 
+// Helper utility function decoupled from internal Durable Object class scope structures
 async function unifiedAudioSynthesis(textToSpeak: string, env: Env): Promise<string> {
 	if (!env.ELEVEN_LABS_API_KEY) {
 		console.error("Missing Global Environment Binding contextual token variable flag.");
 		return "";
 	}
 	try {
-		let rawText = textToSpeak;
-		if (textToSpeak.includes('%')) {
-			try { rawText = decodeURIComponent(textToSpeak); } catch(e) {}
-		}
+		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
+		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
-		const cleanText = rawText.split("🚨THEATER_ACTION_TRIGGER:")[0]
+		const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
 			.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "")
 			.replace(/\[.*?\]/g, "")
 			.replace(/"/g, "")
 			.trim();
 
 		if (!cleanText) return "";
-
-		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
-		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 		const res = await fetch(url, {
 			method: 'POST',
@@ -183,11 +179,9 @@ export class ChatSession extends DurableObject<Env> {
 			});
 
 			if (!targetEvent) {
-				// HISTORICAL RETRIEVAL OVERRIDE FIX: 
-				// Force advanced deep-news scraping arrays via Tavily to explicitly capture completed game splits and player metric grids
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
-				const searchResults = await this.tavilySearch(`NBA complete comprehensive box score statistics results lines player data ${query}`, easternTimeStr);
-				return `[COMPLETED/HISTORICAL GAME RECORD RETRIEVED - CRITICAL ABSOLUTE FACTUAL FEED]:\n${searchResults}\nExtract these verified statistics and generate the complete player data table structure immediately.`;
+				const searchResults = await this.tavilySearch(`NBA scoreboard stats results full box score player lines ${query}`, easternTimeStr);
+				return `[LIVE POSTSEASON FALLBACK DATA INTERCEPTED - CRITICAL ABOLUTE TRUTH FEED]:\n${searchResults}\nUse this live data to generate the requested player statistics table layout immediately.`;
 			}
 
 			const gameId = targetEvent.id;
@@ -203,6 +197,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
+					// FIXED PIPELINE HOOK: Added the missing functional quote wrappers back to the ESPN endpoint string parameter
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
 					const boxGroup = summaryData.boxscore?.players;
@@ -425,11 +420,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
-				if (chatTxt.includes("_ACTION_TRIGGER:")) {
+				if (chatTxt.includes("_ACTION_TRIGGER:") && sonosTargetZone !== "") {
 					try {
-						// FIXED GLOBAL ORCHESTRATOR INTERCEPT HOOK:
-						// Removed the restrictive filter to guarantee all lighting and scene mutations execute down your secure tunnel
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && line.includes("control_sonos_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
@@ -447,7 +440,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const toolExecutionResult = await mcpResponse.text();
 								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
 
-								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
+								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
 								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 							}
 						}
@@ -467,7 +460,66 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		const url = new URL(request.url);
+		const sessionId = request.headers.get("x-session-id") || "global";
+		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+
+		if (url.pathname === "/api/tts") {
+			try {
+				const textParam = url.searchParams.get("text");
+				if (!textParam) {
+					return new Response(JSON.stringify({ error: "Missing required text query parameter." }), { status: 400, headers });
+				}
+
+				const generatedUrl = await unifiedAudioSynthesis(textParam, env);
+				return new Response(JSON.stringify({ audioUrl: generatedUrl }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
+			}
+		}
+
+		if (url.pathname === "/api/profile") {
+			const personality = await env.SETTINGS.get(`personality`) || "warm";
+			const history = await env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
+			const storage = await env.DOCUMENTS.list();
+			
+			return new Response(JSON.stringify({
+				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
+				messages: history.results || [],
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
+				mode: "personal",
+				personality: personality,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
+		}
+
+		if (url.pathname === "/api/memorize") {
+			try {
+				const r2Object = await env.DOCUMENTS.get("ScottIdentityV8.txt");
+				if (!r2Object) {
+					return new Response(JSON.stringify({ success: false, error: "Target V8 text artifact missing from R2 root." }), { status: 404, headers });
+				}
+
+				const rawText = await r2Object.text();
+				
+				await env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
+
+				const embeddingResult = await env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
+				
+				await env.VECTORIZE.upsert([{
+					id: "v8-identity-chunk-0",
+					values: embeddingResult.data[0],
+					metadata: { text: rawText }
+				}]);
+
+				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
+			}
+		}
+
+		const id = env.CHAT_SESSION.idFromName(sessionId);
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
