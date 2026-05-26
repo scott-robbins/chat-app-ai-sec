@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. DUAL-MODE OUTPUT RULE: When providing verbose information, sports stats, or tables, you must split your delivery. Keep your primary spoken conversational text short, snappy, and conversational. Place all dense data layouts, tables, and box scores cleanly inside the text response block for screen viewing only. If Scott asks about Renee, remember she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
+	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -18,11 +18,12 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - BIRTH YEAR: 1974.
 - FAMILY: Wife (Renee, born Jan 8, 1973), Daughter (Bryana/Bry), Grandkids (Callan & Josie).
 - NEW ARRIVAL: Bry is currently pregnant with her third child—a boy! He is due in early November 2026.
+- RENEE SPECIFICS: Renee is a True Crime fanatic who watches content exclusively on YouTube (e.g., Bailey Sarian, Kendall Rae). She does NOT watch cable TV. She is often deep in a YouTube rabbit hole in one browser tab while actively online shopping in another.
 - RENEE SHOPPING: She is strictly an ONLINE shopper. She isn't out at a store; she's on her computer.
 - RENEE BEVERAGES: Miller Lite usually. Vodka Renee occasionally appears and can lead to trouble.
 - DOGS: Holidays: Jolene (tan dachshund, barks/anxious) & Hanna (black/tan, house-pee-er).
 - LOCATION: Plymouth, MA (The Pinehills).
-- GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls and where your Lava Lamp smart plug sits). The Theater Room, Master Bedroom, Kitchen, and main living areas areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
+- GEOGRAPHY & FLOOR PLAN (CRITICAL): Your office is located in the Basement (where you handle Cloudflare work calls and where your Lava Lamp smart plug sits). The Theater Room, Master Bedroom, Kitchen, and main living areas are ALL located on the Main Floor. When Scott is in the Theater Room watching a game and Renee is in the Master Bedroom, they are on the SAME FLOOR, literally steps away from each other down the hall. Never refer to Renee as being "upstairs" from Scott when he is in the theater room.
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
@@ -55,58 +56,6 @@ Description: Pulls real-time readouts from all physical thermostats including cu
 Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 `;
-
-// Helper utility function decoupled from internal Durable Object class scope structures
-async function unifiedAudioSynthesis(textToSpeak: string, env: Env): Promise<string> {
-	if (!env.ELEVEN_LABS_API_KEY) {
-		console.error("Missing Global Environment Binding contextual token variable flag.");
-		return "";
-	}
-	/*
-	try {
-		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
-		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
-
-		const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
-			.replace(/[🥊🏀🛍️💻👶⚠️🚨#*_\-`]/g, "")
-			.replace(/\[.*?\]/g, "")
-			.replace(/"/g, "")
-			.trim();
-
-		if (!cleanText) return "";
-
-		const res = await fetch(url, {
-			method: 'POST',
-			headers: {
-				'xi-api-key': env.ELEVEN_LABS_API_KEY,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				text: cleanText,
-				model_id: "eleven_monolingual_v2",
-				language_id: "en",
-				voice_settings: { stability: 0.75, similarity_boost: 0.85 }
-			})
-		});
-
-		if (!res.ok) {
-			console.error(`ElevenLabs edge engine returned validation error status: ${res.status}`);
-			return "";
-		}
-
-		const audioBuffer = await res.arrayBuffer();
-		const fileKey = `voice-stream-${Date.now()}.mp3`;
-
-		await env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
-			httpMetadata: { contentType: "audio/mpeg" }
-		});
-
-		return `http://jolene-audio.jolenesego.com/${fileKey}`;
-	} catch (err) {
-		console.error("Upstream Synthesis Runtime Exception:", err);
-		return "";
-	}
-}*/
 
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
@@ -198,7 +147,6 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
-					// FIXED PIPELINE HOOK: Added the missing functional quote wrappers back to the ESPN endpoint string parameter
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
 					const boxGroup = summaryData.boxscore?.players;
@@ -332,10 +280,106 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search unavailable."; }
 	}
 
+	// === CLOUD RE-ROUTING ELEVENLABS AUDIO SYNTHESIS ENGINE ===
+	async generateHerAudioStream(textToSpeak: string): Promise<string> {
+		if (!this.env.ELEVEN_LABS_API_KEY) {
+			console.error("Missing ELEVEN_LABS_API_KEY variable context flag.");
+			return "";
+		}
+		try {
+			// === SURGICAL UPDATE: Assigned high-leverage "Rachel" Voice ID for dry, smooth, un-robotic delivery ===
+			const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
+			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
+
+			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
+				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
+				.trim();
+
+			if (!cleanText) return "";
+
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: {
+					'xi-api-key': this.env.ELEVEN_LABS_API_KEY,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					text: cleanText,
+					model_id: "eleven_monolingual_v2",
+					language_id: "en",
+					voice_settings: { stability: 0.75, similarity_boost: 0.85 }
+				})
+			});
+
+			if (!res.ok) {
+				console.error(`ElevenLabs rejected synthesis request with status: ${res.status}`);
+				return "";
+			}
+
+			const audioBuffer = await res.arrayBuffer();
+			const fileKey = "voice-system-online.mp3";
+
+			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
+				httpMetadata: { contentType: "audio/mpeg" }
+			});
+
+			return `http://jolene-audio.jolenesego.com/${fileKey}`;
+		} catch (err) {
+			console.error("Audio Generation Loop Failed:", err);
+			return "";
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+
+		if (url.pathname === "/api/tts") {
+			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
+		}
+
+		if (url.pathname === "/api/profile") {
+			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
+			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
+			const storage = await this.env.DOCUMENTS.list();
+			
+			return new Response(JSON.stringify({
+				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
+				messages: history.results || [],
+				messageCount: history.results?.length || 0,
+				knowledgeAssets: storage.objects.map(o => o.key),
+				mode: "personal",
+				personality: personality,
+				durableObject: { id: sessionId, state: "Active" }
+			}), { headers });
+		}
+
+		// === TARGET EMBEDDING PIPELINE ROUTE INTERCEPTOR (FIXED RUNTIME FUNCTION METHOD) ===
+		if (url.pathname === "/api/memorize") {
+			try {
+				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
+				if (!r2Object) {
+					return new Response(JSON.stringify({ success: false, error: "Target V8 text artifact missing from R2 root." }), { status: 404, headers });
+				}
+
+				const rawText = await r2Object.text();
+				
+				await this.env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
+
+				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
+				
+				await this.env.VECTORIZE.upsert([{
+					id: "v8-identity-chunk-0",
+					values: embeddingResult.data[0],
+					metadata: { text: rawText }
+				}]);
+
+				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
+			}
+		}
 
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
@@ -370,7 +414,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required Simon.`;
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
 				}
 
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
@@ -391,6 +435,7 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
+				// === CROSS-SESSION REHYDRATION DIALOGUE MATRIX FROM D1 ===
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
 				).bind(sessionId).all();
@@ -408,22 +453,17 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
-				// === STATIC TRIGGER DISCOVERY MATRIX ===
-				const generatedUrl = await unifiedAudioSynthesis(chatTxt, this.env);
-				
-				if (generatedUrl !== "") {
-					chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-					
-					if (sonosTargetZone !== "") {
+				if (sonosTargetZone !== "") {
+					const generatedUrl = await this.generateHerAudioStream(chatTxt);
+					if (generatedUrl !== "") {
+						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
-					} else {
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"browser_native_audio","arguments":{"audioUrl":"${generatedUrl}"}}`;
 					}
 				}
 
-				if (chatTxt.includes("_ACTION_TRIGGER:") && sonosTargetZone !== "") {
+				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && line.includes("control_sonos_audio"));
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
@@ -461,66 +501,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		const sessionId = request.headers.get("x-session-id") || "global";
-		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
-
-		if (url.pathname === "/api/tts") {
-			try {
-				const textParam = url.searchParams.get("text");
-				if (!textParam) {
-					return new Response(JSON.stringify({ error: "Missing required text query parameter." }), { status: 400, headers });
-				}
-
-				const generatedUrl = await unifiedAudioSynthesis(textParam, env);
-				return new Response(JSON.stringify({ audioUrl: generatedUrl }), { headers });
-			} catch (err: any) {
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
-			}
-		}
-
-		if (url.pathname === "/api/profile") {
-			const personality = await env.SETTINGS.get(`personality`) || "warm";
-			const history = await env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
-			const storage = await env.DOCUMENTS.list();
-			
-			return new Response(JSON.stringify({
-				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
-				messages: history.results || [],
-				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
-				mode: "personal",
-				personality: personality,
-				durableObject: { id: sessionId, state: "Active" }
-			}), { headers });
-		}
-
-		if (url.pathname === "/api/memorize") {
-			try {
-				const r2Object = await env.DOCUMENTS.get("ScottIdentityV8.txt");
-				if (!r2Object) {
-					return new Response(JSON.stringify({ success: false, error: "Target V8 text artifact missing from R2 root." }), { status: 404, headers });
-				}
-
-				const rawText = await r2Object.text();
-				
-				await env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
-
-				const embeddingResult = await env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
-				
-				await env.VECTORIZE.upsert([{
-					id: "v8-identity-chunk-0",
-					values: embeddingResult.data[0],
-					metadata: { text: rawText }
-				}]);
-
-				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
-			} catch (err: any) {
-				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
-			}
-		}
-
-		const id = env.CHAT_SESSION.idFromName(sessionId);
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
