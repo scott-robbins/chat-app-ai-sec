@@ -62,6 +62,7 @@ async function unifiedAudioSynthesis(textToSpeak: string, env: Env): Promise<str
 		console.error("Missing Global Environment Binding contextual token variable flag.");
 		return "";
 	}
+	/*
 	try {
 		const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 		const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
@@ -105,7 +106,7 @@ async function unifiedAudioSynthesis(textToSpeak: string, env: Env): Promise<str
 		console.error("Upstream Synthesis Runtime Exception:", err);
 		return "";
 	}
-}
+}*/
 
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
