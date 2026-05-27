@@ -184,7 +184,9 @@ export class ChatSession extends DurableObject<Env> {
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
+		
+		const targetModel = model || "anthropic/claude-3-5-sonnet-20240620";
+		const cleanModel = targetModel.replace("anthropic/", "").replace("4.7", "4-7");
 		
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
@@ -340,8 +342,6 @@ export class ChatSession extends DurableObject<Env> {
 					timeZone: 'America/New_York' 
 				}).format(new Date());
 
-				// NATIVE BACKEND BRIDGE PROXY INTERCEPT LAYER:
-				// Automatically processes incoming execution payloads from the front-end natively
 				if (userMsg.startsWith("🚨THEATER_EXECUTION_PROXY:")) {
 					const jsonString = userMsg.split("🚨THEATER_EXECUTION_PROXY:")[1].trim();
 					const payload = JSON.parse(jsonString);
@@ -349,6 +349,7 @@ export class ChatSession extends DurableObject<Env> {
 					if (payload.tool === "get_nba_box_score") {
 						const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || "spurs");
 						const systemPromptOverride = `### NBA factual data sync: ${nativeBoxScoreData}. Render the structured table slices now.`;
+						// FIXED INNER LOOP MODEL STRING CONFIG: Passed correct full model gateway route handler token directly
 						const nextTurnResponse = await this.runAI("anthropic/claude-3-5-sonnet-20240620", systemPromptOverride, "Generate box score splits display", []);
 						return new Response(`data: ${JSON.stringify({ response: nextTurnResponse })}\n\ndata: [DONE]\n\n`, { headers });
 					}
@@ -437,7 +438,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
 
 									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
-									chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+									chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 								}
 							}
 						}
