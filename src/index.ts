@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. EXHAUSTIVE MEMORY SCAN RULE: You must exhaustively scan the entire identity payload and embedded context memory data fields before responding to any 'what do I like / what do I do / tell me about me' style questions. Treat the full ScottIdentityV8 file context as a primary factual source, not a backdrop, and prioritize pulling specific static canon details (such as favorite music, hobbies, and history) even if they are not conversationally adjacent to the active turn. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
+	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family[cite: 13, 22, 28, 40]. Use high-level sass[cite: 42]. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. EXHAUSTIVE MEMORY SCAN RULE: You must exhaustively scan the entire identity payload and embedded context memory data fields before responding to any 'what do I like / what do I do / tell me about me' style questions. Treat the full ScottIdentityV8 file context as a primary factual source, not a backdrop, and prioritize pulling specific static canon details (such as favorite music, hobbies, and history) even if they are not conversationally adjacent to the active turn[cite: 1, 7, 8, 9, 10, 32]. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole[cite: 16, 17, 18, 19, 20]. Remember: she is an ONLINE shopper[cite: 17]. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -55,11 +55,6 @@ Available Tool 5: "get_house_temperatures"
 Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
 Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
-
-Available Tool 6: "get_nba_box_score"
-Description: Connects directly to the live API-Sports database engine to retrieve real-time box score splits, team totals, player statistics, and quarter scoring counts for a requested game.
-Arguments: { "teamKeyword": string }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_nba_box_score","arguments":{"teamKeyword":"spurs"}}
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -79,70 +74,138 @@ export class ChatSession extends DurableObject<Env> {
 
 	// === MULTI-DAY DYNAMIC NBA DATA ENGINE ===
 	async getLiveNBAScore(query: string): Promise<string> {
-		if (!this.env.RAPIDAPI_KEY) {
-			return "[SPORTS LOGIC WARNING] RAPIDAPI_KEY binding token missing from Cloudflare environment variables.";
-		}
 		try {
 			const normalizedQuery = query.toLowerCase();
-			let targetTeam = "Spurs";
-			if (normalizedQuery.includes("okc") || normalizedQuery.includes("thunder")) targetTeam = "Thunder";
-			if (normalizedQuery.includes("cavs") || normalizedQuery.includes("cavaliers")) targetTeam = "Cavaliers";
-			if (normalizedQuery.includes("knicks")) targetTeam = "Knicks";
-			if (normalizedQuery.includes("celtics")) targetTeam = "Celtics";
-
-			const now = new Date();
-			const getQueryParts = (d: Date) => {
-				const formatter = new Intl.DateTimeFormat('en-US', {
-					year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/New_York'
-				});
-				const [{ value: month }, , { value: day }, , { value: year }] = formatter.formatToParts(d);
-				return { year, month, day };
-			};
-
-			const todayParts = getQueryParts(now);
-			const yesterdayDate = new Date(now);
-			yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-			const yesterdayParts = getQueryParts(yesterdayDate);
-
-			const [resToday, resYesterday] = await Promise.all([
-				fetch(`https://api-basketball-nba.p.rapidapi.com/nbascoreboard?year=${todayParts.year}&month=${todayParts.month}&day=${todayParts.day}`, {
-					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
-				}),
-				fetch(`https://api-basketball-nba.p.rapidapi.com/nbascoreboard?year=${yesterdayParts.year}&month=${yesterdayParts.month}&day=${yesterdayParts.day}`, {
-					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
-				})
+			
+			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100", { headers: { "User-Agent": "Mozilla/5.0" } })
 			]);
 
 			const dataToday: any = await resToday.json();
-			const dataYesterday: any = await resYesterday.json();
-			
-			const gamesToday = dataToday.results || dataToday.response || [];
-			const gamesYesterday = dataYesterday.results || dataYesterday.response || [];
-			const games = [...gamesToday, ...gamesYesterday];
+			let allEvents = dataToday.events || [];
 
-			if (games.length === 0) {
-				const searchResults = await this.tavilySearch(`NBA scoreboard splits stats results complete box score lines ${query}`, `${todayParts.year}-${todayParts.month}-${todayParts.day}`);
-				return `### [REAL-TIME LIVE DATA INTEGRATION LAYER]:\n${searchResults}`;
+			try {
+				const dataYest: any = await resYesterday.json();
+				if (dataYest.events) {
+					allEvents = allEvents.concat(dataYest.events);
+				}
+			} catch (e) { console.error("Failed merging fallback calendar rows:", e); }
+
+			try {
+				const dataPlayoffs: any = await resPlayoffs.json();
+				if (dataPlayoffs.events) {
+					dataPlayoffs.events.forEach((pe: any) => {
+						if (!allEvents.some((e: any) => e.id === pe.id)) {
+							allEvents.push(pe);
+						}
+					});
+				}
+			} catch (e) { console.error("Failed parsing deep tournament group array indices:", e); }
+
+			if (allEvents.length === 0) {
+				return "[LIVE NBA FEED] No active playoff matchups discovered on the league scoreboard slate.";
 			}
 
-			const liveGame = games.find((g: any) => {
-				const title = String(g.title || g.name || "").toLowerCase();
-				return title.includes(targetTeam.toLowerCase());
-			}) || games[games.length - 1]; 
+			if (normalizedQuery.match(/all games|every game|scores|scoreboard/)) {
+				let summary = "[LIVE NBA LESUMMARY]\n";
+				for (const event of allEvents) {
+					const status = event.status?.type?.detail || "Scheduled";
+					const comps = event.competitions?.[0]?.competitors || [];
+					if (comps.length >= 2) {
+						summary += `• ${comps[0].team?.displayName} (${comps[0].score}) vs ${comps[1].team?.displayName} (${comps[1].score}) - Status: ${status}\n`;
+					}
+				}
+				return summary;
+			}
 
-			const title = liveGame.title || "NBA Game Summary";
-			const status = liveGame.status || "Final";
-			const scoreSummary = liveGame.score || "";
+			const targetEvent = allEvents.find((e: any) => {
+				const name = e.name.toLowerCase();
+				const shortName = e.shortName.toLowerCase();
+				return normalizedQuery.split(/\s+/).some(word => 
+					word.length > 2 && (name.includes(word) || shortName.includes(word))
+				);
+			});
 
-			return `[API-SPORTS HARD-DATA CORE] Matchup Title: ${title} | Status: ${status} | Score Grid Data: ${scoreSummary}\n`;
-		} catch (err: any) {
-			console.error("API-Sports structural breakdown caught:", err);
-			const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
-			const searchResults = await this.tavilySearch(`NBA scoreboard stats results comprehensive complete box score player statistics lines ${query}`, easternTimeStr);
-			return `[HARD-DATA COMPILER ERROR - FALLBACK INTERCEPT ALIVE]:\n${searchResults}\nExtract these verified statistics and render the complete player data layout matrix table layout immediately.`;
+			if (!targetEvent) {
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
+				const searchResults = await this.tavilySearch(`NBA scoreboard stats results full box score player lines ${query}`, easternTimeStr);
+				return `[LIVE POSTSEASON FALLBACK DATA INTERCEPTED - CRITICAL ABOLUTE TRUTH FEED]:\n${searchResults}\nUse this live data to generate the requested player statistics table layout immediately.`;
+			}
+
+			const gameId = targetEvent.id;
+			const status = targetEvent.status?.type?.detail || "Unknown State";
+			const competitors = targetEvent.competitions?.[0]?.competitors || [];
+			
+			const team1 = competitors[0]?.team?.displayName || "TBD";
+			const score1 = competitors[0]?.score || "0";
+			const team2 = competitors[1]?.team?.displayName || "TBD";
+			const score2 = competitors[1]?.score || "0";
+
+			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
+
+			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
+				try {
+					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
+					const summaryData: any = await summaryRes.json();
+					const boxGroup = summaryData.boxscore?.players;
+					
+					if (boxGroup && boxGroup.length > 0) {
+						contextPayload += `\n\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS ===\n`;
+						boxGroup.forEach((teamBox: any) => {
+							const teamName = teamBox.team?.displayName || "Team";
+							contextPayload += `\n[${teamName} Player Splits]:\n`;
+							
+							const statWrapper = teamBox.statistics?.[0] || {};
+							const rawKeysArray = statWrapper.names || statWrapper.keys || [];
+							const statsKeys = rawKeysArray.map((k: string) => String(k).toLowerCase());
+							
+							const playersRows = teamBox.athletes || statWrapper.athletes || [];
+							
+							if (playersRows && playersRows.length > 0) {
+								playersRows.slice(0, 11).forEach((p: any) => {
+									const name = p.athlete?.displayName || "Player";
+									let pts = "0", reb = "0", ast = "0", min = "0";
+									
+									const rawStatsArray = p.stats || [];
+									if (statsKeys.length > 0 && rawStatsArray.length > 0) {
+										const extractValue = (key: string): string => {
+											const index = statsKeys.indexOf(key);
+											if (index === -1) return "0";
+											const node = rawStatsArray[index];
+											if (!node) return "0";
+											if (typeof node === 'object') {
+												return node.displayValue || node.value || "0";
+											}
+											return String(node);
+										};
+
+										pts = extractValue("pts");
+										reb = extractValue("reb");
+										ast = extractValue("ast");
+										min = extractValue("min");
+									}
+									contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
+								});
+							} else {
+								contextPayload += " (Player box score splits are actively updating upstream... Check back shortly!)\n";
+							}
+						});
+					}
+				} catch (boxErr) {
+					contextPayload += " | (Deep individual player split statistics are currently updating upstream...)";
+				}
+				return contextPayload;
+			}
+
+			return contextPayload;
+		} catch (err) {
+			return "[LIVE NBA FEED] Scoreboard data feed infrastructure handling timeouts gracefully.";
 		}
 	}
 
+	// === CRITICAL FINANCIAL ENGINE RAW TICKER SCRAPER ===
 	async fetchLiveTickerPrice(ticker: string): Promise<string> {
 		try {
 			const res = await fetch(`https://api.marketwatch.com/v1/quotes/public?symbols=STOCK/US/XNYS/${ticker.toUpperCase()}`, {
@@ -179,6 +242,8 @@ export class ChatSession extends DurableObject<Env> {
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
 		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
 		
+		// === CRITICAL TARGET ENVELOPE MODIFICATION ===
+		// Amplified generation payload to 4096 tokens to completely prevent text truncations mid-stream
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
 		try {
@@ -198,7 +263,7 @@ export class ChatSession extends DurableObject<Env> {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (lowerQ.match(/weather|forecast|temperature|outside/)) {
 				topicMode = "news";
-				deepQuery = `current outdoor temperature weather forecast condition report strictly in plymouth ma local news ${dateStr}`;
+				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
 			}
 
 			const res = await fetch('https://api.tavily.com/search', {
@@ -206,7 +271,7 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ 
 					api_key: this.env.TAVILY_API_KEY || "", 
-					query: `${deepQuery} live now location plymouth massachusetts`, 
+					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
 					topic: topicMode,
 					include_answer: true, 
@@ -218,6 +283,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search unavailable."; }
 	}
 
+	// === CLOUD RE-ROUTING ELEVENLABS AUDIO SYNTHESIS ENGINE ===
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
 		if (!this.env.ELEVEN_LABS_API_KEY) {
 			console.error("Missing ELEVEN_LABS_API_KEY variable context flag.");
@@ -269,14 +335,14 @@ export class ChatSession extends DurableObject<Env> {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
-		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache" };
+		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
 		if (url.pathname === "/api/tts") {
 			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
 		}
 
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get("personality") || "warm";
+			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
@@ -284,7 +350,7 @@ export class ChatSession extends DurableObject<Env> {
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.filter(o => String(o.key).endsWith(".txt")).map(o => o.key),
+				knowledgeAssets: storage.objects.map(o => o.key),
 				mode: "personal",
 				personality: personality,
 				durableObject: { id: sessionId, state: "Active" }
@@ -320,13 +386,18 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const currentPersonality = await this.env.SETTINGS.get("personality") || "warm";
-				
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
-				}).format(new Date());
+				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
 
-				const activeModelString = body.model || "anthropic/claude-opus-4.7";
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', 
+					day: 'numeric', 
+					year: 'numeric', 
+					hour: 'numeric', 
+					minute: 'numeric', 
+					second: 'numeric', 
+					hour12: true, 
+					timeZone: 'America/New_York' 
+				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
@@ -363,7 +434,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.filter(m => m.metadata && m.metadata.text && !m.metadata.text.includes("%PDF-")).map(m => m.metadata.text).join("\n---\n");
+				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0 ? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Thread - ${m.role.toUpperCase()}]: ${m.content}`).join("\n") : "No out-of-band dialogue lines archived in production datastore tables yet.";
@@ -375,58 +446,49 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
-				let chatTxt = await this.runAI(activeModelString, systemPrompt, userMsg, recentContext);
+				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 
 				if (sonosTargetZone !== "") {
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
 					if (generatedUrl !== "") {
 						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"}}`;
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
 					}
 				}
 
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
-							
-							let payload = null;
-							try {
-								payload = JSON.parse(jsonString);
-							} catch (jsonErr) {
-								console.error("Defensive json parsing intercept bypassed a text fragment:", jsonErr.message);
-							}
+							const payload = JSON.parse(jsonString);
 
-							if (payload) {
-								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-									method: "POST",
-									headers: { 
-										"Content-Type": "application/json",
-										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
-									},
-									body: JSON.stringify(payload)
-								});
+							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+								method: "POST",
+								headers: { 
+									"Content-Type": "application/json",
+									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
+								},
+								body: JSON.stringify(payload)
+							});
 
-								if (mcpResponse.ok) {
-									const toolExecutionResult = await mcpResponse.text();
-									console.log("🎯 Tool Output Landed:", toolExecutionResult);
+							if (mcpResponse.ok) {
+								const toolExecutionResult = await mcpResponse.text();
+								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
 
-									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
-									chatTxt = await this.runAI(activeModelString, systemPrompt, userMsg, recentContext);
-								}
+								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 							}
 						}
 					} catch (parseErr: any) {
-						console.error("MCP loop pipeline validation exception bypassed cleanly:", parseErr.message);
+						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
 					}
 				}
 
-				// STABILIZED NATIVE OUTPUT STREAM HEADER: Ensure text streams return unmodified to completely prevent browser cutting glitches
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(JSON.stringify({ response: chatTxt }), { headers });
+				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(JSON.stringify({ response: "Error: " + e.message }), { headers }); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
