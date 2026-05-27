@@ -129,8 +129,6 @@ export class ChatSession extends DurableObject<Env> {
 			});
 
 			if (!targetEvent) {
-				// === ENHANCED DYNAMIC SPORTS RETRIEVAL LAYER ===
-				// Force a structural instruction header onto the search output context block
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
 				const searchResults = await this.tavilySearch(`NBA scoreboard stats results comprehensive complete box score player statistics lines ${query}`, easternTimeStr);
 				return `### [CRITICAL REAL-TIME SPORTS FALLBACK CONTEXT - VERIFIED ABSOLUTE FACTS]:
@@ -462,7 +460,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
