@@ -91,8 +91,6 @@ export class ChatSession extends DurableObject<Env> {
 			if (normalizedQuery.includes("celtics")) targetTeam = "Celtics";
 
 			const now = new Date();
-			
-			// Extract discrete string elements to build the clean parameters this package expects
 			const getQueryParts = (d: Date) => {
 				const formatter = new Intl.DateTimeFormat('en-US', {
 					year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/New_York'
@@ -106,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 			yesterdayDate.setDate(yesterdayDate.getDate() - 1);
 			const yesterdayParts = getQueryParts(yesterdayDate);
 
-			// FIXED ENDPOINT ROUTES: Directly targeting your active belchiorarkad package structure
 			const [resToday, resYesterday] = await Promise.all([
 				fetch(`https://api-basketball-nba.p.rapidapi.com/nbascoreboard?year=${todayParts.year}&month=${todayParts.month}&day=${todayParts.day}`, {
 					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
@@ -119,13 +116,11 @@ export class ChatSession extends DurableObject<Env> {
 			const dataToday: any = await resToday.json();
 			const dataYesterday: any = await resYesterday.json();
 			
-			// Unpack endpoints based on their unique top-level response arrays
 			const gamesToday = dataToday.results || dataToday.response || [];
 			const gamesYesterday = dataYesterday.results || dataYesterday.response || [];
 			const games = [...gamesToday, ...gamesYesterday];
 
 			if (games.length === 0) {
-				// Clean fallback: If the live endpoint array returns blank slots, instantly route to Tavily web logs
 				const searchResults = await this.tavilySearch(`NBA scoreboard splits stats results complete box score lines ${query}`, `${todayParts.year}-${todayParts.month}-${todayParts.day}`);
 				return `### [REAL-TIME LIVE DATA INTEGRATION LAYER]:\n${searchResults}`;
 			}
@@ -274,7 +269,7 @@ export class ChatSession extends DurableObject<Env> {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const sessionId = request.headers.get("x-session-id") || "global";
-		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache" };
 
 		if (url.pathname === "/api/tts") {
 			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
@@ -332,18 +327,6 @@ export class ChatSession extends DurableObject<Env> {
 				}).format(new Date());
 
 				const activeModelString = body.model || "anthropic/claude-opus-4.7";
-
-				if (userMsg.startsWith("🚨THEATER_EXECUTION_PROXY:")) {
-					const jsonString = userMsg.split("🚨THEATER_EXECUTION_PROXY:")[1].trim();
-					const payload = JSON.parse(jsonString);
-
-					if (payload.tool === "get_nba_box_score") {
-						const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || "spurs");
-						const systemPromptOverride = `### NBA factual data sync: ${nativeBoxScoreData}. Render the structured table slices now.`;
-						const nextTurnResponse = await this.runAI(activeModelString, systemPromptOverride, "Generate box score splits display", body.messages);
-						return new Response(`data: ${JSON.stringify({ response: nextTurnResponse })}\n\ndata: [DONE]\n\n`, { headers });
-					}
-				}
 
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
@@ -415,11 +398,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								console.error("Defensive json parsing intercept bypassed a text fragment:", jsonErr.message);
 							}
 
-							if (payload && payload.tool === "get_nba_box_score") {
-								const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || userMsg);
-								systemPrompt += `\n\n⚠️ [NATIVE BASEBALL FEED SUCCESS] The API-Sports basketball pipeline executed cleanly and returned this data structure: ${nativeBoxScoreData}. Use this structured factual JSON metrics block to draw up your final formatted table grids.`;
-								chatTxt = await this.runAI(activeModelString, systemPrompt, userMsg, recentContext);
-							} else if (payload) {
+							if (payload) {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
 									headers: { 
@@ -435,7 +414,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
 									chatTxt = await this.runAI(activeModelString, systemPrompt, userMsg, recentContext);
-									return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`, { headers });
 								}
 							}
 						}
@@ -444,10 +422,11 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
+				// STABILIZED NATIVE OUTPUT STREAM HEADER: Ensure text streams return unmodified to completely prevent browser cutting glitches
 				await this.saveMsg(sessionId, 'assistant', chatTxt);
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`, { headers });
+				return new Response(JSON.stringify({ response: chatTxt }), { headers });
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`, { headers }); }
+			} catch (e: any) { return new Response(JSON.stringify({ response: "Error: " + e.message }), { headers }); }
 		}
 		return new Response("OK");
 	}
