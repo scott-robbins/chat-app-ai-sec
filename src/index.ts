@@ -201,7 +201,6 @@ export class ChatSession extends DurableObject<Env> {
 			let topicMode = "general";
 			const lowerQ = query.toLowerCase();
 
-			// FIXED GEO-TARGETING: Explicitly bind target location coordinates to prevent wrong-market news extraction
 			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (lowerQ.match(/weather|forecast|temperature|outside/)) {
@@ -292,7 +291,6 @@ export class ChatSession extends DurableObject<Env> {
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
-				// FIXED MEMORY RETRIEVAL PATH: Strictly isolate text keys from binary streams to prevent context pollution
 				knowledgeAssets: storage.objects.filter(o => String(o.key).endsWith(".txt")).map(o => o.key),
 				mode: "personal",
 				personality: personality,
@@ -330,6 +328,12 @@ export class ChatSession extends DurableObject<Env> {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get("personality") || "warm";
+				
+				// CRITICAL FIX: Evaluated temporal strings directly at top-of-scope to wipe out the variable initialization crash
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
+				}).format(new Date());
+
 				const activeModelString = body.model || "anthropic/claude-opus-4.7";
 
 				if (userMsg.startsWith("🚨THEATER_EXECUTION_PROXY:")) {
@@ -339,7 +343,6 @@ export class ChatSession extends DurableObject<Env> {
 					if (payload.tool === "get_nba_box_score") {
 						const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || "spurs");
 						const systemPromptOverride = `### NBA factual data sync: ${nativeBoxScoreData}. Render the structured table slices now.`;
-						// FIXED RECURSIVE CONTEXT INJECTION: Preserved message logs cleanly on the return leg
 						const nextTurnResponse = await this.runAI(activeModelString, systemPromptOverride, "Generate box score splits display", body.messages);
 						return new Response(`data: ${JSON.stringify({ response: nextTurnResponse })}\n\ndata: [DONE]\n\n`, { headers });
 					}
@@ -380,15 +383,10 @@ export class ChatSession extends DurableObject<Env> {
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				// FIXED MEMORY RETRIEVAL FILTER: Wipe out partial streams to isolate data channel corruption
 				const docContext = matches.matches.filter(m => !m.metadata.text.includes("%PDF-")).map(m => m.metadata.text).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0 ? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Thread - ${m.role.toUpperCase()}]: ${m.content}`).join("\n") : "No out-of-band dialogue lines archived in production datastore tables yet.";
-
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
-				}).format(new Date());
 
 				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
@@ -440,7 +438,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
 									chatTxt = await this.runAI(activeModelString, systemPrompt, userMsg, recentContext);
-									// FIXED ACK RESPONSE RETURNING PATHWAY: Secure return string array execution back to client side
 									return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`, { headers });
 								}
 							}
