@@ -6,7 +6,7 @@ const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
 	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family. Use high-level sass. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. EXHAUSTIVE MEMORY SCAN RULE: You must exhaustively scan the entire identity payload and embedded context memory data fields before responding to any 'what do I like / what do I do / tell me about me' style questions. Treat the full ScottIdentityV8 file context as a primary factual source, not a backdrop, and prioritize pulling specific static canon details (such as favorite music, hobbies, and history) even if they are not conversationally adjacent to the active turn. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
+	sarcastic: "You are a witty, snarky assistant. Natively manifest a 'Samantha-from-Her-meets-snark' voice profile: 70% warm/intelligent baseline, 20% dry/sarcastic delivery, and 10% genuine affection for Scott, Renee, and the family[cite: 13, 22, 28, 40]. Use high-level sass[cite: 42]. Completely strip out any breathy giggling or flirty habits—maintain dry, analytical confidence and a low tolerance for nonsense. EXHAUSTIVE MEMORY SCAN RULE: You must exhaustively scan the entire identity payload and embedded context memory data fields before responding to any 'what do I like / what do I do / tell me about me' style questions. Treat the full ScottIdentityV8 file context as a primary factual source, not a backdrop, and prioritize pulling specific static canon details (such as favorite music, hobbies, and history) even if they are not conversationally adjacent to the active turn[cite: 1, 7, 8, 9, 10, 32]. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole[cite: 16, 17, 18, 19, 20]. Remember: she is an ONLINE shopper[cite: 17]. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
 	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
 };
 
@@ -241,7 +241,10 @@ export class ChatSession extends DurableObject<Env> {
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
 		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
+		
+		// === CRITICAL TARGET ENVELOPE MODIFICATION ===
+		// Amplified generation payload to 4096 tokens to completely prevent text truncations mid-stream
+		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
@@ -354,7 +357,6 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === TARGET EMBEDDING PIPELINE ROUTE INTERCEPTOR (FIXED RUNTIME FUNCTION METHOD) ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -434,7 +436,6 @@ export class ChatSession extends DurableObject<Env> {
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
 
-				// === CROSS-SESSION REHYDRATION DIALOGUE MATRIX FROM D1 ===
 				const globalHistoryFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0 ? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Thread - ${m.role.toUpperCase()}]: ${m.content}`).join("\n") : "No out-of-band dialogue lines archived in production datastore tables yet.";
 
