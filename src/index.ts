@@ -84,69 +84,66 @@ export class ChatSession extends DurableObject<Env> {
 		}
 		try {
 			const normalizedQuery = query.toLowerCase();
-			let targetTeam = "San Antonio Spurs";
-			if (normalizedQuery.includes("okc") || normalizedQuery.includes("thunder")) targetTeam = "Oklahoma City Thunder";
-			if (normalizedQuery.includes("cavs") || normalizedQuery.includes("cavaliers")) targetTeam = "Cleveland Cavaliers";
-			if (normalizedQuery.includes("knicks")) targetTeam = "New York Knicks";
-			if (normalizedQuery.includes("celtics")) targetTeam = "Boston Celtics";
+			let targetTeam = "Spurs";
+			if (normalizedQuery.includes("okc") || normalizedQuery.includes("thunder")) targetTeam = "Thunder";
+			if (normalizedQuery.includes("cavs") || normalizedQuery.includes("cavaliers")) targetTeam = "Cavaliers";
+			if (normalizedQuery.includes("knicks")) targetTeam = "Knicks";
+			if (normalizedQuery.includes("celtics")) targetTeam = "Celtics";
 
 			const now = new Date();
-			const formatLocalDate = (d: Date) => {
+			
+			// Extract discrete string elements to build the clean parameters this package expects
+			const getQueryParts = (d: Date) => {
 				const formatter = new Intl.DateTimeFormat('en-US', {
 					year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/New_York'
 				});
 				const [{ value: month }, , { value: day }, , { value: year }] = formatter.formatToParts(d);
-				return `${year}-${month}-${day}`;
+				return { year, month, day };
 			};
 
-			const todayDateStr = formatLocalDate(now);
-			const yesterday = new Date(now);
-			yesterday.setDate(yesterday.getDate() - 1);
-			const yesterdayDateStr = formatLocalDate(yesterday);
+			const todayParts = getQueryParts(now);
+			const yesterdayDate = new Date(now);
+			yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+			const yesterdayParts = getQueryParts(yesterdayDate);
 
-			// FIXED HOST SUBDOMAINS: Re-routed path endpoints cleanly to target your active NBA package parameters smoothly
+			// FIXED ENDPOINT ROUTES: Directly targeting your active belchiorarkad package structure
 			const [resToday, resYesterday] = await Promise.all([
-				fetch(`https://api-basketball-nba.p.rapidapi.com/games?date=${todayDateStr}`, {
+				fetch(`https://api-basketball-nba.p.rapidapi.com/nbascoreboard?year=${todayParts.year}&month=${todayParts.month}&day=${todayParts.day}`, {
 					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
 				}),
-				fetch(`https://api-basketball-nba.p.rapidapi.com/games?date=${yesterdayDateStr}`, {
+				fetch(`https://api-basketball-nba.p.rapidapi.com/nbascoreboard?year=${yesterdayParts.year}&month=${yesterdayParts.month}&day=${yesterdayParts.day}`, {
 					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
 				})
 			]);
 
 			const dataToday: any = await resToday.json();
 			const dataYesterday: any = await resYesterday.json();
-			const games = [...(dataToday.response || []), ...(dataYesterday.response || [])];
+			
+			// Unpack endpoints based on their unique top-level response arrays
+			const gamesToday = dataToday.results || dataToday.response || [];
+			const gamesYesterday = dataYesterday.results || dataYesterday.response || [];
+			const games = [...gamesToday, ...gamesYesterday];
 
 			if (games.length === 0) {
-				return `[API-SPORTS] Balanced database tracking complete over range ${yesterdayDateStr} to ${todayDateStr}. No matching playoff game entries discovered.`;
+				// Clean fallback: If the live endpoint array returns blank slots, instantly route to Tavily web logs
+				const searchResults = await this.tavilySearch(`NBA scoreboard splits stats results complete box score lines ${query}`, `${todayParts.year}-${todayParts.month}-${todayParts.day}`);
+				return `### [REAL-TIME LIVE DATA INTEGRATION LAYER]:\n${searchResults}`;
 			}
 
-			const liveGame = games.find((g: any) => 
-				g.teams.home.name.toLowerCase().includes(targetTeam.toLowerCase()) || 
-				g.teams.away.name.toLowerCase().includes(targetTeam.toLowerCase())
-			) || games[games.length - 1]; 
+			const liveGame = games.find((g: any) => {
+				const title = String(g.title || g.name || "").toLowerCase();
+				return title.includes(targetTeam.toLowerCase());
+			}) || games[games.length - 1]; 
 
-			const homeTeam = liveGame.teams.home.name;
-			const awayTeam = liveGame.teams.away.name;
-			const homeScore = liveGame.scores.home.total ?? "0";
-			const awayScore = liveGame.scores.away.total ?? "0";
-			const status = liveGame.status.long ?? "Scheduled";
-			const gameDate = liveGame.date ? liveGame.date.split("T")[0] : "";
+			const title = liveGame.title || "NBA Game Summary";
+			const status = liveGame.status || "Final";
+			const scoreSummary = liveGame.score || "";
 
-			let payload = `[API-SPORTS HARD-DATA CORE] Game Date: ${gameDate} | Matchup: ${awayTeam} (${awayScore}) at ${homeTeam} (${homeScore}) | Status: ${status}\n`;
-			
-			if (liveGame.scores.home.quarter_1 !== null) {
-				payload += `• Quarter Splits:\n`;
-				payload += `  Away quarters: Q1: ${liveGame.scores.away.quarter_1 ?? 0} | Q2: ${liveGame.scores.away.quarter_2 ?? 0} | Q3: ${liveGame.scores.away.quarter_3 ?? 0} | Q4: ${liveGame.scores.away.quarter_4 ?? 0}\n`;
-				payload += `  Home quarters: Q1: ${liveGame.scores.home.quarter_1 ?? 0} | Q2: ${liveGame.scores.home.quarter_2 ?? 0} | Q3: ${liveGame.scores.home.quarter_3 ?? 0} | Q4: ${liveGame.scores.home.quarter_4 ?? 0}\n`;
-			}
-
-			return payload;
+			return `[API-SPORTS HARD-DATA CORE] Matchup Title: ${title} | Status: ${status} | Score Grid Data: ${scoreSummary}\n`;
 		} catch (err: any) {
 			console.error("API-Sports structural breakdown caught:", err);
 			const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
-			const searchResults = await this.tavilySearch("NBA scoreboard stats results comprehensive complete box score player statistics lines " + query, easternTimeStr);
+			const searchResults = await this.tavilySearch(`NBA scoreboard stats results comprehensive complete box score player statistics lines ${query}`, easternTimeStr);
 			return `[HARD-DATA COMPILER ERROR - FALLBACK INTERCEPT ALIVE]:\n${searchResults}\nExtract these verified statistics and render the complete player data layout matrix table layout immediately.`;
 		}
 	}
@@ -383,7 +380,7 @@ export class ChatSession extends DurableObject<Env> {
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.filter(m => !m.metadata.text.includes("%PDF-")).map(m => m.metadata.text).join("\n---\n");
+				const docContext = matches.matches.filter(m => m.metadata && m.metadata.text && !m.metadata.text.includes("%PDF-")).map(m => m.metadata.text).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15").bind(sessionId).all();
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0 ? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Thread - ${m.role.toUpperCase()}]: ${m.content}`).join("\n") : "No out-of-band dialogue lines archived in production datastore tables yet.";
