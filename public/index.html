@@ -110,6 +110,7 @@
 			.sidebar.open { right: 0; }
 
 			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
 			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
 			.dash-desc { font-size: 0.7 micro; color: var(--text-light); margin-top: 4px; font-style: italic; }
@@ -189,7 +190,7 @@
 
 		<div id="memory-sidebar" class="sidebar">
 			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-				<h2 style="color: var(--primary-color); font-weight: 700;">Command Command Center</h2>
+				<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
 				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
 			</div>
 			<div class="sidebar-content">
@@ -385,7 +386,6 @@
 					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
 
-					// FIXED PLACEMENT: Re-routed dashboard variable compiler cleanly inside active scope logic parameters
 					const personalityEl = document.getElementById('kv-personality-display');
 					if (personalityEl) {
 						personalityEl.innerText = (data.personality || "warm").toUpperCase();
@@ -526,15 +526,19 @@
 									});
 								}
 							} else {
-								fetch("https://oecd-attractive-precise-caps.trycloudflare.com/api/tools/execute", {
+								// === FIXED DECOUPLED ROUTING ENVELOPE ===
+								// Clean relative path ensures payload updates bypass external tunnels entirely
+								fetch("/api/chat", {
 									method: "POST",
 									headers: { "Content-Type": "application/json" },
-									body: jsonPayloadString
+									body: JSON.stringify({
+										messages: [{ role: "user", content: `🚨THEATER_EXECUTION_PROXY:${jsonPayloadString}` }]
+									})
 								});
-								console.log("🚀 Secure tool payload dispatched down the tunnel successfully.");
+								console.log("🚀 Secure agentic tool payload dispatched directly to native worker endpoints successfully.");
 							}
 						} catch (tunnelError) {
-							console.error("Tunnel routing issue:", tunnelError);
+							console.error("Native routing intercept issue:", tunnelError);
 						}
 					} else {
 						contentDiv.innerHTML = marked.parse(assistantText);
