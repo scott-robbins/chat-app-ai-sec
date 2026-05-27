@@ -104,12 +104,13 @@ export class ChatSession extends DurableObject<Env> {
 			yesterday.setDate(yesterday.getDate() - 1);
 			const yesterdayDateStr = formatLocalDate(yesterday);
 
+			// FIXED HOST SUBDOMAINS: Re-routed path endpoints cleanly to target your active NBA package parameters smoothly
 			const [resToday, resYesterday] = await Promise.all([
-				fetch(`https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026&date=${todayDateStr}`, {
-					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball.p.rapidapi.com" }
+				fetch(`https://api-basketball-nba.p.rapidapi.com/games?date=${todayDateStr}`, {
+					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
 				}),
-				fetch(`https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026&date=${yesterdayDateStr}`, {
-					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball.p.rapidapi.com" }
+				fetch(`https://api-basketball-nba.p.rapidapi.com/games?date=${yesterdayDateStr}`, {
+					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball-nba.p.rapidapi.com" }
 				})
 			]);
 
@@ -145,7 +146,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (err: any) {
 			console.error("API-Sports structural breakdown caught:", err);
 			const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
-			const searchResults = await this.tavilySearch(`NBA scoreboard stats results comprehensive complete box score player statistics lines ${query}`, easternTimeStr);
+			const searchResults = await this.tavilySearch("NBA scoreboard stats results comprehensive complete box score player statistics lines " + query, easternTimeStr);
 			return `[HARD-DATA COMPILER ERROR - FALLBACK INTERCEPT ALIVE]:\n${searchResults}\nExtract these verified statistics and render the complete player data layout matrix table layout immediately.`;
 		}
 	}
@@ -329,7 +330,6 @@ export class ChatSession extends DurableObject<Env> {
 				const userMsg = body.messages[body.messages.length - 1].content;
 				const currentPersonality = await this.env.SETTINGS.get("personality") || "warm";
 				
-				// CRITICAL FIX: Evaluated temporal strings directly at top-of-scope to wipe out the variable initialization crash
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
 					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
 				}).format(new Date());
@@ -401,7 +401,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
 					if (generatedUrl !== "") {
 						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"}}`;
 					}
 				}
 
