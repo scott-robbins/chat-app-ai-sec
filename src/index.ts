@@ -129,9 +129,15 @@ export class ChatSession extends DurableObject<Env> {
 			});
 
 			if (!targetEvent) {
+				// === ENHANCED DYNAMIC SPORTS RETRIEVAL LAYER ===
+				// Force a structural instruction header onto the search output context block
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
-				const searchResults = await this.tavilySearch(`NBA scoreboard stats results full box score player lines ${query}`, easternTimeStr);
-				return `[LIVE POSTSEASON FALLBACK DATA INTERCEPTED - CRITICAL ABOLUTE TRUTH FEED]:\n${searchResults}\nUse this live data to generate the requested player statistics table layout immediately.`;
+				const searchResults = await this.tavilySearch(`NBA scoreboard stats results comprehensive complete box score player statistics lines ${query}`, easternTimeStr);
+				return `### [CRITICAL REAL-TIME SPORTS FALLBACK CONTEXT - VERIFIED ABSOLUTE FACTS]:
+The automated schedule checker returned no active matching event footprint for today's slate. The live network has retrieved the following comprehensive data feed for your query:
+${searchResults}
+
+You have direct clearance to consume this live data matrix. Output the box score splits immediately. Do not state that you lack sports tools or historical retrieval feeds.`;
 			}
 
 			const gameId = targetEvent.id;
@@ -147,7 +153,6 @@ export class ChatSession extends DurableObject<Env> {
 
 			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
 				try {
-					// FIXED LINE INDENT: Restored functional syntax string quotes around the ESPN summary fetch layout array
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
 					const boxGroup = summaryData.boxscore?.players;
@@ -475,7 +480,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const toolExecutionResult = await mcpResponse.text();
 								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
 
-								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
 								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
 							}
 						}
