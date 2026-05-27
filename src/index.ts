@@ -184,9 +184,7 @@ export class ChatSession extends DurableObject<Env> {
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		
-		const targetModel = model || "anthropic/claude-3-5-sonnet-20240620";
-		const cleanModel = targetModel.replace("anthropic/", "").replace("4.7", "4-7");
+		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
 		
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
@@ -285,7 +283,7 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
+			const personality = await this.env.SETTINGS.get("personality") || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
@@ -329,7 +327,7 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
+				const currentPersonality = await this.env.SETTINGS.get("personality") || "warm";
 
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
 					month: 'long', 
@@ -349,7 +347,6 @@ export class ChatSession extends DurableObject<Env> {
 					if (payload.tool === "get_nba_box_score") {
 						const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || "spurs");
 						const systemPromptOverride = `### NBA factual data sync: ${nativeBoxScoreData}. Render the structured table slices now.`;
-						// FIXED INNER LOOP MODEL STRING CONFIG: Passed correct full model gateway route handler token directly
 						const nextTurnResponse = await this.runAI("anthropic/claude-3-5-sonnet-20240620", systemPromptOverride, "Generate box score splits display", []);
 						return new Response(`data: ${JSON.stringify({ response: nextTurnResponse })}\n\ndata: [DONE]\n\n`, { headers });
 					}
@@ -417,13 +414,21 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
-							const payload = JSON.parse(jsonString);
+							
+							// SURGICAL UPDATE LOOP BLOCK INTERCEPT: 
+							// Safely wrap text parser inside a validation layer to bypass malformed streaming chunks dynamically
+							let payload = null;
+							try {
+								payload = JSON.parse(jsonString);
+							} catch (jsonErr) {
+								console.error("Defensive json parsing intercept bypassed a text fragment:", jsonErr.message);
+							}
 
-							if (payload.tool === "get_nba_box_score") {
+							if (payload && payload.tool === "get_nba_box_score") {
 								const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || userMsg);
 								systemPrompt += `\n\n⚠️ [NATIVE BASEBALL FEED SUCCESS] The API-Sports basketball pipeline executed cleanly and returned this data structure: ${nativeBoxScoreData}. Use this structured factual JSON metrics block to draw up your final formatted table grids.`;
 								chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
-							} else {
+							} else if (payload) {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
 									headers: { 
@@ -435,7 +440,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 								if (mcpResponse.ok) {
 									const toolExecutionResult = await mcpResponse.text();
-									console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+									console.log("🎯 Tool Output Landed:", toolExecutionResult);
 
 									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user Simon.`;
 									chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
@@ -443,7 +448,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							}
 						}
 					} catch (parseErr: any) {
-						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
+						console.error("MCP loop pipeline validation exception bypassed cleanly:", parseErr.message);
 					}
 				}
 
