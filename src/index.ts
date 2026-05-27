@@ -90,7 +90,6 @@ export class ChatSession extends DurableObject<Env> {
 			if (normalizedQuery.includes("knicks")) targetTeam = "New York Knicks";
 			if (normalizedQuery.includes("celtics")) targetTeam = "Boston Celtics";
 
-			// DYNAMIC SLATE VIEWPANEL CALCULATOR (24H Fallback Window for Complete Postseason Tracking)
 			const now = new Date();
 			const formatLocalDate = (d: Date) => {
 				const formatter = new Intl.DateTimeFormat('en-US', {
@@ -105,7 +104,6 @@ export class ChatSession extends DurableObject<Env> {
 			yesterday.setDate(yesterday.getDate() - 1);
 			const yesterdayDateStr = formatLocalDate(yesterday);
 
-			// Parallel pipeline fetches verifying both yesterday's and today's league scoreboard
 			const [resToday, resYesterday] = await Promise.all([
 				fetch(`https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026&date=${todayDateStr}`, {
 					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball.p.rapidapi.com" }
@@ -342,6 +340,20 @@ export class ChatSession extends DurableObject<Env> {
 					timeZone: 'America/New_York' 
 				}).format(new Date());
 
+				// NATIVE BACKEND BRIDGE PROXY INTERCEPT LAYER:
+				// Automatically processes incoming execution payloads from the front-end natively
+				if (userMsg.startsWith("🚨THEATER_EXECUTION_PROXY:")) {
+					const jsonString = userMsg.split("🚨THEATER_EXECUTION_PROXY:")[1].trim();
+					const payload = JSON.parse(jsonString);
+
+					if (payload.tool === "get_nba_box_score") {
+						const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || "spurs");
+						const systemPromptOverride = `### NBA factual data sync: ${nativeBoxScoreData}. Render the structured table slices now.`;
+						const nextTurnResponse = await this.runAI("anthropic/claude-3-5-sonnet-20240620", systemPromptOverride, "Generate box score splits display", []);
+						return new Response(`data: ${JSON.stringify({ response: nextTurnResponse })}\n\ndata: [DONE]\n\n`, { headers });
+					}
+				}
+
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 10").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
@@ -389,7 +401,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 ### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
-				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+				let chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 
 				if (sonosTargetZone !== "") {
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
@@ -409,7 +421,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							if (payload.tool === "get_nba_box_score") {
 								const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || userMsg);
 								systemPrompt += `\n\n⚠️ [NATIVE BASEBALL FEED SUCCESS] The API-Sports basketball pipeline executed cleanly and returned this data structure: ${nativeBoxScoreData}. Use this structured factual JSON metrics block to draw up your final formatted table grids.`;
-								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+								chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 							} else {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
