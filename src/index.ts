@@ -77,7 +77,7 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { console.error("D1 Error:", e); }
 	}
 
-	// === HIGH PERFORMANCE API-SPORTS CORE ENGINE (BLOCK 2 REALIZED) ===
+	// === MULTI-DAY DYNAMIC NBA DATA ENGINE ===
 	async getLiveNBAScore(query: string): Promise<string> {
 		if (!this.env.RAPIDAPI_KEY) {
 			return "[SPORTS LOGIC WARNING] RAPIDAPI_KEY binding token missing from Cloudflare environment variables.";
@@ -90,38 +90,53 @@ export class ChatSession extends DurableObject<Env> {
 			if (normalizedQuery.includes("knicks")) targetTeam = "New York Knicks";
 			if (normalizedQuery.includes("celtics")) targetTeam = "Boston Celtics";
 
-			// 1. Fetch active games from the reliable API-Sports Basketball Endpoint
-			const url = "https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026";
-			const res = await fetch(url, {
-				headers: {
-					"x-rapidapi-key": this.env.RAPIDAPI_KEY,
-					"x-rapidapi-host": "api-basketball.p.rapidapi.com"
-				}
-			});
+			// DYNAMIC SLATE VIEWPANEL CALCULATOR (24H Fallback Window for Complete Postseason Tracking)
+			const now = new Date();
+			const formatLocalDate = (d: Date) => {
+				const formatter = new Intl.DateTimeFormat('en-US', {
+					year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/New_York'
+				});
+				const [{ value: month }, , { value: day }, , { value: year }] = formatter.formatToParts(d);
+				return `${year}-${month}-${day}`;
+			};
 
-			if (!res.ok) throw new Error(`API-Sports network side error code: ${res.status}`);
-			const data: any = await res.json();
-			const games = data.response || [];
+			const todayDateStr = formatLocalDate(now);
+			const yesterday = new Date(now);
+			yesterday.setDate(yesterday.getDate() - 1);
+			const yesterdayDateStr = formatLocalDate(yesterday);
+
+			// Parallel pipeline fetches verifying both yesterday's and today's league scoreboard
+			const [resToday, resYesterday] = await Promise.all([
+				fetch(`https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026&date=${todayDateStr}`, {
+					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball.p.rapidapi.com" }
+				}),
+				fetch(`https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026&date=${yesterdayDateStr}`, {
+					headers: { "x-rapidapi-key": this.env.RAPIDAPI_KEY, "x-rapidapi-host": "api-basketball.p.rapidapi.com" }
+				})
+			]);
+
+			const dataToday: any = await resToday.json();
+			const dataYesterday: any = await resYesterday.json();
+			const games = [...(dataToday.response || []), ...(dataYesterday.response || [])];
 
 			if (games.length === 0) {
-				return `[API-SPORTS] Unified basketball database connected successfully. No active playoff data slots matched the baseline filter configurations on the ledger today.`;
+				return `[API-SPORTS] Balanced database tracking complete over range ${yesterdayDateStr} to ${todayDateStr}. No matching playoff game entries discovered.`;
 			}
 
-			// 2. Locate the game row matching our targeted keywords
 			const liveGame = games.find((g: any) => 
 				g.teams.home.name.toLowerCase().includes(targetTeam.toLowerCase()) || 
 				g.teams.away.name.toLowerCase().includes(targetTeam.toLowerCase())
-			) || games[games.length - 1]; // Fallback to latest game on array if exact match is offset
+			) || games[games.length - 1]; 
 
 			const homeTeam = liveGame.teams.home.name;
 			const awayTeam = liveGame.teams.away.name;
 			const homeScore = liveGame.scores.home.total ?? "0";
 			const awayScore = liveGame.scores.away.total ?? "0";
 			const status = liveGame.status.long ?? "Scheduled";
+			const gameDate = liveGame.date ? liveGame.date.split("T")[0] : "";
 
-			let payload = `[API-SPORTS HARD-DATA CORE] Matchup: ${awayTeam} (${awayScore}) at ${homeTeam} (${homeScore}) | Status: ${status}\n`;
+			let payload = `[API-SPORTS HARD-DATA CORE] Game Date: ${gameDate} | Matchup: ${awayTeam} (${awayScore}) at ${homeTeam} (${homeScore}) | Status: ${status}\n`;
 			
-			// Append quarter metrics dynamically
 			if (liveGame.scores.home.quarter_1 !== null) {
 				payload += `• Quarter Splits:\n`;
 				payload += `  Away quarters: Q1: ${liveGame.scores.away.quarter_1 ?? 0} | Q2: ${liveGame.scores.away.quarter_2 ?? 0} | Q3: ${liveGame.scores.away.quarter_3 ?? 0} | Q4: ${liveGame.scores.away.quarter_4 ?? 0}\n`;
@@ -386,16 +401,11 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
-						// FIXED TRIGGER DISCOVERY CORE ROUTER:
-						// Ensured that any tool except browser audio triggers the MCP bridge down the local tunnel path correctly
 						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:") && !line.includes("browser_native_audio"));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// INTERCEPT LEVEL FOR EXTRACTING DATA NATIVELY:
-							// If Claude programmatically executes the registered get_nba_box_score function schema call,
-							// route it right into your updated worker database module instead of throwing a tunnel error block
 							if (payload.tool === "get_nba_box_score") {
 								const nativeBoxScoreData = await this.getLiveNBAScore(payload.arguments?.teamKeyword || userMsg);
 								systemPrompt += `\n\n⚠️ [NATIVE BASEBALL FEED SUCCESS] The API-Sports basketball pipeline executed cleanly and returned this data structure: ${nativeBoxScoreData}. Use this structured factual JSON metrics block to draw up your final formatted table grids.`;
