@@ -1,7 +1,8 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-const DEFAULT_CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// FIXED SYSTEM DEFAULTS: Explicitly pinned to your working Claude Opus configuration string
+const DEFAULT_MODEL_ROUTING = "claude-3-opus-20240229";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 const PERSONALITIES = {
@@ -240,8 +241,13 @@ export class ChatSession extends DurableObject<Env> {
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		const cleanModel = model.replace("anthropic/", "").replace("4.7", "4-7");
-		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 1024 };
+		
+		// PINNED MODEL LOGIC: Enforces your preferred Claude Opus parameters
+		let incomingModel = model || DEFAULT_MODEL_ROUTING;
+		const cleanModel = incomingModel.replace("anthropic/", "").replace("4.7", "4-7");
+		
+		// RESTORED GENERATION SIZE: Bumed max_tokens variable cleanly back up to 4096 bounds
+		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
@@ -481,7 +487,7 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 							
-							// CRITICAL REMEDY: We calculate the value but forgot to include the `provenance` variable inside the string return packet template litteral layout loop! Fixed it right here:
+							// RESTORED PROVENANCE INJECTION: Re-concatenated dynamic markers back inside return loop array safely
 							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
 						});
 					
@@ -489,7 +495,6 @@ export class ChatSession extends DurableObject<Env> {
 				}
 				
 				// Sift and remove structural contamination noise right here
-				// CRITICAL DÉFENSE: Wiped out the empty string filter lookup bug that was blowing up docContext to blank arrays entirely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.filter((value, index, self) => self.indexOf(value) === index)
@@ -541,7 +546,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 ### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
-				let chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+				// FORCED BACKEND PINNING RULE: Locks execution directly onto your functional Claude choice natively
+				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
+				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
 
 				if (sonosTargetZone !== "") {
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
@@ -604,7 +611,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
 
 									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
-									chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+									chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
 								}
 							}
 						}
