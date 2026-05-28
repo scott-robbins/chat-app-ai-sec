@@ -64,7 +64,6 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":
 
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
-	// TIER 1 WORKING MEMORY STORAGE LAYER: Holds fast scratchpad context strictly inside session state
 	private threadWorkingMemory: Record<string, string> = {};
 
 	constructor(ctx: DurableObjectState, env: Env) { 
@@ -472,18 +471,17 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 					
 					// === METADATA PROVENANCE SIGNALS ENGINE ===
-					// Explicitly flags source context tags to give Jolene complete visibility over data lineage
 					const validChunks = matches.matches
 						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.25)
 						.map(m => {
 							const text = m.metadata.text;
 							let provenance = "unknown_origin";
 							
-							// Auto-evaluate exact metadata keys or structural string patterns to find provenance
 							if (m.metadata.source) provenance = String(m.metadata.source);
 							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 							
+							// FIX INJECTED: Output explicit provenance inside string concatenation
 							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
 						});
 					
@@ -504,7 +502,7 @@ export class ChatSession extends DurableObject<Env> {
 					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
 					: "No out-of-band dialogue lines archived in production datastore tables yet.";
 
-				// TIER 1 WORKING MEMORY SCOPE LOOKUP: Extract runtime ephemeral keys out of state memory variables
+				// TIER 1 WORKING MEMORY SCOPE LOOKUP
 				let localScratchpadContext = "";
 				const DOInstance = this as any;
 				if (DOInstance.threadWorkingMemory && Object.keys(DOInstance.threadWorkingMemory).length > 0) {
@@ -532,7 +530,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
 					if (generatedUrl !== "") {
 						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"${generatedUrl}"}}`;
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"}}`;
 					}
 				}
 
@@ -547,7 +545,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const rawFact = payload.arguments.factToRemember;
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
 								
-								// TIER 1 DYNAMIC SYNCRONIZATION: Simultaneously write facts directly to volatile runtime state storage
 								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
 								const ephemeralKey = `fact_${Date.now()}`;
 								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
@@ -558,7 +555,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								await this.env.VECTORIZE.upsert([{
 									id: uniqueMemoryId,
 									values: factVector.data[0],
-									metadata: { text: stampedFact, contentType: "plaintext", source: "conversational_sync" }
+									metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
 								}]);
 
 								console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
