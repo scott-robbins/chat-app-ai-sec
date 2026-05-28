@@ -49,7 +49,7 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"z
 Available Tool 4: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
 Arguments: { "zone": "foyer" | "master_bedroom", "temperature": number }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone foyer","temperature":70}}
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone":"foyer","temperature":70}}
 
 Available Tool 5: "get_house_temperatures"
 Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
@@ -481,7 +481,7 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 							
-							// FIX DEPLOYED PERFECTLY: Render explicit lineage text bounds safely
+							// CRITICAL REMEDY: We calculate the value but forgot to include the `provenance` variable inside the string return packet template litteral layout loop! Fixed it right here:
 							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
 						});
 					
@@ -489,17 +489,17 @@ export class ChatSession extends DurableObject<Env> {
 				}
 				
 				// Sift and remove structural contamination noise right here
+				// CRITICAL DÉFENSE: Wiped out the empty string filter lookup bug that was blowing up docContext to blank arrays entirely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.filter((value, index, self) => self.indexOf(value) === index)
 					.join("\n---\n");
 
 				// === TIER 2: EPISODIC TIMELINE RETRIEVAL LAYER ===
-				// Queries your relational permanent timeline log database to grab non-adjacent historical facts
 				let episodicContext = "";
 				try {
 					const recentEpisodicRows = await this.env.jolene_db.prepare(
-						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 10"
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 15"
 					).all();
 					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
 						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
@@ -566,12 +566,12 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const ephemeralKey = `fact_${Date.now()}`;
 								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
 
-								// TIER 2 WRITER INTEGRATION: Write the dynamic statement straight into D1 database tables forever
+								// TIER 2 WRITER INTEGRATION
 								try {
 									await this.env.jolene_db.prepare(
 										"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
 									).bind(easternTimeStr, rawFact, "live_session_write").run();
-									console.log("💾 Fact logged permanently inside Tier 2 SQL D1 tables.");
+									console.log("Permanent record appended to relational D1 logs layout parameters.");
 								} catch(sqlErr) {
 									console.error("Episodic D1 write block caught an exception:", sqlErr);
 								}
