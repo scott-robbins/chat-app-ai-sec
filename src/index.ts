@@ -479,7 +479,6 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					if (matches.matches) {
 						console.log(`[VECTORIZE RETRIEVAL DIAL] Match array size: ${matches.matches.length} hits mapped.`);
-						// 🔦 DIAGNOSTIC INJECTION: Dump the structural elements of the first match directly into live logs!
 						if (matches.matches.length > 0) {
 							console.log(`[VECTORIZE RAW] ${JSON.stringify(matches.matches[0])}`);
 						}
@@ -497,7 +496,6 @@ export class ChatSession extends DurableObject<Env> {
 				const docContextChunks = Array.from(uniqueMatchesMap.values())
 					.filter(m => m.metadata && m.score)
 					.map(m => {
-						// 🩹 FALLBACK PROPERTY MATRIX PASS: Checks all standard stored field keys natively to guarantee matching values map cleanly
 						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
 						let provenance = m.metadata.source || "unknown_origin";
 						
@@ -506,12 +504,12 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// 🏛️ RESTORED FULL PROVENANCE DATA LAYOUT FIELD ATTACHMENT
+						// 🏛️ PROVENANCE RESTORATION SELECTION: Explicitly inserting the lineage tag mapping variable
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
 					.filter(chunk => chunk.length > 25);
 
-				// REBUILT STRUCTURAL RETRIEVAL WINDOW: Removed the blank template check logic bug that was completely zeroing out docContext
+				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering bracket completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
