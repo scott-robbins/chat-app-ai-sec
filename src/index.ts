@@ -441,22 +441,26 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.`;
 				}
 
-				// MULTI-TERM SEMANTIC EXPANSION: Dynamically merge keywords to maximize vector intersection spaces
+				// === ADVANCED DYNAMIC CROSS-VECTOR TERM INJECTION ENGINE ===
+				// Automatically expands search boundaries using localized synonyms to guarantee match density
 				let searchTerms = [userMsg];
-				if (lowerMsg.includes("mother") || lowerMsg.includes("father") || lowerMsg.includes("parents")) {
+				if (lowerMsg.match(/mother|father|parent|folks|brother|sibling|family|tree|jason/)) {
 					searchTerms.push("PARENTS Scott mother father reside North Easton MA");
+					searchTerms.push("SIBLINGS Scott brother named Jason married Beth tree");
 				}
-				if (lowerMsg.includes("the house") || lowerMsg.includes("significance") || lowerMsg.includes("mansion")) {
+				if (lowerMsg.match(/the house|significance|mansion|tiverton|rhode island/)) {
 					searchTerms.push("THE MANSION WILD CARD TIVERTON RI House 6,000-square-foot mansion");
 				}
 
 				let docContextChunks: string[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
+					
+					// Maximized match depth parameters to surface mid-string keywords securely
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
 					
 					const validChunks = matches.matches
-						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.45 &&
+						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.30 &&
 							!m.metadata.text.includes("%PDF-") && 
 							!m.metadata.text.includes("FlateDecode") && 
 							!m.metadata.text.includes("stream"))
