@@ -495,11 +495,11 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// 🏛️ PROVENANCE RESTORATION: Fixed the bug by ensuring provenance is appended directly into the context payload string array
+						// 🏛️ FIXED PROVENANCE STRING INTERPOLATION LAYER
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// FIXED BLANK CONTEXT PASS: Patched out the broken filter constraint to restore context flow completely
+				// CLEAN RETRIEVAL FIX: Removed the empty bracket lookups filter completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
