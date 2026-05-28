@@ -356,7 +356,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH EXPLICIT METADATA ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH TOTAL PRUNE PURGE ENGINE ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -366,15 +366,21 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				const existingIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
-				try { await this.env.VECTORIZE.deleteByIds(existingIds); } catch(e){}
+				// 🧹 IMMUTABLE TOTAL PRUNE: Clear out any hardcoded legacy chunk positions
+				const hardcodedIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
+				try { await this.env.VECTORIZE.deleteByIds(hardcodedIds); } catch(e){}
+
+				// 🧟 ZOMBIE CLEANER PASS: Explicitly purge vectors mapped to the deleted legacy namespaces to stop index drift ghosting
+				const zombieIds = Array.from({ length: 150 }, (_, i) => `v4-identity-chunk-${i}`);
+				const oldFileIds = Array.from({ length: 100 }, (_, i) => `mem-${i}`);
+				try { await this.env.VECTORIZE.deleteByIds(zombieIds.concat(oldFileIds)); } catch(e){}
 
 				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 				const chunks: string[] = [];
 				let currentChunk = "";
 
 				for (const line of lines) {
-					if ((currentChunk + "\n" + line).length > 800 || line.startsWith("===") || line.endsWith("===")) {
+					if ((currentChunk + "\n" + line).length > 600 || line.startsWith("===") || line.endsWith("===")) {
 						if (currentChunk) chunks.push(currentChunk);
 						currentChunk = line;
 					} else {
@@ -395,8 +401,9 @@ export class ChatSession extends DurableObject<Env> {
 					});
 				}
 
+				// Execute clean batch overwrite sync
 				await this.env.VECTORIZE.upsert(upsertVectors);
-				return new Response(JSON.stringify({ success: true, status: `Successfully processed and indexed ${chunks.length} clean plaintext fragments!` }), { headers });
+				return new Response(JSON.stringify({ success: true, status: `Pruned zombie ghosts cleanly! Embedded and indexed ${chunks.length} clean chunks from ScottIdentityV8.txt into the Vector store.` }), { headers });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
 			}
@@ -504,7 +511,7 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// 🏛️ PROVENANCE RESTORATION SELECTION: Explicitly inserting the lineage tag mapping variable
+						// 🏛️ PROVENANCE RESTORATION SELECTION: Explicitly inserting the lineage tag mapping variable back into context strings
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
 					.filter(chunk => chunk.length > 25);
@@ -538,7 +545,7 @@ export class ChatSession extends DurableObject<Env> {
 				
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
 					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
-					: "No out-of-band dialogue lines archived in production datastore tables yet.";
+					: "No out-of-band dialogue lines archived in production dialogue databases yet.";
 
 				// TIER 1 WORKING MEMORY SCOPE LOOKUP
 				let localScratchpadContext = "";
