@@ -352,7 +352,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER ===
+		// === DESTRUCTIVE HARD FLUSH RE-SYNCHRONIZER ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -362,8 +362,9 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				const existingIds = Array.from({ length: 50 }, (_, i) => `v8-identity-chunk-${i}`);
-				try { await this.env.VECTORIZE.deleteByIds(existingIds); } catch(e){}
+				// HARD PURGE CRITICAL REMEDY node: Loop extensively up to 250 records to clear ALL historic garbage strings
+				const dynamicFlushIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
+				try { await this.env.VECTORIZE.deleteByIds(dynamicFlushIds); } catch(e){}
 
 				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 				const chunks: string[] = [];
@@ -442,7 +443,6 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
-				// Tokenizes words defensively and merges global matching synonyms automatically
 				let searchTerms = new Set<string>([userMsg]);
 				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
 				const targetSynonyms: Record<string, string[]> = {
@@ -480,7 +480,6 @@ export class ChatSession extends DurableObject<Env> {
 					docContextChunks = docContextChunks.concat(validChunks);
 				}
 				
-				// Deduplicate and filter data cleanly
 				const docContext = Array.from(new Set(docContextChunks)).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
@@ -491,8 +490,6 @@ export class ChatSession extends DurableObject<Env> {
 					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
 					: "No out-of-band dialogue lines archived in production datastore tables yet.";
 
-				// === CRITICAL STRUCTURAL INJECTION DIRECTIVE ===
-				// Forces Claude to evaluate all indexed data metrics before generating text
 				let systemPrompt = `### CRITICAL GROUND TRUTH SYSTEM REQUIREMENT:
 You must exhaustively inspect the entire provided SEMORY block before completing your output lines. If the user asks what a person loves or tracks their habits, scan the document explicitly for their specific profile entries. Treat text items matching these conditions as absolute fact.
 
