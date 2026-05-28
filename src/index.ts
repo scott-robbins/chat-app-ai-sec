@@ -498,11 +498,11 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// 🏛️ RESTORED SOURCE PROVENANCE VARIABLE WRAPPER:
+						// 🏛️ FIX 1: Bring back the source tag directly to the mapped element so the LLM can read provenance!
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// FIXED ACCIDENTAL BLANK STRIPPING: Deleted the destructive checker completely
+				// FIX 2: Clear out the empty string logic check that was wiping the array context to blank arrays
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -566,14 +566,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
 				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
-
-				if (sonosTargetZone !== "") {
-					const generatedUrl = await this.generateHerAudioStream(chatTxt);
-					if (generatedUrl !== "") {
-						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"} \n}`;
-					}
-				}
 
 				if (chatTxt.includes("_ACTION_TRIGGER:")) {
 					try {
