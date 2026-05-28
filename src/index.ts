@@ -64,6 +64,8 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":
 
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
+	// TIER 1 WORKING MEMORY STORAGE LAYER: Holds fast scratchpad context strictly inside session state
+	private threadWorkingMemory: Record<string, string> = {};
 
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
@@ -352,7 +354,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === DESTRUCTIVE HARD FLUSH RE-SYNCHRONIZER ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -362,9 +364,8 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				// HARD PURGE CRITICAL REMEDY node: Loop extensively up to 250 records to clear ALL historic garbage strings
-				const dynamicFlushIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
-				try { await this.env.VECTORIZE.deleteByIds(dynamicFlushIds); } catch(e){}
+				const existingIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
+				try { await this.env.VECTORIZE.deleteByIds(existingIds); } catch(e){}
 
 				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 				const chunks: string[] = [];
@@ -470,17 +471,30 @@ export class ChatSession extends DurableObject<Env> {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 					
+					// === METADATA PROVENANCE SIGNALS ENGINE ===
+					// Explicitly flags source context tags to give Jolene complete visibility over data lineage
 					const validChunks = matches.matches
-						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.25 &&
-							!m.metadata.text.includes("%PDF-") && 
-							!m.metadata.text.includes("FlateDecode") && 
-							!m.metadata.text.includes("stream"))
-						.map(m => `[Retrieved Fact (Confidence: ${Math.round((m.score || 0.8) * 100)}%)]: ${m.metadata.text}`);
+						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.25)
+						.map(m => {
+							const text = m.metadata.text;
+							let provenance = "unknown_origin";
+							
+							// Auto-evaluate exact metadata keys or structural string patterns to find provenance
+							if (m.metadata.source) provenance = String(m.metadata.source);
+							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
+							else if (text.includes("Saved on")) provenance = "live_session_write";
+							
+							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
+						});
 					
 					docContextChunks = docContextChunks.concat(validChunks);
 				}
 				
-				const docContext = Array.from(new Set(docContextChunks)).join("\n---\n");
+				// Sift and remove structural contamination noise right here
+				const docContext = docContextChunks
+					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
+					.filter((value, index, self) => self.indexOf(value) === index)
+					.join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
@@ -490,15 +504,27 @@ export class ChatSession extends DurableObject<Env> {
 					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
 					: "No out-of-band dialogue lines archived in production datastore tables yet.";
 
+				// TIER 1 WORKING MEMORY SCOPE LOOKUP: Extract runtime ephemeral keys out of state memory variables
+				let localScratchpadContext = "";
+				const DOInstance = this as any;
+				if (DOInstance.threadWorkingMemory && Object.keys(DOInstance.threadWorkingMemory).length > 0) {
+					localScratchpadContext = "\n=== TIER 1 ACTIVE THREAD WORKING SCRATCHPAD ===\n";
+					for (const [key, value] of Object.entries(DOInstance.threadWorkingMemory)) {
+						localScratchpadContext += `• [Scratchpad Anchor - Key: ${key}]: ${value}\n`;
+					}
+				}
+
 				let systemPrompt = `### CRITICAL GROUND TRUTH SYSTEM REQUIREMENT:
-You must exhaustively inspect the entire provided SEMORY block before completing your output lines. If the user asks what a person loves or tracks their habits, scan the document explicitly for their specific profile entries. Treat text items matching these conditions as absolute fact.
+You must exhaustively inspect the entire provided SEMORY block before completing your output lines. If the user asks what a person loves or tracks their habits, scan the document explicitly for their specific profile entries. Treat text items matching these conditions as absolute fact. 
+
+DATA PROVENANCE RULE: Pay close attention to the markers in the context window. Use them to self-filter data lineage natively.
 
 ### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
 ### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
+### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
 				let chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 
@@ -521,6 +547,11 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const rawFact = payload.arguments.factToRemember;
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
 								
+								// TIER 1 DYNAMIC SYNCRONIZATION: Simultaneously write facts directly to volatile runtime state storage
+								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
+								const ephemeralKey = `fact_${Date.now()}`;
+								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
+
 								const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
 								const uniqueMemoryId = `mem-${Date.now()}`;
 								
