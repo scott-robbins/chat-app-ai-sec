@@ -55,6 +55,11 @@ Available Tool 5: "get_house_temperatures"
 Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
 Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
+
+Available Tool 6: "remember_factual_event"
+Description: Persists newly learned, evolving facts or life events (e.g., meals cooked, family status, calendar dates, project work updates) straight into long-term persistent semantic memory. Use this whenever the user shares a personal fact or update that should survive across browser tab sessions.
+Arguments: { "factToRemember": string }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":{"factToRemember":"Scott made a great batch of gumbo tonight"}}
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -88,18 +93,14 @@ export class ChatSession extends DurableObject<Env> {
 
 			try {
 				const dataYest: any = await resYesterday.json();
-				if (dataYest.events) {
-					allEvents = allEvents.concat(dataYest.events);
-				}
+				if (dataYest.events) { allEvents = allEvents.concat(dataYest.events); }
 			} catch (e) { console.error("Failed merging fallback calendar rows:", e); }
 
 			try {
 				const dataPlayoffs: any = await resPlayoffs.json();
 				if (dataPlayoffs.events) {
 					dataPlayoffs.events.forEach((pe: any) => {
-						if (!allEvents.some((e: any) => e.id === pe.id)) {
-							allEvents.push(pe);
-						}
+						if (!allEvents.some((e: any) => e.id === pe.id)) { allEvents.push(pe); }
 					});
 				}
 			} catch (e) { console.error("Failed parsing deep tournament group array indices:", e); }
@@ -175,9 +176,7 @@ export class ChatSession extends DurableObject<Env> {
 											if (index === -1) return "0";
 											const node = rawStatsArray[index];
 											if (!node) return "0";
-											if (typeof node === 'object') {
-												return node.displayValue || node.value || "0";
-											}
+											if (typeof node === 'object') { return node.displayValue || node.value || "0"; }
 											return String(node);
 										};
 
@@ -280,7 +279,6 @@ export class ChatSession extends DurableObject<Env> {
 		} catch (e) { return "Search unavailable."; }
 	}
 
-	// === CLOUD RE-ROUTING ELEVENLABS AUDIO SYNTHESIS ENGINE ===
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
 		if (!this.env.ELEVEN_LABS_API_KEY) {
 			console.error("Missing ELEVEN_LABS_API_KEY variable context flag.");
@@ -339,7 +337,7 @@ export class ChatSession extends DurableObject<Env> {
 		}
 
 		if (url.pathname === "/api/profile") {
-			const personality = await this.env.SETTINGS.get(`personality`) || "warm";
+			const personality = await this.env.SETTINGS.get("personality") || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
 			
@@ -347,14 +345,13 @@ export class ChatSession extends DurableObject<Env> {
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
 				messageCount: history.results?.length || 0,
-				knowledgeAssets: storage.objects.map(o => o.key),
+				knowledgeAssets: storage.objects.filter(o => String(o.key).endsWith(".txt")).map(o => o.key),
 				mode: "personal",
 				personality: personality,
 				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
 		}
 
-		// === TARGET EMBEDDING PIPELINE ROUTE INTERCEPTOR (FIXED RUNTIME FUNCTION METHOD) ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -363,8 +360,6 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const rawText = await r2Object.text();
-				
-				// CORRECTED METHOD CALL: Changed from deleteIds to deleteByIds
 				await this.env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
 
 				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
@@ -385,17 +380,10 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const currentPersonality = await this.env.SETTINGS.get(`personality`) || "warm";
+				const currentPersonality = await this.env.SETTINGS.get("personality") || "warm";
 
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', 
-					day: 'numeric', 
-					year: 'numeric', 
-					hour: 'numeric', 
-					minute: 'numeric', 
-					second: 'numeric', 
-					hour12: true, 
-					timeZone: 'America/New_York' 
+					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -433,15 +421,22 @@ export class ChatSession extends DurableObject<Env> {
 
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
-				const docContext = matches.matches.map(m => m.metadata.text).join("\n---\n");
+				
+				// SECURITY READ FILTER MODIFICATION: Stop ciphertext/binary contamination natively before prompt construction
+				const docContext = matches.matches
+					.filter(m => m.metadata && m.metadata.text && 
+						!m.metadata.text.includes("%PDF-") && 
+						!m.metadata.text.includes("FlateDecode") && 
+						!m.metadata.text.includes("stream"))
+					.map(m => `[Retrieved Fact (Confidence: ${Math.round((m.score || 0.8) * 100)}%)]: ${m.metadata.text}`)
+					.join("\n---\n");
 
-				// === SURGICAL INTERCEPT: READ DEEP HISTORICAL DIALOGUE MATRIX FROM D1 ===
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
 				).bind(sessionId).all();
 				
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
-					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Thread - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
+					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
 					: "No out-of-band dialogue lines archived in production datastore tables yet.";
 
 				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
@@ -449,9 +444,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 ### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | MEMORY: ${docContext} | CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
+### CONTEXT: LIVE: ${liveContext} | SEMORY: ${docContext} | CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
-				let chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+				let chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 
 				if (sonosTargetZone !== "") {
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
@@ -468,21 +463,44 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-								method: "POST",
-								headers: { 
-									"Content-Type": "application/json",
-									"User-Agent": "Cloudflare-Workers-MCP-Bridge"
-								},
-								body: JSON.stringify(payload)
-							});
+							// CRITICAL MEMORY INTERCEPT: Process dynamic memory writing natively inside the worker sequence
+							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
+								const rawFact = payload.arguments.factToRemember;
+								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
+								
+								// Compute clean embedding array vectors for the newly shared conversation fact
+								const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
+								const uniqueMemoryId = `mem-${Date.now()}`;
+								
+								await this.env.VECTORIZE.upsert([{
+									id: uniqueMemoryId,
+									values: factVector.data[0],
+									metadata: { text: stampedFact }
+								}]);
 
-							if (mcpResponse.ok) {
-								const toolExecutionResult = await mcpResponse.text();
-								console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+								console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
+								
+								// Append visual acknowledgment safely back into assistant text generation array
+								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+								chatTxt += `\n\n✅ *[Long-term memory updated perfectly]*`;
+							} else {
+								// Standard out-of-band physical MCP local bridge handler execution path
+								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+									method: "POST",
+									headers: { 
+										"Content-Type": "application/json",
+										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
+									},
+									body: JSON.stringify(payload)
+								});
 
-								systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
-								chatTxt = await this.runAI(body.model || "claude-3-opus-20240229", systemPrompt, userMsg, recentContext);
+								if (mcpResponse.ok) {
+									const toolExecutionResult = await mcpResponse.text();
+									console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+
+									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+									chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
+								}
 							}
 						}
 					} catch (parseErr: any) {
