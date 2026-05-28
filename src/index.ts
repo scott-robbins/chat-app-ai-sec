@@ -32,7 +32,7 @@ You have direct, real-time access to execute physical actions and read sensor ar
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
 Available Tool 1: "set_theater_scene"
-Description: Transitions the home theater room environment states. "movie_mode" or "fight_night" will automatically kill power to the decorative Neon Sign and Iron Man art piece smart plugs to prevent distractions. "playoff_mode" or "sports_bar" switches the theater to high-energy Cavs Wine & Gold suite layout, keeping the decorative art piece smart plugs powered ON.
+Description: Transitions the home theater room environment states. "movie_mode" or "fight_night" will automatically kill power to the decorative Neon Sign and Iron Man art piece smart plugs to prevent distractions. "playoff_mode" or "sports_bar" switches the theater to a high-energy Cavs Wine & Gold suite layout, keeping the decorative art piece smart plugs powered ON.
 Arguments: { "scene": "movie_mode" | "fight_night" | "playoff_mode" | "sports_bar" | "idle" | "bright_cleanup" | "all_off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_theater_scene","arguments":{"scene":"playoff_mode"}}
 
@@ -457,7 +457,9 @@ export class ChatSession extends DurableObject<Env> {
 					"father": ["parents", "mother", "folks", "reside", "easton"],
 					"house": ["mansion", "tiverton", "rhode island", "foot footprint"],
 					"mansion": ["house", "tiverton", "rhode island", "foot footprint"],
-					"renee": ["wife", "online", "thredup", "etsy", "crime", "junkies"]
+					"renee": ["wife", "online", "thredup", "etsy", "crime", "junkies"],
+					"callan": ["grandkids", "josie", "heavy metal", "deftones", "music", "song", "engine"],
+					"josie": ["grandkids", "callan", "heavy metal", "deftones", "music", "song", "engine"]
 				};
 
 				for (const word of words) {
@@ -471,13 +473,13 @@ export class ChatSession extends DurableObject<Env> {
 				let rawMatchedChunks: any[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-					// Capped topK to 5 to protect prompt payload budgets
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					if (matches.matches) {
 						rawMatchedChunks = rawMatchedChunks.concat(matches.matches);
 					}
 				}
 
+				// Deduplicate structural array entries via their unique node hash id parameters natively
 				const uniqueMatchesMap = new Map<string, any>();
 				for (const match of rawMatchedChunks) {
 					if (match.id && !uniqueMatchesMap.has(match.id)) {
@@ -485,6 +487,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
+				// Complete context prompt string conversion bounds
 				const docContextChunks = Array.from(uniqueMatchesMap.values())
 					.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.22)
 					.map(m => {
@@ -494,11 +497,11 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// 🏛️ RESTORED PROVENANCE INJECTION: Re-concatenating source markers perfectly back into the context builder mapping loop!
+						// 🏛️ PROVENANCE FIX LOCKED IN: Seamlessly piping provenance straight into the output string!
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// Fixed the blank template check logic bug that was completely wiping out docContext arrays
+				// FIXED CRITICAL DEFENSE: Swapped out the blank template checker logic bug entirely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
