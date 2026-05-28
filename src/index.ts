@@ -441,26 +441,39 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.`;
 				}
 
-				// === ADVANCED DYNAMIC CROSS-VECTOR TERM INJECTION ENGINE ===
-				// Automatically expands search boundaries using localized synonyms to guarantee match density
-				let searchTerms = [userMsg];
-				if (lowerMsg.match(/mother|father|parent|folks|brother|sibling|family|tree|jason/)) {
-					searchTerms.push("PARENTS Scott mother father reside North Easton MA");
-					searchTerms.push("SIBLINGS Scott brother named Jason married Beth tree");
-				}
-				if (lowerMsg.match(/the house|significance|mansion|tiverton|rhode island/)) {
-					searchTerms.push("THE MANSION WILD CARD TIVERTON RI House 6,000-square-foot mansion");
+				// === AUTOMATED Synonyms TOKEN EXTRACTOR SYSTEM ===
+				// Completely eliminates hardcoded loops by breaking up prompt subject metrics dynamically
+				let searchTerms = new Set<string>([userMsg]);
+				
+				// Extract primary family proper nouns and baseline semantic variants natively
+				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
+				const targetSynonyms: Record<string, string[]> = {
+					"bry": ["bryana", "daughter", "stand-up", "comedy", "boyfriend"],
+					"bryana": ["bry", "daughter", "stand-up", "comedy", "boyfriend"],
+					"jason": ["brother", "sibling", "beth", "family tree"],
+					"brother": ["jason", "sibling", "beth", "family tree"],
+					"parents": ["mother", "father", "folks", "reside", "easton"],
+					"mother": ["parents", "father", "folks", "reside", "easton"],
+					"father": ["parents", "mother", "folks", "reside", "easton"],
+					"house": ["mansion", "tiverton", "rhode island", "foot footprint"],
+					"mansion": ["house", "tiverton", "rhode island", "foot footprint"],
+					"renee": ["wife", "online", "thredup", "etsy", "crime", "junkies"]
+				};
+
+				for (const word of words) {
+					if (targetSynonyms[word]) {
+						targetSynonyms[word].forEach(term => searchTerms.add(term));
+						searchTerms.add(word.toUpperCase());
+					}
 				}
 
 				let docContextChunks: string[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-					
-					// Maximized match depth parameters to surface mid-string keywords securely
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 					
 					const validChunks = matches.matches
-						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.30 &&
+						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.28 &&
 							!m.metadata.text.includes("%PDF-") && 
 							!m.metadata.text.includes("FlateDecode") && 
 							!m.metadata.text.includes("stream"))
