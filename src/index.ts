@@ -206,7 +206,7 @@ export class ChatSession extends DurableObject<Env> {
 	}
 
 	// === CRITICAL FINANCIAL ENGINE RAW TICKER SCRAPER ===
-	async fetchLiveTickerPrice(ticker: string): Promise<string> {
+	async fetchLiveTickerPrice(ticker: string): Promise[string] {
 		try {
 			const res = await fetch(`https://api.marketwatch.com/v1/quotes/public?symbols=STOCK/US/XNYS/${ticker.toUpperCase()}`, {
 				headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
@@ -532,4 +532,128 @@ export class ChatSession extends DurableObject<Env> {
 				let localScratchpadContext = "";
 				const DOInstance = this as any;
 				if (DOInstance.threadWorkingMemory && Object.keys(DOInstance.threadWorkingMemory).length > 0) {
-					localScratchpad
+					localScratchpadContext = "\n=== TIER 1 ACTIVE THREAD WORKING SCRATCHPAD ===\n";
+					for (const [key, value] of Object.entries(DOInstance.threadWorkingMemory)) {
+						localScratchpadContext += `• [Scratchpad Anchor - Key: ${key}]: ${value}\n`;
+					}
+				}
+
+				let systemPrompt = `### SYSTEM ANTI-HALLUCINATION GUARDRAILS (HARD FACTUAL RULE):
+For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , or ). 
+
+CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately.
+
+### DUAL-LAYER PROMPT TRAINING EXAMPLES:
+- FAILED LOG EXECUTION EXAMPLE (CONFIDENT FABRICATION):
+User message: "What metal music do Callan and Josie love?"
+Your bad reply: "Callan and Josie are huge fans of heavy alternative metal and love listening to Bring Me The Horizon and Sleep Token!" -> CRITICAL ERROR: Fabricated out of thin air.
+
+- COMPLIANT LOG EXECUTION EXAMPLE (GROUNDED TRUTH):
+User message: "What alternative heavy metal music do Callan and Josie love?"
+Your correct grounded reply: "I don't have that fact in my current context. I can see Callan and Josie tracked inside my family profiles, but no specific music preferences are surfaced in my retrieved records."
+
+### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
+
+### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
+### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
+
+				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
+				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
+
+				if (sonosTargetZone !== "") {
+					const generatedUrl = await this.generateHerAudioStream(chatTxt);
+					if (generatedUrl !== "") {
+						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"}}`;
+					}
+				}
+
+				if (chatTxt.includes("_ACTION_TRIGGER:")) {
+					try {
+						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
+						if (triggerLine) {
+							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
+							const payload = JSON.parse(jsonString);
+
+							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
+								const rawFact = payload.arguments.factToRemember;
+								
+								let isDuplicate = false;
+								try {
+									const existingCheck = await this.env.jolene_db.prepare(
+										"SELECT id FROM episodic_memories WHERE fact_text = ? LIMIT 1"
+									).bind(rawFact).get();
+									if (existingCheck) isDuplicate = true;
+								} catch(e){}
+
+								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
+								
+								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
+								const ephemeralKey = `fact_${Date.now()}`;
+								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
+
+								if (!isDuplicate) {
+									try {
+										await this.env.jolene_db.prepare(
+											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
+										).bind(easternTimeStr, rawFact, "live_session_write").run();
+										console.log("Fact logged permanently inside Tier 2 SQL D1 tables.");
+									} catch(sqlErr) {
+										console.error("Episodic D1 write block caught an exception:", sqlErr);
+									}
+
+									const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
+									const uniqueMemoryId = `mem-${Date.now()}`;
+									
+									await this.env.VECTORIZE.upsert([{
+										id: uniqueMemoryId,
+										values: factVector.data[0],
+										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
+									}]);
+									console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
+								}
+
+								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+								chatTxt += `\n\n✅ *[Long-term memory updated perfectly]*`;
+							} else {
+								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+									method: "POST",
+									headers: { 
+										"Content-Type": "application/json",
+										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
+									},
+									body: JSON.stringify(payload)
+								});
+
+								if (mcpResponse.ok) {
+									const toolExecutionResult = await mcpResponse.text();
+									console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+
+									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+									chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
+								}
+							}
+						}
+					} catch (parseErr: any) {
+						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatTxt).run();
+				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+		}
+		return new Response("OK");
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
