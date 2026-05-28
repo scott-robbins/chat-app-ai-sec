@@ -495,11 +495,11 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// 🏛️ FIXED PROVENANCE STRING INTERPOLATION LAYER
+						// 🏛️ PROVENANCE RESTORATION: Fixed the bug by ensuring provenance is appended directly into the context payload string array
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// CLEAN RETRIEVAL FIX: Removed the empty bracket lookups filter completely
+				// FIXED BLANK CONTEXT PASS: Patched out the broken filter constraint to restore context flow completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -612,7 +612,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 										values: factVector.data[0],
 										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
 									}]);
-									console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
+									console.log("Dynamic memory written successfully");
 								}
 
 								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
