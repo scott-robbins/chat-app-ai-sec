@@ -473,12 +473,10 @@ export class ChatSession extends DurableObject<Env> {
 				let rawMatchedChunks: any[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-					// TELEMETRY LOG 1: Track upstream intent queries inside Cloudflare Observability engines
 					console.log(`[VECTORIZE RETRIEVAL DIAL] Querying index namespace via token: "${term}"`);
 					
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					if (matches.matches) {
-						// TELEMETRY LOG 2: Track raw raw metrics coming straight from the index cluster parameters
 						console.log(`[VECTORIZE RETRIEVAL DIAL] Match array size: ${matches.matches.length} hits mapped.`);
 						rawMatchedChunks = rawMatchedChunks.concat(matches.matches);
 					}
@@ -500,16 +498,15 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// FIX APPLIED PERFECTLY: Restored provenance parameter wrapper interpolation fields safely
+						// 🏛️ RESTORED SOURCE PROVENANCE VARIABLE WRAPPER:
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// FIXED BLANK CONTEXT PASS: Removed the empty bracket lookup check that was stripping context fields
+				// FIXED ACCIDENTAL BLANK STRIPPING: Deleted the destructive checker completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
 
-				// TELEMETRY LOG 3: Dump full payload content blocks straight to worker logs for visibility 
 				console.log(`[PROMPT INJECTION] Assembled docContext payload text size: ${docContext.length} chars.`);
 
 				// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
@@ -574,7 +571,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					const generatedUrl = await this.generateHerAudioStream(chatTxt);
 					if (generatedUrl !== "") {
 						chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"}}`;
+						chatTxt += `\n🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"${sonosTargetZone}","audioUrl":"https://jolene-audio.jolenesego.com/voice-system-online.mp3"} \n}`;
 					}
 				}
 
@@ -620,7 +617,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 										values: factVector.data[0],
 										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
 									}]);
-									console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
+									console.log("Dynamic memory written successfully");
 								}
 
 								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
