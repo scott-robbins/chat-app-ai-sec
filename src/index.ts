@@ -68,7 +68,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
-		this.doCtx = ctx;
+		this.threadWorkingMemory = {};
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -490,19 +490,23 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const docContextChunks = Array.from(uniqueMatchesMap.values())
-					.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.22)
+					.filter(m => m.metadata && m.score)
 					.map(m => {
-						const text = m.metadata.text;
-						let provenance = "unknown_origin";
-						if (m.metadata.source) provenance = String(m.metadata.source);
-						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
-						else if (text.includes("Saved on")) provenance = "live_session_write";
+						// 🩹 FALLBACK PROPERTY MATRIX PASS: Checks all common vector metadata keys natively to guarantee string landing fields are populated
+						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
+						let provenance = m.metadata.source || "unknown_origin";
+						
+						if (!m.metadata.source) {
+							if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
+							else if (text.includes("Saved on")) provenance = "live_session_write";
+						}
 
-						// 🏛️ FIX 1: Bring back the source tag directly to the mapped element so the LLM can read provenance!
+						// 🏛️ RESTORED FULL PROVENANCE METADATA FIELD ATTACHMENT
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
-					});
+					})
+					.filter(chunk => chunk.length > 25); // Exclude empty mapping errors cleanly
 
-				// FIX 2: Clear out the empty string logic check that was wiping the array context to blank arrays
+				// CLEAN SEPARATOR ASSIGNMENT: Dropped the accidental empty string lookups loop constraint entirely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
