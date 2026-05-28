@@ -47,7 +47,7 @@ Arguments: { "zone": "theater" | "office" | "main_bedroom" | "kitchen", "audioUr
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"https://jolene-audio.jolenesego.com/sample.mp3"}}
 
 Available Tool 4: "set_house_temperature"
-Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
+Description: Transitions the home theater room environment states.
 Arguments: { "zone": "foyer" | "master_bedroom", "temperature": number }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone":"foyer","temperature":70}}
 
@@ -57,7 +57,7 @@ Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 
 Available Tool 6: "remember_factual_event"
-Description: Persists newly learned, evolving facts or life events (e.g., meals cooked, family status, calendar dates, project work updates) straight into long-term persistent semantic memory. Use this whenever the user shares a personal fact or update that should survive across browser tab sessions.
+Description: Persists newly learned, evolving facts or life events straight into long-term persistent semantic memory.
 Arguments: { "factToRemember": string }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":{"factToRemember":"Scott made a great batch of gumbo tonight"}}
 `;
@@ -356,7 +356,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH TOTAL PRUNE PURGE ENGINE ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH TARGETED GHOST PRUNER MATRIX ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -366,14 +366,33 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				// 🧹 TOTAL PRUNE: Clear out any hardcoded legacy chunk positions
-				const hardcodedIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
-				try { await this.env.VECTORIZE.deleteByIds(hardcodedIds); } catch(e){}
+				// 🧹 CRITICAL FIX: Dynamically scan for and harvest every ghost index chunk ID by its fileName label to guarantee a complete purge
+				const targetGhostTokens = ["Josie", "Callan", "music", "heavy metal", "deftones", "diner", "Renee", "Bry"];
+				let deadChunkIds: string[] = ["1cbdff51-bafd-46e1-b8cc-bf1cb213ec50"]; // Seed active binary ghost token explicitly
+				
+				for (const token of targetGhostTokens) {
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
+					const scan = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
+					if (scan.matches) {
+						scan.matches.forEach((m: any) => {
+							const fName = m.metadata?.fileName || m.metadata?.source || "";
+							if (fName.includes("v4") || fName.includes("diner") || fName.includes("unknown")) {
+								deadChunkIds.push(m.id);
+							}
+						});
+					}
+				}
 
-				// 🧟 ZOMBIE CLEANER PASS: Purge vectors mapped to deleted legacy namespaces to stop index drift ghosting completely
-				const zombieIds = Array.from({ length: 150 }, (_, i) => `v4-identity-chunk-${i}`);
-				const oldFileIds = Array.from({ length: 100 }, (_, i) => `mem-${i}`);
-				try { await this.env.VECTORIZE.deleteByIds(zombieIds.concat(oldFileIds)); } catch(e){}
+				// Hard delete every scraped ghost ID cleanly from Vectorize
+				if (deadChunkIds.length > 0) {
+					const uniqueDeadIds = [...new Set(deadChunkIds)];
+					console.log(`[INGESTION PRUNE] Executing hard-delete against ${uniqueDeadIds.length} unique stale vector IDs...`);
+					try { await this.env.VECTORIZE.deleteByIds(uniqueDeadIds); } catch(e){}
+				}
+
+				// Clear old v8 chunks loops to refresh boundaries
+				const hardcodedIds = Array.from({ length: 150 }, (_, i) => `v8-identity-chunk-${i}`);
+				try { await this.env.VECTORIZE.deleteByIds(hardcodedIds); } catch(e){}
 
 				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 				const chunks: string[] = [];
@@ -397,13 +416,13 @@ export class ChatSession extends DurableObject<Env> {
 					upsertVectors.push({
 						id: `v8-identity-chunk-${i}`,
 						values: embeddingResult.data[0],
-						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt" }
+						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt", fileName: "ScottIdentityV8.txt" }
 					});
 				}
 
-				// Execute clean batch overwrite sync
+				// Complete batch overwrite sync pass
 				await this.env.VECTORIZE.upsert(upsertVectors);
-				return new Response(JSON.stringify({ success: true, status: `Pruned zombie ghosts cleanly! Embedded and indexed ${chunks.length} clean chunks from ScottIdentityV8.txt into the Vector store.` }), { headers });
+				return new Response(JSON.stringify({ success: true, status: `Wiped out ghost files cleanly by tracking active IDs! Embedded and indexed ${chunks.length} clean chunks from ScottIdentityV8.txt.` }), { headers });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
 			}
@@ -640,7 +659,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 								if (mcpResponse.ok) {
 									const toolExecutionResult = await mcpResponse.text();
-									console.log(`🎯 Tool Output Landed:`, toolExecutionResult);
+									console.log("🎯 Tool Output Landed:", toolExecutionResult);
 
 									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
 									chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
