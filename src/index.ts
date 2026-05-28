@@ -497,9 +497,9 @@ export class ChatSession extends DurableObject<Env> {
 					.filter(m => m.metadata && m.score)
 					.map(m => {
 						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
-						let provenance = m.metadata.source || "unknown_origin";
+						let provenance = m.metadata.source || m.metadata.fileName || "unknown_origin";
 						
-						if (!m.metadata.source) {
+						if (!m.metadata.source && !m.metadata.fileName) {
 							if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
@@ -509,7 +509,7 @@ export class ChatSession extends DurableObject<Env> {
 					})
 					.filter(chunk => chunk.length > 25);
 
-				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering bracket completely
+				// REPAIRED ASSEMBLY PASS: Wiped out the broken empty context logic filter completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -551,7 +551,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				let systemPrompt = `### SYSTEM ANTI-HALLUCINATION GUARDRAILS (HARD FACTUAL RULE):
-For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , or ). 
+For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , , or ). 
 
 CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately. Do not fabricate, look out-of-band, or invent responses.
 
