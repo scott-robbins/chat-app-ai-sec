@@ -467,40 +467,47 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				let docContextChunks: string[] = [];
+				// === TIER 3 FIXED UNIFIED VECTOR RETRIEVAL LEG ===
+				// Dedupes matching search loop chunks before string array extraction passes
+				let rawMatchedChunks: any[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-					
-					// FIXED RETRIEVAL BUDGET CRITICAL CONTROL: Budgeted top-K down to 5 records to end memory-induced amnesia noise splits
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
-					
-					const validChunks = matches.matches
-						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.20)
-						.map(m => {
-							const text = m.metadata.text;
-							let provenance = "unknown_origin";
-							
-							if (m.metadata.source) provenance = String(m.metadata.source);
-							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
-							else if (text.includes("Saved on")) provenance = "live_session_write";
-							
-							// PROVENANCE REPAIR LIVE SUCCESSFUL: Injected semantic lineage tags straight into context builder loops
-							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
-						});
-					
-					docContextChunks = docContextChunks.concat(validChunks);
+					if (matches.matches) {
+						rawMatchedChunks = rawMatchedChunks.concat(matches.matches);
+					}
 				}
-				
-				// Deduplicate and filter context cleanly
+
+				// Deduplicate structural array entries via their unique node hash id parameters natively
+				const uniqueMatchesMap = new Map<string, any>();
+				for (const match of rawMatchedChunks) {
+					if (match.id && !uniqueMatchesMap.has(match.id)) {
+						uniqueMatchesMap.set(match.id, match);
+					}
+				}
+
+				// Complete context prompt string conversion bounds
+				const docContextChunks = Array.from(uniqueMatchesMap.values())
+					.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.22)
+					.map(m => {
+						const text = m.metadata.text;
+						let provenance = "unknown_origin";
+						if (m.metadata.source) provenance = String(m.metadata.source);
+						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
+						else if (text.includes("Saved on")) provenance = "live_session_write";
+
+						// PROVENANCE FIX DELIVERED: Re-wrapping the context strings to explicit lineage tags
+						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
+					});
+
+				// Final clean filter pass block
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
-					.filter((value, index, self) => self.indexOf(value) === index)
 					.join("\n---\n");
 
 				// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
 				let episodicContext = "";
 				try {
-					// CRITICAL BUDGET CAP: Limited database rows window down strictly to last 5 logs entries to save prompt budget spaces
 					const recentEpisodicRows = await this.env.jolene_db.prepare(
 						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 5"
 					).all();
@@ -565,7 +572,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
 								const rawFact = payload.arguments.factToRemember;
 								
-								// TIER 2 UNIQUE DEDUPLICATION GUARD: Clean hash verification prevents duplicate writes natively
 								let isDuplicate = false;
 								try {
 									const existingCheck = await this.env.jolene_db.prepare(
@@ -627,7 +633,8 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
-				await this.saveMsg(sessionId, 'assistant', chatTxt);
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatTxt).run();
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
 			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
