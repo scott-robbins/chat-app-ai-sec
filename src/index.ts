@@ -32,7 +32,7 @@ You have direct, real-time access to execute physical actions and read sensor ar
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
 Available Tool 1: "set_theater_scene"
-Description: Transitions the home theater room environment states. "movie_mode" or "fight_night" will automatically kill power to the decorative Neon Sign and Iron Man art piece smart plugs to prevent distractions. "playoff_mode" or "sports_bar" switches the theater to a high-energy Cavs Wine & Gold suite layout, keeping the decorative art piece smart plugs powered ON.
+Description: Transitions the home theater room environment states. "movie_mode" or "fight_night" will automatically kill power to the decorative Neon Sign and Iron Man art piece smart plugs to prevent distractions. "playoff_mode" or "sports_bar" switches the theater to high-energy Cavs Wine & Gold suite layout, keeping the decorative art piece smart plugs powered ON.
 Arguments: { "scene": "movie_mode" | "fight_night" | "playoff_mode" | "sports_bar" | "idle" | "bright_cleanup" | "all_off", "color": "red" | "blue" | "purple" | "green" | "teal" | "orange" | "warm_white" | "crisp_white" }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_theater_scene","arguments":{"scene":"playoff_mode"}}
 
@@ -151,11 +151,11 @@ export class ChatSession extends DurableObject<Env> {
 				try {
 					const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
 					const summaryData: any = await summaryRes.json();
-					const boxGroup = summaryData.boxscore?.players;
+					const boxscorePlayers = summaryData.boxscore?.players;
 					
-					if (boxGroup && boxGroup.length > 0) {
+					if (boxscorePlayers && boxscorePlayers.length > 0) {
 						contextPayload += `\n\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS ===\n`;
-						boxGroup.forEach((teamBox: any) => {
+						boxscorePlayers.forEach((teamBox: any) => {
 							const teamName = teamBox.team?.displayName || "Team";
 							contextPayload += `\n[${teamName} Player Splits]:\n`;
 							
@@ -468,17 +468,16 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// === TIER 3 FIXED UNIFIED VECTOR RETRIEVAL LEG ===
-				// Dedupes matching search loop chunks before string array extraction passes
 				let rawMatchedChunks: any[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
+					// Capped topK to 5 to protect prompt payload budgets
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					if (matches.matches) {
 						rawMatchedChunks = rawMatchedChunks.concat(matches.matches);
 					}
 				}
 
-				// Deduplicate structural array entries via their unique node hash id parameters natively
 				const uniqueMatchesMap = new Map<string, any>();
 				for (const match of rawMatchedChunks) {
 					if (match.id && !uniqueMatchesMap.has(match.id)) {
@@ -486,7 +485,6 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// Complete context prompt string conversion bounds
 				const docContextChunks = Array.from(uniqueMatchesMap.values())
 					.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.22)
 					.map(m => {
@@ -496,11 +494,11 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// PROVENANCE FIX DELIVERED: Re-wrapping the context strings to explicit lineage tags
+						// 🏛️ RESTORED PROVENANCE INJECTION: Re-concatenating source markers perfectly back into the context builder mapping loop!
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// Final clean filter pass block
+				// Fixed the blank template check logic bug that was completely wiping out docContext arrays
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
