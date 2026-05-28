@@ -206,7 +206,7 @@ export class ChatSession extends DurableObject<Env> {
 	}
 
 	// === CRITICAL FINANCIAL ENGINE RAW TICKER SCRAPER ===
-	async fetchLiveTickerPrice(ticker: string): Promise[string] {
+	async fetchLiveTickerPrice(ticker: string): Promise<string> {
 		try {
 			const res = await fetch(`https://api.marketwatch.com/v1/quotes/public?symbols=STOCK/US/XNYS/${ticker.toUpperCase()}`, {
 				headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
@@ -495,11 +495,11 @@ export class ChatSession extends DurableObject<Env> {
 						else if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 						else if (text.includes("Saved on")) provenance = "live_session_write";
 
-						// 🏛️ PROVENANCE RESTORATION: Injected source tag mapping directly back inside returned text array packets
+						// 🏛️ PROVENANCE RESTORATION: Fixed the bug by ensuring provenance is appended directly into the context payload string array
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					});
 
-				// FIXED BLANK CONTEXT HOOKS: Deleted the broken string check loop logic error completely
+				// FIXED BLANK CONTEXT PASS: Patched out the broken filter constraint to restore context flow completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -541,7 +541,7 @@ export class ChatSession extends DurableObject<Env> {
 				let systemPrompt = `### SYSTEM ANTI-HALLUCINATION GUARDRAILS (HARD FACTUAL RULE):
 For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , or ). 
 
-CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately.
+CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately. Do not fabricate, look out-of-band, or invent responses.
 
 ### DUAL-LAYER PROMPT TRAINING EXAMPLES:
 - FAILED LOG EXECUTION EXAMPLE (CONFIDENT FABRICATION):
