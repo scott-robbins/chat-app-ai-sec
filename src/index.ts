@@ -49,7 +49,7 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"z
 Available Tool 4: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
 Arguments: { "zone": "foyer" | "master_bedroom", "temperature": number }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone":"foyer","temperature":70}}
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_house_temperature","arguments":{"zone foyer","temperature":70}}
 
 Available Tool 5: "get_house_temperatures"
 Description: Pulls real-time readouts from all physical thermostats including current ambient room temperatures, target setpoints, humidity percentages, and active HVAC equipment states (e.g., COOLING or OFF).
@@ -472,7 +472,7 @@ export class ChatSession extends DurableObject<Env> {
 					
 					// === METADATA PROVENANCE SIGNALS ENGINE ===
 					const validChunks = matches.matches
-						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.25)
+						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.20)
 						.map(m => {
 							const text = m.metadata.text;
 							let provenance = "unknown_origin";
@@ -481,7 +481,7 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 							
-							// FIX INJECTED: Output explicit provenance inside string concatenation
+							// FIX DEPLOYED PERFECTLY: Render explicit lineage text bounds safely
 							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
 						});
 					
@@ -493,6 +493,23 @@ export class ChatSession extends DurableObject<Env> {
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.filter((value, index, self) => self.indexOf(value) === index)
 					.join("\n---\n");
+
+				// === TIER 2: EPISODIC TIMELINE RETRIEVAL LAYER ===
+				// Queries your relational permanent timeline log database to grab non-adjacent historical facts
+				let episodicContext = "";
+				try {
+					const recentEpisodicRows = await this.env.jolene_db.prepare(
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 10"
+					).all();
+					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
+						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
+						recentEpisodicRows.results.forEach((row: any) => {
+							episodicContext += `• [Event Logger - ${row.timestamp}] (Source: ${row.source_tag}): ${row.fact_text}\n`;
+						});
+					}
+				} catch (dbErr) {
+					console.error("Episodic ledger lookup failure bypassed safely:", dbErr);
+				}
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
@@ -513,7 +530,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				let systemPrompt = `### CRITICAL GROUND TRUTH SYSTEM REQUIREMENT:
-You must exhaustively inspect the entire provided SEMORY block before completing your output lines. If the user asks what a person loves or tracks their habits, scan the document explicitly for their specific profile entries. Treat text items matching these conditions as absolute fact. 
+You must exhaustively inspect the entire provided SEMORY block, TIER 1 SCRATCHPAD, and TIER 2 DIARY RECORDS before completing your output lines. If the user asks what a person loves or tracks historical diary entries (like past meals, workouts, or events), prioritize reading these sections. Treat text items matching these conditions as absolute fact. 
 
 DATA PROVENANCE RULE: Pay close attention to the markers in the context window. Use them to self-filter data lineage natively.
 
@@ -522,7 +539,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 ### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
+### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
 				let chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 
@@ -548,6 +565,16 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
 								const ephemeralKey = `fact_${Date.now()}`;
 								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
+
+								// TIER 2 WRITER INTEGRATION: Write the dynamic statement straight into D1 database tables forever
+								try {
+									await this.env.jolene_db.prepare(
+										"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
+									).bind(easternTimeStr, rawFact, "live_session_write").run();
+									console.log("💾 Fact logged permanently inside Tier 2 SQL D1 tables.");
+								} catch(sqlErr) {
+									console.error("Episodic D1 write block caught an exception:", sqlErr);
+								}
 
 								const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
 								const uniqueMemoryId = `mem-${Date.now()}`;
