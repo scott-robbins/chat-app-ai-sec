@@ -444,10 +444,10 @@ export class ChatSession extends DurableObject<Env> {
 				// MULTI-TERM SEMANTIC EXPANSION: Dynamically merge keywords to maximize vector intersection spaces
 				let searchTerms = [userMsg];
 				if (lowerMsg.includes("mother") || lowerMsg.includes("father") || lowerMsg.includes("parents")) {
-					searchTerms.push("PARENTS Scott mother father reside North Easton MA"); [cite: 1]
+					searchTerms.push("PARENTS Scott mother father reside North Easton MA");
 				}
 				if (lowerMsg.includes("the house") || lowerMsg.includes("significance") || lowerMsg.includes("mansion")) {
-					searchTerms.push("THE MANSION WILD CARD TIVERTON RI House 6,000-square-foot mansion"); [cite: 1]
+					searchTerms.push("THE MANSION WILD CARD TIVERTON RI House 6,000-square-foot mansion");
 				}
 
 				let docContextChunks: string[] = [];
@@ -455,7 +455,6 @@ export class ChatSession extends DurableObject<Env> {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
 					
-					// ENHANCED METRIC SCORE INTERCEPT: Hard truncate anything sitting below baseline density limits
 					const validChunks = matches.matches
 						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.45 &&
 							!m.metadata.text.includes("%PDF-") && 
@@ -466,7 +465,6 @@ export class ChatSession extends DurableObject<Env> {
 					docContextChunks = docContextChunks.concat(validChunks);
 				}
 				
-				// Deduplicate matches cleanly
 				const docContext = Array.from(new Set(docContextChunks)).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
