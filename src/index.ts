@@ -362,11 +362,9 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				// Re-initialize index cleanly by purging old truncated shards
 				const existingIds = Array.from({ length: 50 }, (_, i) => `v8-identity-chunk-${i}`);
 				try { await this.env.VECTORIZE.deleteByIds(existingIds); } catch(e){}
 
-				// Split file based on new line markers to prevent model truncation
 				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 				const chunks: string[] = [];
 				let currentChunk = "";
@@ -381,7 +379,6 @@ export class ChatSession extends DurableObject<Env> {
 				}
 				if (currentChunk) chunks.push(currentChunk);
 
-				// Process vectors for each segment individually
 				const upsertVectors: any[] = [];
 				for (let i = 0; i < chunks.length; i++) {
 					const chunkText = chunks[i];
@@ -444,17 +441,33 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.`;
 				}
 
-				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
+				// MULTI-TERM SEMANTIC EXPANSION: Dynamically merge keywords to maximize vector intersection spaces
+				let searchTerms = [userMsg];
+				if (lowerMsg.includes("mother") || lowerMsg.includes("father") || lowerMsg.includes("parents")) {
+					searchTerms.push("PARENTS Scott mother father reside North Easton MA"); [cite: 1]
+				}
+				if (lowerMsg.includes("the house") || lowerMsg.includes("significance") || lowerMsg.includes("mansion")) {
+					searchTerms.push("THE MANSION WILD CARD TIVERTON RI House 6,000-square-foot mansion"); [cite: 1]
+				}
+
+				let docContextChunks: string[] = [];
+				for (const term of searchTerms) {
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 12, returnMetadata: "all" });
+					
+					// ENHANCED METRIC SCORE INTERCEPT: Hard truncate anything sitting below baseline density limits
+					const validChunks = matches.matches
+						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.45 &&
+							!m.metadata.text.includes("%PDF-") && 
+							!m.metadata.text.includes("FlateDecode") && 
+							!m.metadata.text.includes("stream"))
+						.map(m => `[Retrieved Fact (Confidence: ${Math.round((m.score || 0.8) * 100)}%)]: ${m.metadata.text}`);
+					
+					docContextChunks = docContextChunks.concat(validChunks);
+				}
 				
-				// SECURITY FILTERS: Block structural binary, raw streams, or ciphertext fragments
-				const docContext = matches.matches
-					.filter(m => m.metadata && m.metadata.text && 
-						!m.metadata.text.includes("%PDF-") && 
-						!m.metadata.text.includes("FlateDecode") && 
-						!m.metadata.text.includes("stream"))
-					.map(m => `[Retrieved Fact (Confidence: ${Math.round((m.score || 0.8) * 100)}%)]: ${m.metadata.text}`)
-					.join("\n---\n");
+				// Deduplicate matches cleanly
+				const docContext = Array.from(new Set(docContextChunks)).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
@@ -488,7 +501,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// CRITICAL MEMORY INTERCEPT: Re-route dynamic memory saves directly to production indices
 							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
 								const rawFact = payload.arguments.factToRemember;
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
