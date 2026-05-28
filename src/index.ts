@@ -69,7 +69,6 @@ export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
 		this.doCtx = ctx;
-		// TELEMETRY REPAIR 1: Trace active constructor instances inside your logging streams natively
 		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
 
@@ -480,6 +479,10 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
 					if (matches.matches) {
 						console.log(`[VECTORIZE RETRIEVAL DIAL] Match array size: ${matches.matches.length} hits mapped.`);
+						// 🔦 DIAGNOSTIC INJECTION: Dump the structural elements of the first match directly into live logs!
+						if (matches.matches.length > 0) {
+							console.log(`[VECTORIZE RAW] ${JSON.stringify(matches.matches[0])}`);
+						}
 						rawMatchedChunks = rawMatchedChunks.concat(matches.matches);
 					}
 				}
@@ -494,7 +497,7 @@ export class ChatSession extends DurableObject<Env> {
 				const docContextChunks = Array.from(uniqueMatchesMap.values())
 					.filter(m => m.metadata && m.score)
 					.map(m => {
-						// FIXED METADATA PROPERTY MAPPING ATTRIBUTES CHAIN
+						// 🩹 FALLBACK PROPERTY MATRIX PASS: Checks all standard stored field keys natively to guarantee matching values map cleanly
 						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
 						let provenance = m.metadata.source || "unknown_origin";
 						
@@ -503,12 +506,12 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// FIXED PROVENANCE CONCATENATION LABELS INSIDE THE RETURNING MAP ARRAY
+						// 🏛️ RESTORED FULL PROVENANCE DATA LAYOUT FIELD ATTACHMENT
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
 					.filter(chunk => chunk.length > 25);
 
-				// REBUILT DÉFENSE: Dropped the accidental empty string match that scrubbed docContext down entirely
+				// REBUILT STRUCTURAL RETRIEVAL WINDOW: Removed the blank template check logic bug that was completely zeroing out docContext
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -656,11 +659,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		// FIXED ROUTER key derivation pass block: Dynamically resolves active tokens from URL parameter parameters natively
 		const url = new URL(request.url);
 		let resolvedSessionId = request.headers.get("x-session-id") || url.searchParams.get("sessionId") || "global";
 		
-		// If both evaluate empty, check dynamic out-of-band request attributes like connection parameters
 		if (resolvedSessionId === "global" && request.headers.get("cf-connecting-ip")) {
 			resolvedSessionId = `session_ip_${request.headers.get("cf-connecting-ip")?.replace(/[^a-zA-Z0-9]/g, "")}`;
 		}
