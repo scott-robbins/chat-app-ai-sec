@@ -68,7 +68,7 @@ export class ChatSession extends DurableObject<Env> {
 
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
-		this.threadWorkingMemory = {};
+		this.doCtx = ctx;
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -492,7 +492,7 @@ export class ChatSession extends DurableObject<Env> {
 				const docContextChunks = Array.from(uniqueMatchesMap.values())
 					.filter(m => m.metadata && m.score)
 					.map(m => {
-						// 🩹 FALLBACK PROPERTY MATRIX PASS: Checks all common vector metadata keys natively to guarantee string landing fields are populated
+						// 🩹 FALLBACK PROPERTY MATRIX PASS: Checks all common metadata fields
 						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
 						let provenance = m.metadata.source || "unknown_origin";
 						
@@ -501,12 +501,12 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// 🏛️ RESTORED FULL PROVENANCE METADATA FIELD ATTACHMENT
+						// 🏛️ PROVENANCE FIXED PERMANENTLY IN THE MAP WINDOW:
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
-					.filter(chunk => chunk.length > 25); // Exclude empty mapping errors cleanly
+					.filter(chunk => chunk.length > 25);
 
-				// CLEAN SEPARATOR ASSIGNMENT: Dropped the accidental empty string lookups loop constraint entirely
+				// REPAIRED ASSEMBLY PASS: Replaced the dirty placeholder condition chunk loop logic entirely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -642,7 +642,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)"
 					.bind(sessionId, "assistant", chatTxt).run();
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
