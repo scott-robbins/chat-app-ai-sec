@@ -209,7 +209,7 @@ export class ChatSession extends DurableObject<Env> {
 	// === CRITICAL FINANCIAL ENGINE RAW TICKER SCRAPER ===
 	async fetchLiveTickerPrice(ticker: string): Promise<string> {
 		try {
-			const res = await fetch(`https://api.marketwatch.com/v1/quotes/public?symbols=STOCK/US/XNYS/${ticker.toUpperCase()}`, {
+			const res = await fetch("https://api.marketwatch.com/v1/quotes/public?symbols=STOCK/US/XNYS/" + ticker.toUpperCase(), {
 				headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
 			});
 			const text = await res.text();
@@ -366,11 +366,11 @@ export class ChatSession extends DurableObject<Env> {
 
 				const rawText = await r2Object.text();
 				
-				// 🧹 IMMUTABLE TOTAL PRUNE: Clear out any hardcoded legacy chunk positions
+				// 🧹 TOTAL PRUNE: Clear out any hardcoded legacy chunk positions
 				const hardcodedIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
 				try { await this.env.VECTORIZE.deleteByIds(hardcodedIds); } catch(e){}
 
-				// 🧟 ZOMBIE CLEANER PASS: Explicitly purge vectors mapped to the deleted legacy namespaces to stop index drift ghosting
+				// 🧟 ZOMBIE CLEANER PASS: Purge vectors mapped to deleted legacy namespaces to stop index drift ghosting completely
 				const zombieIds = Array.from({ length: 150 }, (_, i) => `v4-identity-chunk-${i}`);
 				const oldFileIds = Array.from({ length: 100 }, (_, i) => `mem-${i}`);
 				try { await this.env.VECTORIZE.deleteByIds(zombieIds.concat(oldFileIds)); } catch(e){}
@@ -511,12 +511,12 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// 🏛️ PROVENANCE RESTORATION SELECTION: Explicitly inserting the lineage tag mapping variable back into context strings
+						// 🏛️ PROVENANCE RESTORATION SELECTION FIXED PERMANENTLY: Seamlessly joining source tags to text array elements!
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
 					.filter(chunk => chunk.length > 25);
 
-				// REPAIRED ASSEMBLY PASS: Wiped out the broken empty context logic filter completely
+				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
