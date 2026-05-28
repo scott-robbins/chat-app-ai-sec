@@ -352,6 +352,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -360,17 +361,41 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const rawText = await r2Object.text();
-				await this.env.VECTORIZE.deleteByIds(["v8-identity-chunk-0"]);
-
-				const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [rawText] });
 				
-				await this.env.VECTORIZE.upsert([{
-					id: "v8-identity-chunk-0",
-					values: embeddingResult.data[0],
-					metadata: { text: rawText }
-				}]);
+				// Re-initialize index cleanly by purging old truncated shards
+				const existingIds = Array.from({ length: 50 }, (_, i) => `v8-identity-chunk-${i}`);
+				try { await this.env.VECTORIZE.deleteByIds(existingIds); } catch(e){}
 
-				return new Response(JSON.stringify({ success: true, status: "Index synchronized perfectly via browser URL handler!" }), { headers });
+				// Split file based on new line markers to prevent model truncation
+				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+				const chunks: string[] = [];
+				let currentChunk = "";
+
+				for (const line of lines) {
+					if ((currentChunk + "\n" + line).length > 800 || line.startsWith("===") || line.endsWith("===")) {
+						if (currentChunk) chunks.push(currentChunk);
+						currentChunk = line;
+					} else {
+						currentChunk = currentChunk ? currentChunk + "\n" + line : line;
+					}
+				}
+				if (currentChunk) chunks.push(currentChunk);
+
+				// Process vectors for each segment individually
+				const upsertVectors: any[] = [];
+				for (let i = 0; i < chunks.length; i++) {
+					const chunkText = chunks[i];
+					const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunkText] });
+					
+					upsertVectors.push({
+						id: `v8-identity-chunk-${i}`,
+						values: embeddingResult.data[0],
+						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt" }
+					});
+				}
+
+				await this.env.VECTORIZE.upsert(upsertVectors);
+				return new Response(JSON.stringify({ success: true, status: `Successfully processed and indexed ${chunks.length} clean plaintext fragments!` }), { headers });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
 			}
@@ -422,7 +447,7 @@ export class ChatSession extends DurableObject<Env> {
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [userMsg] });
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 25, returnMetadata: "all" });
 				
-				// SECURITY READ FILTER MODIFICATION: Stop ciphertext/binary contamination natively before prompt construction
+				// SECURITY FILTERS: Block structural binary, raw streams, or ciphertext fragments
 				const docContext = matches.matches
 					.filter(m => m.metadata && m.metadata.text && 
 						!m.metadata.text.includes("%PDF-") && 
@@ -463,28 +488,25 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
 
-							// CRITICAL MEMORY INTERCEPT: Process dynamic memory writing natively inside the worker sequence
+							// CRITICAL MEMORY INTERCEPT: Re-route dynamic memory saves directly to production indices
 							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
 								const rawFact = payload.arguments.factToRemember;
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
 								
-								// Compute clean embedding array vectors for the newly shared conversation fact
 								const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
 								const uniqueMemoryId = `mem-${Date.now()}`;
 								
 								await this.env.VECTORIZE.upsert([{
 									id: uniqueMemoryId,
 									values: factVector.data[0],
-									metadata: { text: stampedFact }
+									metadata: { text: stampedFact, contentType: "plaintext", source: "conversational_sync" }
 								}]);
 
 								console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
 								
-								// Append visual acknowledgment safely back into assistant text generation array
 								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 								chatTxt += `\n\n✅ *[Long-term memory updated perfectly]*`;
 							} else {
-								// Standard out-of-band physical MCP local bridge handler execution path
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
 									headers: { 
