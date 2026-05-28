@@ -441,15 +441,13 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.`;
 				}
 
-				// === AUTOMATED Synonyms TOKEN EXTRACTOR SYSTEM ===
-				// Completely eliminates hardcoded loops by breaking up prompt subject metrics dynamically
+				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
+				// Tokenizes words defensively and merges global matching synonyms automatically
 				let searchTerms = new Set<string>([userMsg]);
-				
-				// Extract primary family proper nouns and baseline semantic variants natively
 				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
 				const targetSynonyms: Record<string, string[]> = {
-					"bry": ["bryana", "daughter", "stand-up", "comedy", "boyfriend"],
-					"bryana": ["bry", "daughter", "stand-up", "comedy", "boyfriend"],
+					"bry": ["bryana", "daughter", "stand-up", "comedy", "boyfriend", "loves", "hobbies"],
+					"bryana": ["bry", "daughter", "stand-up", "comedy", "boyfriend", "loves", "hobbies"],
 					"jason": ["brother", "sibling", "beth", "family tree"],
 					"brother": ["jason", "sibling", "beth", "family tree"],
 					"parents": ["mother", "father", "folks", "reside", "easton"],
@@ -473,7 +471,7 @@ export class ChatSession extends DurableObject<Env> {
 					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 					
 					const validChunks = matches.matches
-						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.28 &&
+						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.25 &&
 							!m.metadata.text.includes("%PDF-") && 
 							!m.metadata.text.includes("FlateDecode") && 
 							!m.metadata.text.includes("stream"))
@@ -482,6 +480,7 @@ export class ChatSession extends DurableObject<Env> {
 					docContextChunks = docContextChunks.concat(validChunks);
 				}
 				
+				// Deduplicate and filter data cleanly
 				const docContext = Array.from(new Set(docContextChunks)).join("\n---\n");
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
@@ -492,12 +491,17 @@ export class ChatSession extends DurableObject<Env> {
 					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
 					: "No out-of-band dialogue lines archived in production datastore tables yet.";
 
-				let systemPrompt = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+				// === CRITICAL STRUCTURAL INJECTION DIRECTIVE ===
+				// Forces Claude to evaluate all indexed data metrics before generating text
+				let systemPrompt = `### CRITICAL GROUND TRUTH SYSTEM REQUIREMENT:
+You must exhaustively inspect the entire provided SEMORY block before completing your output lines. If the user asks what a person loves or tracks their habits, scan the document explicitly for their specific profile entries. Treat text items matching these conditions as absolute fact.
+
+### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
 ### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | SEMORY: ${docContext} | CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
+### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
 				let chatTxt = await this.runAI(body.model || "anthropic/claude-3-5-sonnet-20240620", systemPrompt, userMsg, recentContext);
 
