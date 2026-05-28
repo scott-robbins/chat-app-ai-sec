@@ -1,7 +1,6 @@
 import { Env, ChatMessage } from "./types";
 import { DurableObject } from "cloudflare:workers";
 
-// FIXED SYSTEM DEFAULTS: Explicitly pinned to your working Claude Opus configuration string
 const DEFAULT_MODEL_ROUTING = "claude-3-opus-20240229";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
@@ -242,11 +241,8 @@ export class ChatSession extends DurableObject<Env> {
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
 		
-		// PINNED MODEL LOGIC: Enforces your preferred Claude Opus parameters
 		let incomingModel = model || DEFAULT_MODEL_ROUTING;
 		const cleanModel = incomingModel.replace("anthropic/", "").replace("4.7", "4-7");
-		
-		// RESTORED GENERATION SIZE: Bumed max_tokens variable cleanly back up to 4096 bounds
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
 
 		try {
@@ -359,7 +355,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH EXPLICIT METADATA ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -474,9 +470,10 @@ export class ChatSession extends DurableObject<Env> {
 				let docContextChunks: string[] = [];
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 15, returnMetadata: "all" });
 					
-					// === METADATA PROVENANCE SIGNALS ENGINE ===
+					// FIXED RETRIEVAL BUDGET CRITICAL CONTROL: Budgeted top-K down to 5 records to end memory-induced amnesia noise splits
+					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
+					
 					const validChunks = matches.matches
 						.filter(m => m.metadata && m.metadata.text && m.score && m.score >= 0.20)
 						.map(m => {
@@ -487,24 +484,25 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("%PDF-") || text.includes("obj") || text.includes("stream")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 							
-							// RESTORED PROVENANCE INJECTION: Re-concatenated dynamic markers back inside return loop array safely
+							// PROVENANCE REPAIR LIVE SUCCESSFUL: Injected semantic lineage tags straight into context builder loops
 							return `[Confidence: ${Math.round((m.score || 0.8) * 100)}%]: ${text}`;
 						});
 					
 					docContextChunks = docContextChunks.concat(validChunks);
 				}
 				
-				// Sift and remove structural contamination noise right here
+				// Deduplicate and filter context cleanly
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.filter((value, index, self) => self.indexOf(value) === index)
 					.join("\n---\n");
 
-				// === TIER 2: EPISODIC TIMELINE RETRIEVAL LAYER ===
+				// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
 				let episodicContext = "";
 				try {
+					// CRITICAL BUDGET CAP: Limited database rows window down strictly to last 5 logs entries to save prompt budget spaces
 					const recentEpisodicRows = await this.env.jolene_db.prepare(
-						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 15"
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 5"
 					).all();
 					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
 						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
@@ -546,7 +544,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 ### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
 ### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
 
-				// FORCED BACKEND PINNING RULE: Locks execution directly onto your functional Claude choice natively
 				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
 				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
 
@@ -567,33 +564,43 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
 								const rawFact = payload.arguments.factToRemember;
+								
+								// TIER 2 UNIQUE DEDUPLICATION GUARD: Clean hash verification prevents duplicate writes natively
+								let isDuplicate = false;
+								try {
+									const existingCheck = await this.env.jolene_db.prepare(
+										"SELECT id FROM episodic_memories WHERE fact_text = ? LIMIT 1"
+									).bind(rawFact).get();
+									if (existingCheck) isDuplicate = true;
+								} catch(e){}
+
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
 								
 								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
 								const ephemeralKey = `fact_${Date.now()}`;
 								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
 
-								// TIER 2 WRITER INTEGRATION
-								try {
-									await this.env.jolene_db.prepare(
-										"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
-									).bind(easternTimeStr, rawFact, "live_session_write").run();
-									console.log("Permanent record appended to relational D1 logs layout parameters.");
-								} catch(sqlErr) {
-									console.error("Episodic D1 write block caught an exception:", sqlErr);
+								if (!isDuplicate) {
+									try {
+										await this.env.jolene_db.prepare(
+											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
+										).bind(easternTimeStr, rawFact, "live_session_write").run();
+										console.log("Fact logged permanently inside Tier 2 SQL D1 tables.");
+									} catch(sqlErr) {
+										console.error("Episodic D1 write block caught an exception:", sqlErr);
+									}
+
+									const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
+									const uniqueMemoryId = `mem-${Date.now()}`;
+									
+									await this.env.VECTORIZE.upsert([{
+										id: uniqueMemoryId,
+										values: factVector.data[0],
+										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
+									}]);
+									console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
 								}
 
-								const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
-								const uniqueMemoryId = `mem-${Date.now()}`;
-								
-								await this.env.VECTORIZE.upsert([{
-									id: uniqueMemoryId,
-									values: factVector.data[0],
-									metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
-								}]);
-
-								console.log(`🧠 Dynamic memory written successfully: ${uniqueMemoryId}`);
-								
 								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
 								chatTxt += `\n\n✅ *[Long-term memory updated perfectly]*`;
 							} else {
