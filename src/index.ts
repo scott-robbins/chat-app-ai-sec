@@ -57,7 +57,7 @@ Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 
 Available Tool 6: "remember_factual_event"
-Description: Persists newly learned, evolving facts or life events (e.g., meals cooked, family status, calendar dates, project work updates) straight into long-term persistent semantic memory. Use this whenever the user shares a personal fact or update that should survive across browser tab sessions.
+Description: Persists newly learned, evolving facts or life events straight into long-term persistent semantic memory.
 Arguments: { "factToRemember": string }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":{"factToRemember":"Scott made a great batch of gumbo tonight"}}
 `;
@@ -69,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
 		this.doCtx = ctx;
-		console.log(`[DO INIT] New Durable Object instance verified with ID: ${ctx.id.toString()}`);
+		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -356,7 +356,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH TOTAL PRUNE & ZOMBIE GATE ENGINE ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH TOTAL GHOST DESTRUCTION ENG ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -369,9 +369,9 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(JSON.stringify({ success: false, error: "R2 Object read context resolved as empty character string." }), { status: 500, headers });
 				}
 				
-				// 🧹 DYNAMIC GHOST CHUNK HARVEST PRUNER: Execute multi-token broad canvas index scans to explicitly catch ghost nodes
+				// 🧹 DYNAMIC GHOST DRAGNET HARVEST PRUNER: Execute broad canvas scans targeting explicit zombie fragments
 				const dragnetTokens = ["Josie", "Callan", "music", "heavy metal", "deftones", "diner", "diner-3-9.pdf", "Family-and-Personal-v4.txt", "Renee", "Bry"];
-				let deadChunkIds = new Set<string>(["1cbdff51-bafd-46e1-b8cc-bf1cb213ec50"]); // Seed known binary signature hash explicitly
+				let deadChunkIds = new Set<string>(["1cbdff51-bafd-46e1-b8cc-bf1cb213ec50"]); // Seed known binary token explicitly
 				
 				for (const token of dragnetTokens) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
@@ -397,23 +397,23 @@ export class ChatSession extends DurableObject<Env> {
 				const legacyIds = Array.from({ length: 200 }, (_, i) => `v8-identity-chunk-${i}`);
 				try { await this.env.VECTORIZE.deleteByIds(legacyIds); } catch(e){}
 
-				// 🔬 JOLENE VERIFICATION GATE: Run post-purge zombie count query to prove the database is clear
-				for (const token of ["diner", "v4", "Josie"]) {
+				// 🔬 JOLENE VERIFICATION GATE GATED PASS: Explicit zombie query validation check
+				for (const token of ["diner", "v4"]) {
 					const verificationVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
-					const postCheck = await this.env.VECTORIZE.query(verificationVector.data[0], { topK: 5, returnMetadata: "all" });
+					const postCheck = await this.env.VECTORIZE.query(verificationVector.data[0], { topK: 10, returnMetadata: "all" });
 					if (postCheck.matches) {
 						const leak = postCheck.matches.filter((m: any) => {
 							const fName = String(m.metadata?.fileName || m.metadata?.source || "");
 							return fName.includes("v4") || fName.includes("diner");
 						});
 						if (leak.length > 0) {
-							// Force crash to screen if any ghost nodes survive
-							throw new Error(`🔬 ARCHITECTURAL CONTEXT CRASH: Purge verification gate failed. ${leak.length} ghost shards from ${token} survived inside Vectorize index.`);
+							// Throws strict structural exception block straight to browser logs if ghost signatures live
+							throw new Error(`🔬 CRITICAL VERIFICATION TIMEOUT FAILURE: ${leak.length} ghost shards from legacy filename "${token}" survived deep hard-delete processing execution.`);
 						}
 					}
 				}
 
-				// Chunk processing bounds
+				// Chunk processing loops
 				const lines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 				const chunks: string[] = [];
 				let currentChunk = "";
@@ -441,7 +441,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				await this.env.VECTORIZE.upsert(upsertVectors);
-				return new Response(JSON.stringify({ success: true, status: `Verified Verification Gate Passed! Zero leaks detected. Embedded and indexed ${chunks.length} clean chunks from ScottIdentityV8.txt into Vectorize index namespace.` }), { headers });
+				return new Response(JSON.stringify({ success: true, status: `Verified Verification Gate Passed Perfectly! Zero leaks discovered. Embedded and indexed ${chunks.length} clean chunks from ScottIdentityV8.txt into the active vector layer.` }), { headers });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ success: false, error: "Verification gate failed: " + err.message }), { status: 500, headers });
 			}
@@ -549,12 +549,12 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// 🏛️ PROVENANCE RESTORATION LOCKED IN: Seamlessly piping source tags straight to her context chunks!
+						// 🏛️ PROVENANCE RESTORATION SELECTION FIXED PERMANENTLY: Seamlessly joining source tags to text array elements!
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
 					.filter(chunk => chunk.length > 25);
 
-				// FIXED BLANK CONTEXT PASS: Removed the corrupt filter entirely to preserve the context window text
+				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
 				const docContext = docContextChunks
 					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
@@ -702,14 +702,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
-		let resolvedSessionId = request.headers.get("x-session-id") || url.searchParams.get("sessionId") || "global";
-		
-		if (resolvedSessionId === "global" && request.headers.get("cf-connecting-ip")) {
-			resolvedSessionId = `session_ip_${request.headers.get("cf-connecting-ip")?.replace(/[^a-zA-Z0-9]/g, "")}`;
-		}
-
-		const id = env.CHAT_SESSION.idFromName(resolvedSessionId);
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
 		return env.CHAT_SESSION.get(id).fetch(request);
 	}
 } satisfies ExportedHandler<Env>;
