@@ -69,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
 		this.doCtx = ctx;
-		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
+		console.log(`[DO INIT] New Durable Object instance verified with ID: ${ctx.id.toString()}`);
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -356,7 +356,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH BATCH-CONTROLLED HARD PURGE Engine ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH BATCH-CONTROLLED HARD PURGE ENGINE ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -383,7 +383,7 @@ export class ChatSession extends DurableObject<Env> {
 					if (scan.matches) {
 						scan.matches.forEach((m: any) => {
 							const fName = String(m.metadata?.fileName || m.metadata?.source || "");
-							if (fName.includes("v4") || fName.includes("diner") || fName.includes("unknown") || m.id.startsWith("mem-")) {
+							if (fName.includes("v4") || fName.includes("v2") || fName.includes("diner") || fName.includes("unknown") || m.id.startsWith("mem-")) {
 								deadChunkIds.add(m.id);
 							}
 						});
@@ -407,13 +407,13 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				// 🔬 JOLENE VERIFICATION GATE GATED PASS: Explicit zombie query validation check
-				for (const token of ["diner", "v4", "Josie", "is 2"]) {
+				for (const token of ["diner", "v4", "v2", "Josie", "is 2"]) {
 					const verificationVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
 					const postCheck = await this.env.VECTORIZE.query(verificationVector.data[0], { topK: 12, returnMetadata: "all" });
 					if (postCheck.matches) {
 						const leak = postCheck.matches.filter((m: any) => {
 							const fName = String(m.metadata?.fileName || m.metadata?.source || "");
-							return fName.includes("v4") || fName.includes("diner");
+							return fName.includes("v4") || fName.includes("v2") || fName.includes("diner");
 						});
 						if (leak.length > 0) {
 							const directLeakIds = leak.map((m: any) => m.id);
