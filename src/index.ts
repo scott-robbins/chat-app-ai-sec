@@ -69,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
 		this.doCtx = ctx;
-		console.log(`[DO INIT] New Durable Object context lifecycle frame verified: ${ctx.id.toString()}`);
+		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -356,6 +356,34 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
+		// 📡 JOLENE DYNAMIC TELEMETRY ROUTE: Sweeps index stats cleanly via deep query checks natively
+		if (url.pathname === "/api/diagnostic") {
+			try {
+				const results: any = { timestamp: new Date().toISOString(), tests: {} };
+				
+				try { results.tests.indexDescribe = await this.env.VECTORIZE.describe(); } catch(e: any){ results.tests.indexDescribe = { error: e.message }; }
+
+				const probePhrase = "Bry is pregnant with her third child a boy due November 2026";
+				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [probePhrase] });
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
+
+				results.tests.topKQuery = {
+					probePhrase,
+					matchCount: matches.matches?.length || 0,
+					matches: matches.matches?.map((m: any) => ({
+						id: m.id,
+						score: m.score,
+						fileName: m.metadata?.fileName || m.metadata?.source || 'NO_FILENAME',
+						textPreview: String(m.metadata?.text || m.metadata?.content || '').slice(0, 100)
+					}))
+				};
+
+				return new Response(JSON.stringify(results, null, 2), { headers });
+			} catch (err: any) {
+				return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers });
+			}
+		}
+
 		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH BATCH-CONTROLLED HARD PURGE ENGINE ===
 		if (url.pathname === "/api/memorize") {
 			try {
@@ -369,7 +397,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(JSON.stringify({ success: false, error: "R2 Object read context resolved empty character string string." }), { status: 500, headers });
 				}
 				
-				// 🧹 TOTAL BROAD OVERHAUL SWEEP: Generic broad token arrays expanded to clear every matching legacy filename trace completely
+				// 🧹 DYNAMIC GHOST DRAGNET HARVEST PRUNER: Scan index namespaces to harvest absolute IDs from zombie shards dynamically
 				const macroGhostTokens = [
 					"Josie", "Callan", "music", "heavy metal", "deftones", "diner", "diner-3-9.pdf", "Family-and-Personal-v4.txt", "Family-and-Personal-v2.txt", "Renee", "Bry",
 					"is 2", "1974", "Robbins", "Cloudflare", "Solutions", "Basement", "Theater", "Lite", "Bacardi", "Born", "Daughter", "Grandkids",
@@ -567,7 +595,6 @@ export class ChatSession extends DurableObject<Env> {
 
 				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
 				const docContext = docContextChunks
-					.filter(chunk => !chunk.includes("") && !chunk.includes("FlateDecode"))
 					.join("\n---\n");
 
 				console.log(`[PROMPT INJECTION] Assembled docContext payload text size: ${docContext.length} chars.`);
