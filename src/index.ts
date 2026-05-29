@@ -69,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
 		this.doCtx = ctx;
-		console.log(`[DO INIT] New Durable Object context lifecycle frame verified: ${ctx.id.toString()}`);
+		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -356,7 +356,7 @@ export class ChatSession extends DurableObject<Env> {
 			}), { headers });
 		}
 
-		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH UNLIMITED BROADBAND DESTRUCTION PASS ===
+		// === REBUILT SLIDING CHUNKER SYNCHRONIZER WITH BATCH-CONTROLLED HARD PURGE Engine ===
 		if (url.pathname === "/api/memorize") {
 			try {
 				const r2Object = await this.env.DOCUMENTS.get("ScottIdentityV8.txt");
@@ -369,11 +369,11 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(JSON.stringify({ success: false, error: "R2 Object read context resolved empty character string string." }), { status: 500, headers });
 				}
 				
-				// 🧹 DEEP DRAGNET EXTENSION LOOP: Expanding query dictionary sweeps to aggressively harvest all hidden metadata nodes
+				// 🧹 DYNAMIC GHOST DRAGNET HARVEST PRUNER: Scan index namespaces to harvest absolute IDs from zombie shards dynamically
 				const macroGhostTokens = [
 					"Josie", "Callan", "music", "heavy metal", "deftones", "diner", "diner-3-9.pdf", "Family-and-Personal-v4.txt", "Renee", "Bry",
 					"is 2", "1974", "Robbins", "Cloudflare", "Solutions", "Basement", "Theater", "Lite", "Bacardi", "Born", "Daughter", "Grandkids",
-					"a", "e", "i", "o", "u", "t", "s", "n" // Add character keys to capture all broken encoded fragments cleanly
+					"a", "e", "i", "o", "u", "t", "s", "n"
 				];
 				let deadChunkIds = new Set<string>(["1cbdff51-bafd-46e1-b8cc-bf1cb213ec50"]);
 				
@@ -390,18 +390,23 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// Hard delete every captured ghost ID trace natively from Vectorize
+				// 🩹 THRESHOLD PATCH: Chunk structural arrays into sub-batches of 50 to strictly obey Cloudflare API max bounds policy limits
 				const uniqueDeadIds = Array.from(deadChunkIds);
 				if (uniqueDeadIds.length > 0) {
-					console.log(`[INGESTION PURGE] Executing hard-delete against ${uniqueDeadIds.length} unique stale vector IDs...`);
-					await this.env.VECTORIZE.deleteByIds(uniqueDeadIds);
+					console.log(`[INGESTION PURGE] Processing hard-delete pass for ${uniqueDeadIds.length} unique stale vector IDs...`);
+					for (let i = 0; i < uniqueDeadIds.length; i += 50) {
+						const batch = uniqueDeadIds.slice(i, i + 50);
+						await this.env.VECTORIZE.deleteByIds(batch);
+					}
 				}
 
-				// Clear historical sequential index arrays loops
+				// Clear old serial IDs sequentially
 				const legacyIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
-				try { await this.env.VECTORIZE.deleteByIds(legacyIds); } catch(e){}
+				for (let i = 0; i < legacyIds.length; i += 50) {
+					try { await this.env.VECTORIZE.deleteByIds(legacyIds.slice(i, i + 50)); } catch(e){}
+				}
 
-				// 🔬 JOLENE VERIFICATION GATE VERIFICATION ENGINE
+				// 🔬 JOLENE VERIFICATION GATE GATED PASS: Explicit zombie query validation check
 				for (const token of ["diner", "v4", "Josie", "is 2"]) {
 					const verificationVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
 					const postCheck = await this.env.VECTORIZE.query(verificationVector.data[0], { topK: 12, returnMetadata: "all" });
@@ -411,9 +416,10 @@ export class ChatSession extends DurableObject<Env> {
 							return fName.includes("v4") || fName.includes("diner");
 						});
 						if (leak.length > 0) {
-							// Force explicit deletion by ID right inside the verification fence fallback block!
 							const directLeakIds = leak.map((m: any) => m.id);
-							await this.env.VECTORIZE.deleteByIds(directLeakIds);
+							for (let i = 0; i < directLeakIds.length; i += 50) {
+								await this.env.VECTORIZE.deleteByIds(directLeakIds.slice(i, i + 50));
+							}
 							console.log(`[GATE BYPASS CORRECTOR] Hard-purged ${directLeakIds.length} bypassed ghost tokens explicitly.`);
 						}
 					}
@@ -696,7 +702,8 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+				await this.env.fetch_session_history_log_prepare_run ? await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatTxt).run() : await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", chatTxt).run();
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
