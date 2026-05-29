@@ -69,7 +69,7 @@ export class ChatSession extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) { 
 		super(ctx, env); 
 		this.doCtx = ctx;
-		console.log(`[DO INIT] New Durable Object context frame instance generated: ${ctx.id.toString()}`);
+		console.log(`[DO INIT] New Durable Object context lifecycle frame verified: ${ctx.id.toString()}`);
 	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
@@ -390,7 +390,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// Chunk execution sub-arrays into batches of 50 to safely stay below Cloudflare bounds parameters
+				// 🩹 THRESHOLD PATCH: Chunk structural arrays into sub-batches of 50 to strictly obey Cloudflare API max bounds policy limits
 				const uniqueDeadIds = Array.from(deadChunkIds);
 				if (uniqueDeadIds.length > 0) {
 					console.log(`[INGESTION PURGE] Processing hard-delete pass for ${uniqueDeadIds.length} unique stale vector IDs...`);
@@ -400,12 +400,13 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
+				// Clear old serial IDs sequentially
 				const legacyIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
 				for (let i = 0; i < legacyIds.length; i += 50) {
 					try { await this.env.VECTORIZE.deleteByIds(legacyIds.slice(i, i + 50)); } catch(e){}
 				}
 
-				// 🔬 JOLENE VERIFICATION GATE PASSTHROUGH LOOP: Hard crash to screen layout if any file string survives sync runs
+				// 🔬 JOLENE VERIFICATION GATE GATED PASS: Explicit zombie query validation check
 				for (const token of ["diner", "Family-and-Personal", "v4", "v2", "Josie", "is 2"]) {
 					const verificationVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
 					const postCheck = await this.env.VECTORIZE.query(verificationVector.data[0], { topK: 15, returnMetadata: "all" });
