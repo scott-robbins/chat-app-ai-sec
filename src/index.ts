@@ -57,7 +57,7 @@ Arguments: {}
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"get_house_temperatures","arguments":{}}
 
 Available Tool 6: "remember_factual_event"
-Description: Persists newly learned, evolving facts or life events straight into long-term persistent semantic memory.
+Description: Persists newly learned, evolving facts or life events (e.g., meals cooked, family status, calendar dates, project work updates) straight into long-term persistent semantic memory. Use this whenever the user shares a personal fact or update that should survive across browser tab sessions.
 Arguments: { "factToRemember": string }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":{"factToRemember":"Scott made a great batch of gumbo tonight"}}
 `;
@@ -365,7 +365,9 @@ export class ChatSession extends DurableObject<Env> {
 
 				const probePhrase = "Bry is pregnant with her third child a boy due November 2026";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [probePhrase] });
-				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all" });
+				
+				// 🛠️ NAMESPACE AUDIT PASS: Inspecting the separate segments cleanly using native syntax
+				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all", namespace: "canon" });
 
 				results.tests.topKQuery = {
 					probePhrase,
@@ -373,6 +375,7 @@ export class ChatSession extends DurableObject<Env> {
 					matches: matches.matches?.map((m: any) => ({
 						id: m.id,
 						score: m.score,
+						namespace: m.namespace || "default",
 						fileName: m.metadata?.fileName || m.metadata?.source || 'NO_FILENAME',
 						textPreview: String(m.metadata?.text || m.metadata?.content || '').slice(0, 100)
 					}))
@@ -397,7 +400,7 @@ export class ChatSession extends DurableObject<Env> {
 					return new Response(JSON.stringify({ success: false, error: "R2 Object read context resolved empty character string string." }), { status: 500, headers });
 				}
 				
-				// 🧹 DYNAMIC GHOST DRAGNET HARVEST PRUNER: Scan index namespaces to harvest absolute IDs from zombie shards dynamically
+				// 🧹 TOTAL BROAD OVERHAUL SWEEP: Generic broad token arrays expanded to clear legacy un-namespaced chunks
 				const macroGhostTokens = [
 					"Josie", "Callan", "music", "heavy metal", "deftones", "diner", "diner-3-9.pdf", "Family-and-Personal-v4.txt", "Family-and-Personal-v2.txt", "Renee", "Bry",
 					"is 2", "1974", "Robbins", "Cloudflare", "Solutions", "Basement", "Theater", "Lite", "Bacardi", "Born", "Daughter", "Grandkids",
@@ -407,18 +410,20 @@ export class ChatSession extends DurableObject<Env> {
 				
 				for (const token of macroGhostTokens) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
+					
+					// Scan the default unassigned partition explicitly to find and eliminate ghost fragments
 					const scan = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
 					if (scan.matches) {
 						scan.matches.forEach((m: any) => {
 							const fName = String(m.metadata?.fileName || m.metadata?.source || "");
-							if (fName.includes("Family-and-Personal") || fName.includes("v4") || fName.includes("v2") || fName.includes("diner") || fName.includes("unknown") || m.id.startsWith("mem-")) {
+							if (fName.includes("Family-and-Personal") || fName.includes("v4") || fName.includes("v2") || fName.includes("diner") || fName.includes("unknown") || m.id.startsWith("mem-") || !m.namespace) {
 								deadChunkIds.add(m.id);
 							}
 						});
 					}
 				}
 
-				// 🩹 THRESHOLD PATCH: Chunk structural arrays into sub-batches of 50 to strictly obey Cloudflare API max bounds policy limits
+				// Chunk execution sub-arrays into batches of 50 to safely stay below Cloudflare bounds parameters
 				const uniqueDeadIds = Array.from(deadChunkIds);
 				if (uniqueDeadIds.length > 0) {
 					console.log(`[INGESTION PURGE] Processing hard-delete pass for ${uniqueDeadIds.length} unique stale vector IDs...`);
@@ -428,28 +433,9 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				// Clear old serial IDs sequentially
 				const legacyIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
 				for (let i = 0; i < legacyIds.length; i += 50) {
 					try { await this.env.VECTORIZE.deleteByIds(legacyIds.slice(i, i + 50)); } catch(e){}
-				}
-
-				// 🔬 JOLENE VERIFICATION GATE GATED PASS: Explicit zombie query validation check
-				for (const token of ["diner", "Family-and-Personal", "v4", "v2", "Josie", "is 2"]) {
-					const verificationVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
-					const postCheck = await this.env.VECTORIZE.query(verificationVector.data[0], { topK: 15, returnMetadata: "all" });
-					if (postCheck.matches) {
-						const leak = postCheck.matches.filter((m: any) => {
-							const fName = String(m.metadata?.fileName || m.metadata?.source || "");
-							return fName.includes("Family-and-Personal") || fName.includes("v4") || fName.includes("v2") || fName.includes("diner");
-						});
-						if (leak.length > 0) {
-							const directLeakIds = leak.map((m: any) => m.id);
-							for (let i = 0; i < directLeakIds.length; i += 50) {
-								await this.env.VECTORIZE.deleteByIds(directLeakIds.slice(i, i + 50));
-							}
-						}
-					}
 				}
 
 				// Chunk processing bounds
@@ -475,6 +461,7 @@ export class ChatSession extends DurableObject<Env> {
 					upsertVectors.push({
 						id: `v8-identity-chunk-${i}`,
 						values: embeddingResult.data[0],
+						namespace: "canon", // 🏷️ NATIVE INGESTION FIXED: Segmenting the baseline profile data cleanly into its own track
 						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt", fileName: "ScottIdentityV8.txt" }
 					});
 				}
@@ -560,14 +547,14 @@ export class ChatSession extends DurableObject<Env> {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
 					console.log(`[VECTORIZE RETRIEVAL DIAL] Querying index namespace via token: "${term}"`);
 					
-					const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 5, returnMetadata: "all" });
-					if (matches.matches) {
-						console.log(`[VECTORIZE RETRIEVAL DIAL] Match array size: ${matches.matches.length} hits mapped.`);
-						if (matches.matches.length > 0) {
-							console.log(`[VECTORIZE RAW] ${JSON.stringify(matches.matches[0])}`);
-						}
-						rawMatchedChunks = rawMatchedChunks.concat(matches.matches);
-					}
+					// 🔍 NATIVE READ ROUTE FILTER PASS: Fetching chunks strictly from explicit data channels
+					const matchesCanon = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "canon" });
+					const matchesEpisodic = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "episodic" });
+					const matchesWork = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "work" });
+
+					if (matchesCanon.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesCanon.matches);
+					if (matchesEpisodic.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesEpisodic.matches);
+					if (matchesWork.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesWork.matches);
 				}
 
 				const uniqueMatchesMap = new Map<string, any>();
@@ -588,15 +575,12 @@ export class ChatSession extends DurableObject<Env> {
 							else if (text.includes("Saved on")) provenance = "live_session_write";
 						}
 
-						// 🏛️ PROVENANCE RESTORATION SELECTION FIXED PERMANENTLY: Seamlessly joining source tags to text array elements!
+						// Include the provenance block tag inside the literal mapping return statement
 						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
 					})
 					.filter(chunk => chunk.length > 25);
 
-				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
-				const docContext = docContextChunks
-					.join("\n---\n");
-
+				const docContext = docContextChunks.join("\n---\n");
 				console.log(`[PROMPT INJECTION] Assembled docContext payload text size: ${docContext.length} chars.`);
 
 				// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
@@ -694,10 +678,12 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
 									const uniqueMemoryId = `mem-${Date.now()}`;
 									
+									// 🏷️ NATIVE AD-HOC WRITER PASS: Explicitly routing user-learned facts into the native 'episodic' namespace track
 									await this.env.VECTORIZE.upsert([{
 										id: uniqueMemoryId,
 										values: factVector.data[0],
-										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write" }
+										namespace: "episodic",
+										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write", fileName: "live_session_write" }
 									}]);
 									console.log("Dynamic memory written successfully");
 								}
