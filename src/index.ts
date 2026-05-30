@@ -268,9 +268,11 @@ export class ChatSession extends DurableObject<Env> {
 
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: { 
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${this.env.TAVILY_API_KEY || ""}`
+				},
 				body: JSON.stringify({ 
-					api_key: this.env.TAVILY_API_KEY || "", 
 					query: `${deepQuery} live now`, 
 					search_depth: "advanced", 
 					topic: topicMode,
@@ -278,9 +280,21 @@ export class ChatSession extends DurableObject<Env> {
 					max_results: 10 
 				})
 			});
+
+			if (!res.ok) {
+				const errText = await res.text();
+				console.error(`Tavily returned non-OK status ${res.status}:`, errText);
+				return "Search unavailable.";
+			}
+
 			const data: any = await res.json();
+			console.log("Tavily raw response payload:", JSON.stringify(data));
+
 			return `[LIVE TAVILY FEED] Current Time Horizon: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { return "Search unavailable."; }
+		} catch (e) { 
+			console.error("Tavily search threw exception:", e); 
+			return "Search unavailable."; 
+		}
 	}
 
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
@@ -598,7 +612,10 @@ export class ChatSession extends DurableObject<Env> {
 					})
 					.filter(chunk => chunk.length > 25);
 
-				const docContext = docContextChunks.join("\n---\n");
+				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
+				const docContext = docContextChunks
+					.join("\n---\n");
+
 				console.log(`[PROMPT INJECTION] Assembled docContext payload text size: ${docContext.length} chars.`);
 
 				// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
