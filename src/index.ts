@@ -81,8 +81,155 @@ export class ChatSession extends DurableObject<Env> {
 
 	// === MULTI-DAY DYNAMIC NBA DATA ENGINE ===
 	async getLiveNBAScore(query: string): Promise<string> {
+		console.log("[NBA LIVE] getLiveNBAScore fired with query:", query);
+		
 		try {
 			const normalizedQuery = query.toLowerCase();
+			const today = new Date();
+			const yyyy = today.getFullYear();
+			const mm = String(today.getMonth() + 1).padStart(2, '0');
+			const dd = String(today.getDate()).padStart(2, '0');
+			const todayStr = `${yyyy}-${mm}-${dd}`;
+			
+			// Compute "recent window" — today + last 7 days for "most recent completed" queries
+			const recentDates: string[] = [];
+			for (let i = 0; i < 8; i++) {
+				const d = new Date();
+				d.setDate(d.getDate() - i);
+				recentDates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+			}
+			console.log("[NBA LIVE] Recent date window:", recentDates.join(", "));
+
+			// === PRIMARY PATH: RapidAPI API-Basketball ===
+			try {
+				const rapidHeaders = {
+					'X-RapidAPI-Key': this.env.RAPIDAPI_KEY || "",
+					'X-RapidAPI-Host': 'api-basketball.p.rapidapi.com'
+				};
+
+				// Fetch games across recent date window (league 12 = NBA, season 2025-2026)
+				let allGames: any[] = [];
+				for (const dateStr of recentDates) {
+					try {
+						const dayRes = await fetch(
+							`https://api-basketball.p.rapidapi.com/games?league=12&season=2025-2026&date=${dateStr}`,
+							{ headers: rapidHeaders }
+						);
+						if (dayRes.ok) {
+							const dayData: any = await dayRes.json();
+							if (dayData.response && Array.isArray(dayData.response)) {
+								allGames = allGames.concat(dayData.response);
+							}
+						} else {
+							console.error(`[NBA LIVE] RapidAPI day fetch failed for ${dateStr}, status: ${dayRes.status}`);
+						}
+					} catch(dayErr) {
+						console.error(`[NBA LIVE] RapidAPI day fetch exception for ${dateStr}:`, dayErr);
+					}
+				}
+				console.log(`[NBA LIVE] RapidAPI total games across window: ${allGames.length}`);
+
+				if (allGames.length === 0) {
+					console.log("[NBA LIVE] RapidAPI returned zero games, falling through to ESPN");
+					throw new Error("rapidapi_empty");
+				}
+
+				// "All games" / "scoreboard" summary query
+				if (normalizedQuery.match(/all games|every game|scores|scoreboard/)) {
+					let summary = "[LIVE NBA LEAGUE SUMMARY via RapidAPI API-Basketball]\n";
+					for (const g of allGames) {
+						const home = g.teams?.home?.name || "TBD";
+						const away = g.teams?.away?.name || "TBD";
+						const homeScore = g.scores?.home?.total ?? "0";
+						const awayScore = g.scores?.away?.total ?? "0";
+						const status = g.status?.long || "Scheduled";
+						const gameDate = g.date || "";
+						summary += `• ${away} (${awayScore}) @ ${home} (${homeScore}) - Status: ${status} - Date: ${gameDate}\n`;
+					}
+					return summary;
+				}
+
+				// Team-name-based event matching across recent games
+				const targetGame = allGames.find((g: any) => {
+					const home = (g.teams?.home?.name || "").toLowerCase();
+					const away = (g.teams?.away?.name || "").toLowerCase();
+					return normalizedQuery.split(/\s+/).some(word =>
+						word.length > 2 && (home.includes(word) || away.includes(word))
+					);
+				});
+
+				if (!targetGame) {
+					console.log("[NBA LIVE] No team match in RapidAPI games, falling through to ESPN");
+					throw new Error("rapidapi_no_match");
+				}
+
+				const gameId = targetGame.id;
+				const homeTeam = targetGame.teams?.home?.name || "TBD";
+				const awayTeam = targetGame.teams?.away?.name || "TBD";
+				const homeScore = targetGame.scores?.home?.total ?? "0";
+				const awayScore = targetGame.scores?.away?.total ?? "0";
+				const status = targetGame.status?.long || "Unknown";
+				const gameDate = targetGame.date || "";
+
+				let contextPayload = `[LIVE NBA API-BASKETBALL FEED] Matchup: ${awayTeam} (${awayScore}) @ ${homeTeam} (${homeScore}) | Status: ${status} | Date: ${gameDate}`;
+				console.log(`[NBA LIVE] targetGame matched: ${awayTeam} @ ${homeTeam}, id=${gameId}`);
+
+				// Box score branch — fetch player statistics
+				if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats|lines|points/)) {
+					try {
+						const playerStatsRes = await fetch(
+							`https://api-basketball.p.rapidapi.com/games/statistics/players?id=${gameId}`,
+							{ headers: rapidHeaders }
+						);
+						if (playerStatsRes.ok) {
+							const playerStatsData: any = await playerStatsRes.json();
+							const players = playerStatsData.response || [];
+							console.log(`[NBA LIVE] Player stats fetched: ${players.length} player rows`);
+
+							if (players.length > 0) {
+								contextPayload += `\n\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS ===\n`;
+								
+								// Group by team
+								const byTeam: Record<string, any[]> = {};
+								for (const p of players) {
+									const teamName = p.team?.name || "Unknown Team";
+									if (!byTeam[teamName]) byTeam[teamName] = [];
+									byTeam[teamName].push(p);
+								}
+
+								for (const teamName of Object.keys(byTeam)) {
+									contextPayload += `\n[${teamName} Player Splits]:\n`;
+									byTeam[teamName].slice(0, 11).forEach((p: any) => {
+										const name = `${p.player?.name || "Player"}`;
+										const pts = p.points ?? "0";
+										const reb = (p.rebounds?.total ?? p.rebounds ?? "0");
+										const ast = p.assists ?? "0";
+										const min = p.minutes ?? "0";
+										const stl = p.steals ?? "0";
+										const blk = p.blocks ?? "0";
+										contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST, ${stl} STL, ${blk} BLK (${min} MIN)\n`;
+									});
+								}
+							} else {
+								contextPayload += `\n\n(Player box score splits not yet available for this game — may be pre-game or actively updating.)`;
+							}
+						} else {
+							console.error(`[NBA LIVE] Player stats fetch failed, status: ${playerStatsRes.status}`);
+							contextPayload += `\n\n(Player stats endpoint returned status ${playerStatsRes.status}.)`;
+						}
+					} catch (boxErr) {
+						console.error("[NBA LIVE] Player stats fetch exception:", boxErr);
+						contextPayload += `\n\n(Player stats fetch threw an exception.)`;
+					}
+				}
+
+				return contextPayload;
+			} catch (rapidPrimaryErr) {
+				console.error("[NBA LIVE] RapidAPI primary path threw, falling through to ESPN:", rapidPrimaryErr);
+			}
+
+			// === FALLBACK PATH: ESPN public API (preserved from prior implementation) ===
+			console.log("[NBA LIVE] Entering ESPN fallback path");
 			
 			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
 				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
@@ -96,7 +243,7 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const dataYest: any = await resYesterday.json();
 				if (dataYest.events) { allEvents = allEvents.concat(dataYest.events); }
-			} catch (e) { console.error("Failed merging fallback calendar rows:", e); }
+			} catch (e) { console.error("[NBA LIVE] ESPN yesterday fetch failed:", e); }
 
 			try {
 				const dataPlayoffs: any = await resPlayoffs.json();
@@ -105,28 +252,18 @@ export class ChatSession extends DurableObject<Env> {
 						if (!allEvents.some((e: any) => e.id === pe.id)) { allEvents.push(pe); }
 					});
 				}
-			} catch (e) { console.error("Failed parsing deep tournament group array indices:", e); }
+			} catch (e) { console.error("[NBA LIVE] ESPN playoffs fetch failed:", e); }
+
+			console.log(`[NBA LIVE] ESPN fallback total events: ${allEvents.length}`);
 
 			if (allEvents.length === 0) {
-				return "[LIVE NBA FEED] No active playoff matchups discovered on the league scoreboard slate.";
-			}
-
-			if (normalizedQuery.match(/all games|every game|scores|scoreboard/)) {
-				let summary = "[LIVE NBA LEAGUE SUMMARY]\n";
-				for (const event of allEvents) {
-					const status = event.status?.type?.detail || "Scheduled";
-					const comps = event.competitions?.[0]?.competitors || [];
-					if (comps.length >= 2) {
-						summary += `• ${comps[0].team?.displayName} (${comps[0].score}) vs ${comps[1].team?.displayName} (${comps[1].score}) - Status: ${status}\n`;
-					}
-				}
-				return summary;
+				return "[LIVE NBA FEED] No active matchups discovered on either RapidAPI or ESPN feeds.";
 			}
 
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word =>
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
@@ -134,74 +271,19 @@ export class ChatSession extends DurableObject<Env> {
 			if (!targetEvent) {
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { hour12: false, timeZone: 'America/New_York' }).format(new Date());
 				const searchResults = await this.tavilySearch(`NBA scoreboard stats results full box score player lines ${query}`, easternTimeStr);
-				return `[LIVE POSTSEASON FALLBACK DATA INTERCEPTED - CRITICAL ABOLUTE TRUTH FEED]:\n${searchResults}\nUse this live data to generate the requested player statistics table layout immediately.`;
+				return `[LIVE POSTSEASON FALLBACK DATA INTERCEPTED]:\n${searchResults}`;
 			}
 
-			const gameId = targetEvent.id;
-			const status = targetEvent.status?.type?.detail || "Unknown State";
 			const competitors = targetEvent.competitions?.[0]?.competitors || [];
-			
 			const team1 = competitors[0]?.team?.displayName || "TBD";
 			const score1 = competitors[0]?.score || "0";
 			const team2 = competitors[1]?.team?.displayName || "TBD";
 			const score2 = competitors[1]?.score || "0";
+			const status = targetEvent.status?.type?.detail || "Unknown State";
 
-			let contextPayload = `[LIVE NBA API FEED] Matchup Context: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
-
-			if (normalizedQuery.match(/box score|boxscore|player stats|individual|statistics|stats/)) {
-				try {
-					const summaryRes = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=" + gameId, { headers: { "User-Agent": "Mozilla/5.0" } });
-					const summaryData: any = await summaryRes.json();
-					const boxscorePlayers = summaryData.boxscore?.players;
-					
-					if (boxscorePlayers && boxscorePlayers.length > 0) {
-						contextPayload += `\n\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS ===\n`;
-						boxscorePlayers.forEach((teamBox: any) => {
-							const teamName = teamBox.team?.displayName || "Team";
-							contextPayload += `\n[${teamName} Player Splits]:\n`;
-							
-							const statWrapper = teamBox.statistics?.[0] || {};
-							const rawKeysArray = statWrapper.names || statWrapper.keys || [];
-							const statsKeys = rawKeysArray.map((k: string) => String(k).toLowerCase());
-							
-							const playersRows = teamBox.athletes || statWrapper.athletes || [];
-							
-							if (playersRows && playersRows.length > 0) {
-								playersRows.slice(0, 11).forEach((p: any) => {
-									const name = p.athlete?.displayName || "Player";
-									let pts = "0", reb = "0", ast = "0", min = "0";
-									
-									const rawStatsArray = p.stats || [];
-									if (statsKeys.length > 0 && rawStatsArray.length > 0) {
-										const extractValue = (key: string): string => {
-											const index = statsKeys.indexOf(key);
-											if (index === -1) return "0";
-											const node = rawStatsArray[index];
-											if (!node) return "0";
-											if (typeof node === 'object') { return node.displayValue || node.value || "0"; }
-											return String(node);
-										};
-
-										pts = extractValue("pts");
-										reb = extractValue("reb");
-										ast = extractValue("ast");
-										min = extractValue("min");
-									}
-									contextPayload += `- ${name}: ${pts} PTS, ${reb} REB, ${ast} AST (${min} MIN)\n`;
-								});
-							} else {
-								contextPayload += " (Player box score splits are actively updating upstream... Check back shortly!)\n";
-							}
-						});
-					}
-				} catch (boxErr) {
-					contextPayload += " | (Deep individual player split statistics are currently updating upstream...)";
-				}
-				return contextPayload;
-			}
-
-			return contextPayload;
+			return `[LIVE NBA ESPN FALLBACK FEED] Matchup: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
 		} catch (err) {
+			console.error("[NBA LIVE] Top-level exception in getLiveNBAScore:", err);
 			return "[LIVE NBA FEED] Scoreboard data feed infrastructure handling timeouts gracefully.";
 		}
 	}
@@ -752,7 +834,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							} else {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
-									headers: { 
+									headers: { 
 										"Content-Type": "application/json",
 										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 									},
