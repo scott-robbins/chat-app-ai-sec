@@ -292,7 +292,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			return `[LIVE TAVILY FEED] Current Time Horizon: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
 		} catch (e) { 
-			console.error("Tavily search threw exception:", e); 
+			console.error("Tavily search threw exception:", e);
 			return "Search unavailable."; 
 		}
 	}
@@ -635,7 +635,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
-					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 15"
+					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 50"
 				).bind(sessionId).all();
 				
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
@@ -687,11 +687,15 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const rawFact = payload.arguments.factToRemember;
 								
 								let isDuplicate = false;
+								let existingId: number | null = null;
 								try {
 									const existingCheck = await this.env.jolene_db.prepare(
 										"SELECT id FROM episodic_memories WHERE fact_text = ? LIMIT 1"
-									).bind(rawFact).get();
-									if (existingCheck) isDuplicate = true;
+									).bind(rawFact).get<{ id: number }>();
+									if (existingCheck) {
+										isDuplicate = true;
+										existingId = existingCheck.id;
+									}
 								} catch(e){}
 
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
@@ -700,30 +704,59 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								const ephemeralKey = `fact_${Date.now()}`;
 								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
 
-								if (!isDuplicate) {
+								let writeOk = false;
+								let newRowId: number | null = null;
+
+								if (isDuplicate) {
+									chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+									chatTxt += `\n\nℹ️ *[Fact already in memory — row #${existingId}, no new write needed]*`;
+									console.log(`[MEMORIZE DIAGNOSTIC] Duplicate factual match detected. beforeCount: N/A, afterCount: N/A, writeOk: ${writeOk}`);
+								} else {
+									let beforeCount = 0;
+									try {
+										const beforeRes = await this.env.jolene_db.prepare("SELECT MAX(id) AS maxId FROM episodic_memories").get<{ maxId: number | null }>();
+										beforeCount = beforeRes?.maxId || 0;
+									} catch (e) {
+										console.error("D1 Error fetching pre-write check count balance hooks:", e);
+									}
+
 									try {
 										await this.env.jolene_db.prepare(
 											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
 										).bind(easternTimeStr, rawFact, "live_session_write").run();
-										console.log("Fact logged permanently inside Tier 2 SQL D1 tables.");
+										
+										const afterRes = await this.env.jolene_db.prepare("SELECT MAX(id) AS maxId FROM episodic_memories").get<{ maxId: number | null }>();
+										const afterCount = afterRes?.maxId || 0;
+
+										if (afterCount > beforeCount) {
+											writeOk = true;
+											newRowId = afterCount;
+										}
+										console.log(`[MEMORIZE DIAGNOSTIC] write session check pipeline sequence. beforeCount: ${beforeCount}, afterCount: ${afterCount}, writeOk: ${writeOk}`);
 									} catch(sqlErr) {
 										console.error("Episodic D1 write block caught an exception:", sqlErr);
+										console.log(`[MEMORIZE DIAGNOSTIC] write session check pipeline sequence caught error execution. beforeCount: ${beforeCount}, afterCount: 0, writeOk: ${writeOk}`);
 									}
 
-									const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
-									const uniqueMemoryId = `mem-${Date.now()}`;
-									
-									await this.env.VECTORIZE.upsert([{
-										id: uniqueMemoryId,
-										values: factVector.data[0],
-										namespace: "episodic",
-										metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write", fileName: "live_session_write" }
-									}]);
-									console.log("Dynamic memory written successfully");
-								}
+									if (writeOk && newRowId !== null) {
+										const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
+										const uniqueMemoryId = `mem-${Date.now()}`;
+										
+										await this.env.VECTORIZE.upsert([{
+											id: uniqueMemoryId,
+											values: factVector.data[0],
+											namespace: "episodic",
+											metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write", fileName: "live_session_write" }
+										}]);
+										console.log("Dynamic memory written successfully");
 
-								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-								chatTxt += `\n\n✅ *[Long-term memory updated perfectly]*`;
+										chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+										chatTxt += `\n\n` + `✅ *[Long-term memory verified — row #${newRowId} persisted]*`;
+									} else {
+										chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+										chatTxt += `\n\n` + `⚠️ *[MEMORY WRITE FAILED — save this fact externally: "${rawFact}"]*`;
+									}
+								}
 							} else {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
@@ -748,8 +781,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 					}
 				}
 
-				await this.env.fetch_session_history_log_prepare_run ? await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatTxt).run() : await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", chatTxt).run();
 				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
 
