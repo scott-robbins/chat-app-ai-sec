@@ -66,8 +66,8 @@ export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 	private threadWorkingMemory: Record<string, string> = {};
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
@@ -126,7 +126,7 @@ export class ChatSession extends DurableObject<Env> {
 			const targetEvent = allEvents.find((e: any) => {
 				const name = e.name.toLowerCase();
 				const shortName = e.shortName.toLowerCase();
-				return normalizedQuery.split(/\s+/).some(word => 
+				return normalizedQuery.split(/\s+/).some(word => 
 					word.length > 2 && (name.includes(word) || shortName.includes(word))
 				);
 			});
@@ -230,7 +230,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -244,7 +244,7 @@ export class ChatSession extends DurableObject<Env> {
 		
 		let incomingModel = model || DEFAULT_MODEL_ROUTING;
 		const cleanModel = incomingModel.replace("anthropic/", "").replace("4.7", "4-7");
-		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 4096 };
+		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 8192 };
 
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
@@ -268,16 +268,16 @@ export class ChatSession extends DurableObject<Env> {
 
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
-				headers: { 
+				headers: { 
 					'Content-Type': 'application/json',
 					'Authorization': `Bearer ${this.env.TAVILY_API_KEY || ""}`
 				},
-				body: JSON.stringify({ 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({ 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 
@@ -291,9 +291,9 @@ export class ChatSession extends DurableObject<Env> {
 			console.log("Tavily raw response payload:", JSON.stringify(data));
 
 			return `[LIVE TAVILY FEED] Current Time Horizon: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { 
-			console.error("Tavily search threw exception:", e); 
-			return "Search unavailable."; 
+		} catch (e) { 
+			console.error("Tavily search threw exception:", e); 
+			return "Search unavailable."; 
 		}
 	}
 
@@ -303,7 +303,7 @@ export class ChatSession extends DurableObject<Env> {
 			return "";
 		}
 		try {
-			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
+			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
@@ -491,7 +491,7 @@ export class ChatSession extends DurableObject<Env> {
 					upsertVectors.push({
 						id: `v8-identity-chunk-${i}`,
 						values: embeddingResult.data[0],
-						namespace: "canon", 
+						namespace: "canon", 
 						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt", fileName: "ScottIdentityV8.txt" }
 					});
 				}
@@ -512,8 +512,8 @@ export class ChatSession extends DurableObject<Env> {
 				const rawPersonality = await this.env.SETTINGS.get("personality") || "warm";
 				const currentPersonality = Object.prototype.hasOwnProperty.call(PERSONALITIES, rawPersonality) ? rawPersonality : "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -727,7 +727,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							} else {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
-									headers: { 
+									headers: { 
 										"Content-Type": "application/json",
 										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 									},
