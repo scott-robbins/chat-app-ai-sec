@@ -691,7 +691,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								try {
 									const existingCheck = await this.env.jolene_db.prepare(
 										"SELECT id FROM episodic_memories WHERE fact_text = ? LIMIT 1"
-									).bind(rawFact).get<{ id: number }>();
+									).bind(rawFact).first<{ id: number }>();
 									if (existingCheck) {
 										isDuplicate = true;
 										existingId = existingCheck.id;
@@ -712,30 +712,22 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									chatTxt += `\n\nℹ️ *[Fact already in memory — row #${existingId}, no new write needed]*`;
 									console.log(`[MEMORIZE DIAGNOSTIC] Duplicate factual match detected. beforeCount: N/A, afterCount: N/A, writeOk: ${writeOk}`);
 								} else {
-									let beforeCount = 0;
 									try {
-										const beforeRes = await this.env.jolene_db.prepare("SELECT MAX(id) AS maxId FROM episodic_memories").get<{ maxId: number | null }>();
-										beforeCount = beforeRes?.maxId || 0;
-									} catch (e) {
-										console.error("D1 Error fetching pre-write check count balance hooks:", e);
-									}
-
-									try {
-										await this.env.jolene_db.prepare(
+										const insertResult = await this.env.jolene_db.prepare(
 											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
 										).bind(easternTimeStr, rawFact, "live_session_write").run();
 										
-										const afterRes = await this.env.jolene_db.prepare("SELECT MAX(id) AS maxId FROM episodic_memories").get<{ maxId: number | null }>();
-										const afterCount = afterRes?.maxId || 0;
+										const insertedRowId = insertResult.meta?.last_row_id;
+										const changesApplied = insertResult.meta?.changes || 0;
 
-										if (afterCount > beforeCount) {
+										if (insertResult.success === true && typeof insertedRowId === 'number' && insertedRowId > 0 && changesApplied > 0) {
 											writeOk = true;
-											newRowId = afterCount;
+											newRowId = insertedRowId;
 										}
-										console.log(`[MEMORIZE DIAGNOSTIC] write session check pipeline sequence. beforeCount: ${beforeCount}, afterCount: ${afterCount}, writeOk: ${writeOk}`);
+										console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata. success: ${insertResult.success}, last_row_id: ${insertedRowId}, changes: ${changesApplied}, writeOk: ${writeOk}`);
 									} catch(sqlErr) {
 										console.error("Episodic D1 write block caught an exception:", sqlErr);
-										console.log(`[MEMORIZE DIAGNOSTIC] write session check pipeline sequence caught error execution. beforeCount: ${beforeCount}, afterCount: 0, writeOk: ${writeOk}`);
+										console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata caught error execution. writeOk: ${writeOk}`);
 									}
 
 									if (writeOk && newRowId !== null) {
@@ -760,7 +752,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							} else {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
-									headers: { 
+									headers: { 
 										"Content-Type": "application/json",
 										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 									},
