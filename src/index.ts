@@ -832,22 +832,38 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									}
 								}
 							} else {
-								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-									method: "POST",
-									headers: {  
-										"Content-Type": "application/json",
-										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
-									},
-									body: JSON.stringify(payload)
-								});
+								// SURGICAL REPLACEMENT START: Wrapped MCP hardware bridge execution with graceful degradation handling
+								try {
+									const controller = new AbortController();
+									const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-								if (mcpResponse.ok) {
-									const toolExecutionResult = await mcpResponse.text();
-									console.log("🎯 Tool Output Landed:", toolExecutionResult);
+									const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: {  
+											"Content-Type": "application/json",
+											"User-Agent": "Cloudflare-Workers-MCP-Bridge"
+										},
+										body: JSON.stringify(payload),
+										signal: controller.signal
+									});
 
-									systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
-									chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
+									clearTimeout(timeoutId);
+
+									if (mcpResponse.ok) {
+										const toolExecutionResult = await mcpResponse.text();
+										console.log("🎯 Tool Output Landed:", toolExecutionResult);
+
+										systemPrompt += `\n\n⚠️ [MCP TOOL RESULT] The local hardware bridge executed your tool call and returned this live data: ${toolExecutionResult}. Use this exact state data to complete your answer to the user now. Do not mention the raw tool formatting to the user.`;
+										chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
+									} else {
+										throw new Error(`Non-OK status response returned: ${mcpResponse.status}`);
+									}
+								} catch (mcpErr: any) {
+									console.error("[MCP GRACEFUL] Pipeline failure or execution timeout context triggered:", mcpErr);
+									chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+									chatTxt += "\n\n⚠️ *[Hardware bridge unavailable — tool call skipped, conversation continues normally]*";
 								}
+								// SURGICAL REPLACEMENT END
 							}
 						}
 					} catch (parseErr: any) {
