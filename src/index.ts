@@ -758,9 +758,14 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
 				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
 
-				if (chatTxt.includes("_ACTION_TRIGGER:")) {
+				// SURGICAL FIX: Strict Regular Expression validation replacement
+				// Old logic (.includes()) was catching regular conversational discussions about code blocks.
+				// This regex ensures we ONLY enter parsing logic if the unique action trigger sequence is written explicitly out by the LLM layout engine.
+				const strictTriggerRegex = /🚨THEATER_ACTION_TRIGGER:\s*\{/;
+				
+				if (strictTriggerRegex.test(chatTxt)) {
 					try {
-						const triggerLine = chatTxt.split("\n").find(line => line.includes("_ACTION_TRIGGER:"));
+						const triggerLine = chatTxt.split("\n").find(line => strictTriggerRegex.test(line));
 						if (triggerLine) {
 							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
 							const payload = JSON.parse(jsonString);
@@ -790,7 +795,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								let newRowId: number | null = null;
 
 								if (isDuplicate) {
-									chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 									chatTxt += `\n\nℹ️ *[Fact already in memory — row #${existingId}, no new write needed]*`;
 									console.log(`[MEMORIZE DIAGNOSTIC] Duplicate factual match detected. beforeCount: N/A, afterCount: N/A, writeOk: ${writeOk}`);
 								} else {
@@ -824,21 +829,17 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 										}]);
 										console.log("Dynamic memory written successfully");
 
-										chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 										chatTxt += `\n\n` + `✅ *[Long-term memory verified — row #${newRowId} persisted]*`;
 									} else {
-										chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 										chatTxt += `\n\n` + `⚠️ *[MEMORY WRITE FAILED — save this fact externally: "${rawFact}"]*`;
 									}
 								}
 							} else {
-								// SURGICAL REPLACEMENT: Emergency mitigation completely isolating the local tunnel from breaking chat sessions
+								// MCP EMERGENCY BYPASS — Maintained from prior deploy
 								console.log("[MCP EMERGENCY BYPASS] Hardware execution intercepted. Tool targeted:", payload.tool);
-								
-								// Cleanly strip the raw tool syntax block so it doesn't leak into the UI
-								chatTxt = chatTxt.split("\n").filter(line => !line.includes("_ACTION_TRIGGER:")).join("\n");
-								
-								// Append a safe, non-breaking user notification string
+								chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 								chatTxt += "\n\n⚠️ *[Hardware bridge offline for migration — tool call skipped, conversation continues normally]*";
 							}
 						}
