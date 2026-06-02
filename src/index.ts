@@ -704,7 +704,7 @@ export class ChatSession extends DurableObject<Env> {
 				let episodicContext = "";
 				try {
 					const recentEpisodicRows = await this.env.jolene_db.prepare(
-						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 5"
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 25"
 					).all();
 					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
 						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
@@ -834,7 +834,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 							} else {
 								const mcpResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 									method: "POST",
-									headers: { 
+									headers: {  
 										"Content-Type": "application/json",
 										"User-Agent": "Cloudflare-Workers-MCP-Bridge"
 									},
