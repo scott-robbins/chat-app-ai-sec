@@ -758,9 +758,6 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
 				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
 
-				// SURGICAL FIX: Strict Regular Expression validation replacement
-				// Old logic (.includes()) was catching regular conversational discussions about code blocks.
-				// This regex ensures we ONLY enter parsing logic if the unique action trigger sequence is written explicitly out by the LLM layout engine.
 				const strictTriggerRegex = /🚨THEATER_ACTION_TRIGGER:\s*\{/;
 				
 				if (strictTriggerRegex.test(chatTxt)) {
@@ -837,14 +834,13 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									}
 								}
 							} else {
-								// MCP EMERGENCY BYPASS — Maintained from prior deploy
 								console.log("[MCP EMERGENCY BYPASS] Hardware execution intercepted. Tool targeted:", payload.tool);
 								chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-								chatTxt += "\n\n⚠️ *[Hardware bridge offline for migration — tool call skipped, conversation continues normally]*";
+								chatTxt += "\n\n⚠️ *[Hardware bridge offline until Pi migration — tool call skipped]*";
 							}
 						}
 					} catch (parseErr: any) {
-						return new Response(`data: ${JSON.stringify({ response: `⚠️ MCP Pipeline Link Error: ${parseErr.message}` })}\n\ndata: [DONE]\n\n`);
+						console.error("[TRIGGER PARSE GRACEFUL] Handled parsing exception without breaking chat response flow layout:", parseErr.message);
 					}
 				}
 
