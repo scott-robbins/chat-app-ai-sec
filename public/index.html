@@ -477,14 +477,7 @@
 									if (data.response) { 
 										assistantText += data.response; 
 										
-										// Render standard streaming markdown updates safely
-										if (!assistantText.includes("🚨THEATER_ACTION_TRIGGER:")) {
-											contentDiv.innerHTML = marked.parse(assistantText);
-										} else {
-											// If the string contains a trigger halfway through, strip the raw tag 
-											// from visually rendering to prevent chat bubble clutter
-											contentDiv.innerHTML = marked.parse(assistantText.split("🚨THEATER_ACTION_TRIGGER:")[0]);
-										}
+										contentDiv.innerHTML = marked.parse(assistantText);
 										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
 									}
 								} catch (e) { }
