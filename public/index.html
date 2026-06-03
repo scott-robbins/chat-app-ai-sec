@@ -477,7 +477,12 @@
 									if (data.response) { 
 										assistantText += data.response; 
 										
-										contentDiv.innerHTML = marked.parse(assistantText);
+										try {
+											contentDiv.innerHTML = marked.parse(assistantText);
+										} catch (parseErr) {
+											console.warn("[STREAM PARSE FALLBACK]", parseErr);
+											contentDiv.textContent = assistantText;
+										}
 										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
 									}
 								} catch (e) { }
