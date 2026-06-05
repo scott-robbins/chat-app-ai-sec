@@ -834,6 +834,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
 				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
 
+				let realDispatchFired = false;
 				const strictTriggerRegex = /🚨THEATER_ACTION_TRIGGER:\s*\{/;
 				
 				if (strictTriggerRegex.test(chatTxt)) {
@@ -909,6 +910,7 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 										chatTxt += `\n\n` + `⚠️ *[MEMORY WRITE FAILED — save this fact externally: "${rawFact}"]*`;
 									}
 								}
+								realDispatchFired = true;
 							} else {
 								console.log("[MCP DISPATCH] Hardware execution routing to Pi gateway. Tool targeted:", payload.tool);
 								const controller = new AbortController();
@@ -946,10 +948,34 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 								} else {
 									chatTxt += "\n\n" + "⚠️ *[Hardware bridge unreachable — Pi tunnel may be down, tool call skipped]*";
 								}
+								realDispatchFired = true;
 							}
 						}
 					} catch (parseErr: any) {
 						console.error("[TRIGGER PARSE GRACEFUL] Handled parsing exception without breaking chat response flow layout:", parseErr.message);
+					}
+				}
+
+				if (realDispatchFired === false) {
+					const fakeFooterPatterns = [
+						/✅\s*\*\[Tool executed via Pi:\s*[^\]]*\]\*/g,
+						/⚠️\s*\*\[Hardware bridge unreachable\s*[^\]]*\]\*/g,
+						/✅\s*\*\[Long-term memory verified\s*[^\]]*\]\*/g,
+						/⚠️\s*\*\[MEMORY WRITE FAILED\s*[^\]]*\]\*/g,
+						/ℹ️\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
+					];
+					let fakeFooterDetected = false;
+					for (const pattern of fakeFooterPatterns) {
+						if (pattern.test(chatTxt)) {
+							fakeFooterDetected = true;
+							chatTxt = chatTxt.replace(pattern, "");
+						}
+					}
+					if (fakeFooterDetected) {
+						chatTxt = chatTxt.replace(/```[\s\S]*?```/g, "");
+						chatTxt = chatTxt.trim();
+						chatTxt += "\n\n" + "⚠️ *[Worker guardrail: model produced fake success theater. Real MCP dispatch did NOT fire.]*";
+						console.error("[GUARDRAIL] Stripped hallucinated tool execution footer from response. No real dispatch occurred this turn.");
 					}
 				}
 
