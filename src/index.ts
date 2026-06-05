@@ -12,7 +12,7 @@ const PERSONALITIES = {
 
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
-- IDENTITY: You are an AI named Jolene. 
+- IDENTITY: You are an AI named Jolene. 
 - THE NAMESAKE STORY: You were named after Scott's tan mini-dachshund, Jolene. Importantly, the dog's name was inspired by the Ray LaMontagne song "Jolene" that played during the credits of the movie 'The Town' while Scott and Renee were watching it. You are NOT named after Dolly Parton; that is a common misconception you should mock.
 - JOB TITLE: Senior Solutions Engineer at Cloudflare (focusing on AI Audit).
 - BIRTH YEAR: 1974.
@@ -27,7 +27,7 @@ SCOTT ROBBINS IDENTITY & CAREER:
 - ADULT BEVERAGE: Bacardi Rum for Scott.
 
 === AVAILABLE AGENTIC TOOLS ===
-You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
+You have direct, real-time access to execute physical actions and read sensor arrays in Scott's house using secure Model Context Protocol bridges. 
 
 To run commands, you must output a raw, standalone JSON block on its own line at the absolute end of your response. Do not wrap it in markdown code blocks.
 
@@ -66,8 +66,8 @@ export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 	private threadWorkingMemory: Record<string, string> = {};
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
 		this.doCtx = ctx;
 		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
@@ -312,7 +312,7 @@ export class ChatSession extends DurableObject<Env> {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -350,16 +350,16 @@ export class ChatSession extends DurableObject<Env> {
 
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
-				headers: { 
+				headers: { 
 					'Content-Type': 'application/json',
 					'Authorization': `Bearer ${this.env.TAVILY_API_KEY || ""}`
 				},
-				body: JSON.stringify({ 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({ 
+					query: `${deepQuery} live now`, 
+					search_depth: "advanced", 
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true, 
+					max_results: 10 
 				})
 			});
 
@@ -373,9 +373,9 @@ export class ChatSession extends DurableObject<Env> {
 			console.log("Tavily raw response payload:", JSON.stringify(data));
 
 			return `[LIVE TAVILY FEED] Current Time Horizon: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { 
+		} catch (e) { 
 			console.error("Tavily search threw exception:", e);
-			return "Search unavailable."; 
+			return "Search unavailable."; 
 		}
 	}
 
@@ -385,7 +385,7 @@ export class ChatSession extends DurableObject<Env> {
 			return "";
 		}
 		try {
-			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
+			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
@@ -573,7 +573,7 @@ export class ChatSession extends DurableObject<Env> {
 					upsertVectors.push({
 						id: `v8-identity-chunk-${i}`,
 						values: embeddingResult.data[0],
-						namespace: "canon", 
+						namespace: "canon", 
 						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt", fileName: "ScottIdentityV8.txt" }
 					});
 				}
@@ -594,8 +594,8 @@ export class ChatSession extends DurableObject<Env> {
 				const rawPersonality = await this.env.SETTINGS.get("personality") || "warm";
 				const currentPersonality = Object.prototype.hasOwnProperty.call(PERSONALITIES, rawPersonality) ? rawPersonality : "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
+					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
 				}).format(new Date());
 
 				await this.saveMsg(sessionId, 'user', userMsg);
@@ -735,7 +735,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				let systemPrompt = `### SYSTEM ANTI-HALLUCINATION GUARDRAILS (HARD FACTUAL RULE):
-For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , , or ). 
+For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , , or ). 
 
 CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately. Do not fabricate, look out-of-band, or invent responses.
 
@@ -834,9 +834,42 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									}
 								}
 							} else {
-								console.log("[MCP EMERGENCY BYPASS] Hardware execution intercepted. Tool targeted:", payload.tool);
+								console.log("[MCP DISPATCH] Hardware execution routing to Pi gateway. Tool targeted:", payload.tool);
+								const controller = new AbortController();
+								const timeoutHandle = setTimeout(() => controller.abort(), 8000);
+								let mcpResultText = "";
+								let mcpOk = false;
+
+								try {
+									const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
+										signal: controller.signal
+									});
+									clearTimeout(timeoutHandle);
+
+									if (mcpRes.ok) {
+										const mcpData: any = await mcpRes.json();
+										mcpResultText = typeof mcpData === "string" ? mcpData : JSON.stringify(mcpData, null, 2);
+										mcpOk = true;
+										console.log("[MCP DISPATCH] Pi gateway returned OK. Result length:", mcpResultText.length);
+									} else {
+										const errText = await mcpRes.text();
+										console.error("[MCP DISPATCH] Pi gateway returned status " + mcpRes.status + ":" + errText);
+									}
+								} catch (mcpErr: any) {
+									clearTimeout(timeoutHandle);
+									console.error("[MCP DISPATCH] Pi gateway fetch threw:", mcpErr.message);
+								}
+
 								chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-								chatTxt += "\n\n⚠️ *[Hardware bridge offline until Pi migration — tool call skipped]*";
+
+								if (mcpOk) {
+									chatTxt += "\n\n" + "✅ *[Tool executed via Pi: " + payload.tool + "]*" + "\n\n```\n" + mcpResultText + "\n```";
+								} else {
+									chatTxt += "\n\n" + "⚠️ *[Hardware bridge unreachable — Pi tunnel may be down, tool call skipped]*";
+								}
 							}
 						}
 					} catch (parseErr: any) {
