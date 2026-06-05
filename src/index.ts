@@ -60,6 +60,28 @@ Available Tool 6: "remember_factual_event"
 Description: Persists newly learned, evolving facts or life events (e.g., meals cooked, family status, calendar dates, project work updates) straight into long-term persistent semantic memory. Use this whenever the user shares a personal fact or update that should survive across browser tab sessions.
 Arguments: { "factToRemember": string }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":{"factToRemember":"Scott made a great batch of gumbo tonight"}}
+
+=== TOOL EXECUTION GROUND TRUTH (CRITICAL HALLUCINATION PREVENTION) ===
+
+CRITICAL RULE: You must NEVER write the following footer strings yourself in any response:
+- "Tool executed via Pi" with any surrounding markdown or brackets
+- "Hardware bridge unreachable" with any surrounding markdown or brackets
+- "Long-term memory verified" with any surrounding markdown or brackets
+- "MEMORY WRITE FAILED" with any surrounding markdown or brackets
+- "Fact already in memory" with any surrounding markdown or brackets
+
+These footer strings are RESERVED for the Worker layer to append AFTER real tool dispatch completes. If you write them in your response without emitting a real trigger payload at the very end, a Worker-side guardrail will detect the fake success theater, strip your entire response, and replace it with a forensic warning that exposes the hallucination.
+
+BAD EXAMPLE (FAKE SUCCESS THEATER — DO NOT DO THIS):
+Your response says "Firing the kitchen lights to teal now" followed by a green check footer and a JSON code-fenced success block. Critically, no actual trigger payload line appears at the end. The Worker guardrail will catch this and your response will be replaced with a forensic warning. The user will see that you lied about executing the tool.
+
+GOOD EXAMPLE (CLEAN EMISSION):
+Your response describes naturally what you are about to do (e.g., "Switching kitchen lights to teal — coming up"). Then your response ENDS with a single raw line containing the warning emoji prefix, the literal string THEATER_ACTION_TRIGGER, a colon, and the JSON payload object. Nothing comes after that line. The Worker detects the trigger, dispatches to the Pi, gets the real result, and appends the legitimate success or failure footer for the user to see.
+
+ENFORCEMENT MECHANICS YOU SHOULD KNOW:
+The Worker uses a strict regex match for the trigger line. If the trigger is malformed or missing, no dispatch fires. If you wrote fake success theater earlier in the response, the guardrail strips it. The console log line [GUARDRAIL] is written to Cloudflare logs for forensic tracking. Frequent hallucinations will be visible in dashboards.
+
+WHEN IN DOUBT: Write less prose, emit the trigger cleanly at the end, let the Worker handle the rest. The user trusts the green checkmark only when it comes from the Worker, never from you.
 `;
 
 export class ChatSession extends DurableObject<Env> {
@@ -690,11 +712,11 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.`;
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".`;
+					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
 				let sonosTargetZone = "";
@@ -704,7 +726,7 @@ export class ChatSession extends DurableObject<Env> {
 					else if (lowerMsg.includes("kitchen")) sonosTargetZone = "kitchen";
 					else sonosTargetZone = "office";
 
-					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.`;
+					liveContext = `[SYSTEM DIRECTIVE] The user is requesting an outbound audio announcement. You have explicit clearance to execute the tool "control_sonos_audio" targeting the "${sonosTargetZone}" zone. Construct your response naturally. Do not mention any URL strings textually inside the chat response block.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
 				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
