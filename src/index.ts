@@ -281,7 +281,83 @@ export class ChatSession extends DurableObject<Env> {
 			const score2 = competitors[1]?.score || "0";
 			const status = targetEvent.status?.type?.detail || "Unknown State";
 
-			return `[LIVE NBA ESPN FALLBACK FEED] Matchup: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
+			const existingReturnString = `[LIVE NBA ESPN FALLBACK FEED] Matchup: ${team1}: ${score1} vs ${team2}: ${score2} | Status: ${status}`;
+
+			const espnEventId = targetEvent.id;
+			let boxScoreAppendix = "";
+
+			try {
+				const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${espnEventId}`, {
+					headers: { "User-Agent": "Mozilla/5.0" }
+				});
+
+				if (!summaryRes.ok) {
+					console.error("[NBA LIVE] ESPN summary fetch failed status:", summaryRes.status);
+				} else {
+					const summaryData: any = await summaryRes.json();
+					if (!summaryData.boxscore) {
+						return existingReturnString;
+					}
+
+					if (summaryData.boxscore.players && summaryData.boxscore.players.length > 0) {
+						boxScoreAppendix = "\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS (ESPN) ===\n";
+						for (const teamEntry of summaryData.boxscore.players) {
+							const teamDisplayName = teamEntry.team?.displayName || "Unknown Team";
+							if (!teamEntry.statistics || teamEntry.statistics.length === 0 || !teamEntry.statistics[0].athletes) {
+								continue;
+							}
+							boxScoreAppendix += `\n[${teamDisplayName} Player Splits]:\n`;
+							for (const athlete of teamEntry.statistics[0].athletes) {
+								if (athlete.didNotPlay === true) {
+									continue;
+								}
+								const displayName = athlete.athlete?.displayName || "Player";
+								const stats = athlete.stats || [];
+
+								const min = stats[0] !== undefined ? stats[0] : "0";
+								const pt = stats[1] !== undefined ? stats[1] : "0";
+								const fg = stats[2] !== undefined ? stats[2] : "0";
+								const threePt = stats[3] !== undefined ? stats[3] : "0";
+								const ft = stats[4] !== undefined ? stats[4] : "0";
+								const reb = stats[5] !== undefined ? stats[5] : "0";
+								const ast = stats[6] !== undefined ? stats[6] : "0";
+								const to = stats[7] !== undefined ? stats[7] : "0";
+								const stl = stats[8] !== undefined ? stats[8] : "0";
+								const blk = stats[9] !== undefined ? stats[9] : "0";
+								const pf = stats[12] !== undefined ? stats[12] : "0";
+
+								boxScoreAppendix += `- ${displayName}: ${pt} PTS, ${reb} REB, ${ast} AST, ${stl} STL, ${blk} BLK, ${to} TO, ${fg} FG, ${threePt} 3PT, ${ft} FT (${min} MIN)\n`;
+							}
+						}
+					} else if (summaryData.boxscore.teams) {
+						boxScoreAppendix = "=== TEAM SEASON CONTEXT (ESPN, pre-game) ===\n";
+						for (const teamEntry of summaryData.boxscore.teams) {
+							const teamDisplayName = teamEntry.team?.displayName || "Unknown Team";
+							const statistics = teamEntry.statistics || [];
+							
+							let avgPoints = "0";
+							let avgPointsAgainst = "0";
+							let fieldGoalPct = "0";
+							let threePointFieldGoalPct = "0";
+							let streak = "0";
+
+							for (const statObj of statistics) {
+								if (statObj.name === "avgPoints") avgPoints = statObj.displayValue;
+								if (statObj.name === "avgPointsAgainst") avgPointsAgainst = statObj.displayValue;
+								if (statObj.name === "fieldGoalPct") fieldGoalPct = statObj.displayValue;
+								if (statObj.name === "threePointFieldGoalPct") threePointFieldGoalPct = statObj.displayValue;
+								if (statObj.name === "streak") streak = statObj.displayValue;
+							}
+
+							boxScoreAppendix += `- ${teamDisplayName}: PPG: ${avgPoints}, OPP PPG: ${avgPointsAgainst}, FG%: ${fieldGoalPct}, 3P%: ${threePointFieldGoalPct}, Streak: ${streak}\n`;
+						}
+					}
+				}
+			} catch (espnSummaryErr) {
+				console.error("[NBA LIVE] ESPN summary fetch threw:", espnSummaryErr);
+			}
+
+			return existingReturnString + boxScoreAppendix;
 		} catch (err) {
 			console.error("[NBA LIVE] Top-level exception in getLiveNBAScore:", err);
 			return "[LIVE NBA FEED] Scoreboard data feed infrastructure handling timeouts gracefully.";
