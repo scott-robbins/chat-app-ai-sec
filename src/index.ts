@@ -84,6 +84,25 @@ The Worker uses a strict regex match for the trigger line. If the trigger is mal
 WHEN IN DOUBT: Write less prose, emit the trigger cleanly at the end, let the Worker handle the rest. The user trusts the green checkmark only when it comes from the Worker, never from you.
 `;
 
+const STABLE_SYSTEM_BLOCK = (personality: keyof typeof PERSONALITIES): string => {
+	return `### SYSTEM ANTI-HALLUCINATION GUARDRAILS (HARD FACTUAL RULE):
+For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , , or ). 
+
+CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately. Do not fabricate, look out-of-band, or invent responses.
+
+### DUAL-LAYER PROMPT TRAINING EXAMPLES:
+- FAILED LOG EXECUTION EXAMPLE (CONFIDENT FABRICATION):
+User message: "What metal music do Callan and Josie love?"
+Your bad reply: "Callan and Josie are huge fans of heavy alternative metal and love listening to Bring Me The Horizon and Sleep Token!" -> CRITICAL ERROR: Fabricated out of thin air.
+
+- COMPLIANT LOG EXECUTION EXAMPLE (GROUNDED TRUTH):
+User message: "What alternative heavy metal music do Callan and Josie love?"
+Your correct grounded reply: "I don't have that fact in my current context. I can see Callan and Josie tracked inside my family profiles, but no specific music preferences are surfaced in my retrieved records."
+
+### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
+### STYLE: ${PERSONALITIES[personality]}`;
+};
+
 export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 	private threadWorkingMemory: Record<string, string> = {};
@@ -832,29 +851,75 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-				let systemPrompt = `### SYSTEM ANTI-HALLUCINATION GUARDRAILS (HARD FACTUAL RULE):
-For any factual claim you make regarding Scott Robbins, his extended family tree, his smart home infrastructure devices, or recent real-world events, you MUST explicitly find and cite an accompanying metadata source tag marker present inside your active context window workspace bounds (e.g., , , , , , or ). 
+			const stableSystemText = STABLE_SYSTEM_BLOCK(currentPersonality as keyof typeof PERSONALITIES);
 
-CRITICAL FACTUAL POLICY: If no corresponding context entry directly verifies the claim, you are forbidden from guessing, speculating, or extrapolating data. You MUST strictly reply with: "I don't have that fact in my current context." and stop immediately. Do not fabricate, look out-of-band, or invent responses.
-
-### DUAL-LAYER PROMPT TRAINING EXAMPLES:
-- FAILED LOG EXECUTION EXAMPLE (CONFIDENT FABRICATION):
-User message: "What metal music do Callan and Josie love?"
-Your bad reply: "Callan and Josie are huge fans of heavy alternative metal and love listening to Bring Me The Horizon and Sleep Token!" -> CRITICAL ERROR: Fabricated out of thin air.
-
-- COMPLIANT LOG EXECUTION EXAMPLE (GROUNDED TRUTH):
-User message: "What alternative heavy metal music do Callan and Josie love?"
-Your correct grounded reply: "I don't have that fact in my current context. I can see Callan and Josie tracked inside my family profiles, but no specific music preferences are surfaced in my retrieved records."
-
-### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+				const volatileSystemText = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
-### IDENTITY DNA: ${PERSONAL_GROUND_TRUTH}
-### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}
-### CONTEXT: LIVE: ${liveContext} | SEMORY:\n${docContext}\n${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:\n${crossSessionMemory}`;
+### CONTEXT: LIVE: ${liveContext} | SEMORY:
+${docContext}
+${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:
+${crossSessionMemory}`;
 
 				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
-				let chatTxt = await this.runAI(targetedModel, systemPrompt, userMsg, recentContext);
+
+				const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+				const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+				const firstPassUrl = `${gatewayBase}/anthropic/v1/messages`;
+
+				const firstPassHeaders = {
+					"Content-Type": "application/json",
+					"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+					"anthropic-version": "2023-06-01",
+					"anthropic-beta": "prompt-caching-2024-07-31"
+				};
+
+				const cleanModel = (targetedModel || DEFAULT_MODEL_ROUTING).replace("anthropic/", "").replace("4.7", "4-7");
+
+				const firstPassMessages: any[] = [];
+				const firstPassSanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
+				for (const msg of firstPassSanitizedHistory) {
+					if (firstPassMessages.length === 0) { if (msg.role === 'user') firstPassMessages.push(msg); }
+					else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
+				}
+				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
+					firstPassMessages[firstPassMessages.length - 1].content = userMsg;
+				} else {
+					firstPassMessages.push({ role: "user", content: userMsg });
+				}
+
+				const firstPassBody = {
+					model: cleanModel,
+					system: [
+						{
+							type: "text",
+							text: stableSystemText,
+							cache_control: { type: "ephemeral" }
+						},
+						{
+							type: "text",
+							text: volatileSystemText
+						}
+					],
+					messages: firstPassMessages,
+					max_tokens: 8192
+				};
+
+				let chatTxt = "Brain blip. Try again.";
+				try {
+					const firstPassRes = await fetch(firstPassUrl, {
+						method: "POST",
+						headers: firstPassHeaders,
+						body: JSON.stringify(firstPassBody)
+					});
+					const firstPassData: any = await firstPassRes.json();
+					chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
+					if (firstPassData.usage) {
+						console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
+					}
+				} catch (firstPassErr: any) {
+					console.error("[FIRST PASS] Anthropic gateway fetch threw:", firstPassErr.message);
+				}
 
 				let realDispatchFired = false;
 				const strictTriggerRegex = /🚨THEATER_ACTION_TRIGGER:\s*\{/;
@@ -972,14 +1037,9 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 									try {
 										console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
 										
-										// Clean tool definitions from system prompt to guarantee no recursive triggers are emitted
-										let secondPassSystemPrompt = systemPrompt
-											.split("=== AVAILABLE AGENTIC TOOLS ===")[0]
-											.split("=== TOOL EXECUTION GROUND TRUTH")[0]
-											.trim();
-											
-										// Append explicit directive parameters safely
-										secondPassSystemPrompt += "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
+const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
+
+										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
 
 										const chatMessages: any[] = [];
 										const sanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
@@ -1006,17 +1066,27 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 											"Content-Type": "application/json",
 											"x-api-key": this.env.ANTHROPIC_API_KEY || "",
 											"anthropic-version": "2023-06-01",
+											"anthropic-beta": "prompt-caching-2024-07-31",
 											"x-second-pass": "true"
 										};
 
-										const cleanModel = targetedModel.replace("anthropic/", "").replace("4.7", "4-7");
 										const secondPassBody = {
 											model: cleanModel,
-											system: secondPassSystemPrompt,
+											system: [
+												{
+													type: "text",
+													text: secondPassStableText,
+													cache_control: { type: "ephemeral" }
+												},
+												{
+													type: "text",
+													text: secondPassVolatileText
+												}
+											],
 											messages: chatMessages,
 											max_tokens: 8192
 										};
-
+										
 										const secondPassRes = await fetch(secondPassUrl, {
 											method: "POST",
 											headers: secondPassHeaders,
@@ -1029,6 +1099,8 @@ The real-time exact current date and time in Plymouth, MA is strictly: ${eastern
 											if (summaryText) {
 												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
 												chatTxt = summaryText;
+											if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
+
 											} else {
 												throw new Error("Empty content block array returned from Anthropic gateway endpoint.");
 											}
