@@ -1,13 +1,63 @@
-import { Env, ChatMessage } from "./types";
-import { DurableObject } from "cloudflare:workers";
+import { Env, ChatMessage } from './types';
+import { DurableObject } from 'cloudflare:workers';
 
-const DEFAULT_MODEL_ROUTING = "claude-3-opus-20240229";
-const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
+const DEFAULT_MODEL_ROUTING = 'claude-3-opus-20240229';
+const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
+
+/**
+ * Server-side intent classifier and router logic.
+ * Inspects incoming message text for key patterns, code formatting, and length constraints 
+ * to selectively promote workload traffic to specialized target models in production.
+ */
+function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
+	const lower = message.toLowerCase();
+	
+	const heavyKeywords = [
+		'code', 'debug', 'architecture', 'audit', 'memory', 'diagnose', 'refactor', 
+		'deploy', 'error', 'exception', 'stack trace', 'regex', 'src/', '.ts', 
+		'.js', '.html', 'function', 'class', 'interface', 'schema', 'migration'
+	];
+	
+	const mediumKeywords = [
+		'remember', 'recall', 'what did', 'who is', 'when did', 'calendar', 
+		'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare', 
+		'family', 'kids', 'pi', 'mcp', 'theater', 'kitchen', 'master bedroom', 
+		'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat'
+	];
+
+	const hasHeavyKeyword = heavyKeywords.some(kw => lower.includes(kw));
+	const hasCodeBlock = message.includes('```');
+	const isHeavyLength = message.length > 800;
+
+	if (hasHeavyKeyword || hasCodeBlock || isHeavyLength) {
+		return 'heavy';
+	}
+
+	const hasMediumKeyword = mediumKeywords.some(kw => lower.includes(kw));
+	const isMediumLength = message.length >= 200 && message.length <= 800;
+
+	if (hasMediumKeyword || isMediumLength) {
+		return 'medium';
+	}
+
+	return 'casual';
+}
+
+function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
+	switch (intent) {
+		case 'heavy':
+			return 'anthropic/claude-opus-4.7';
+		case 'medium':
+			return 'anthropic/claude-sonnet-4-6';
+		case 'casual':
+			return 'anthropic/claude-haiku-4-5';
+	}
+}
 
 const PERSONALITIES = {
-	warm: "You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.",
-	sarcastic: "You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she's probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.",
-	cyber: "You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence."
+	warm: 'You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.',
+	sarcastic: 'You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she\'s probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.',
+	cyber: 'You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence.'
 };
 
 const PERSONAL_GROUND_TRUTH = `
@@ -44,7 +94,7 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"
 Available Tool 3: "control_sonos_audio"
 Description: Streams dynamic text-to-speech audio announcements directly to physical whole-house speaker master zones.
 Arguments: { "zone": "theater" | "office" | "main_bedroom" | "kitchen", "audioUrl": string }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"https://jolene-audio.jolenesego.com/sample.mp3"}}
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"[https://jolene-audio.jolenesego.com/sample.mp3](https://jolene-audio.jolenesego.com/sample.mp3)"}}
 
 Available Tool 4: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
@@ -273,9 +323,9 @@ export class ChatSession extends DurableObject<Env> {
 			console.log("[NBA LIVE] Entering ESPN fallback path");
 			
 			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
-				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
-				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1", { headers: { "User-Agent": "Mozilla/5.0" } }),
-				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100", { headers: { "User-Agent": "Mozilla/5.0" } })
+				fetch("[https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard](https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard)", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("[https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1](https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1)", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("[https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100](https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100)", { headers: { "User-Agent": "Mozilla/5.0" } })
 			]);
 
 			const dataToday: any = await resToday.json();
@@ -465,7 +515,7 @@ export class ChatSession extends DurableObject<Env> {
 				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
 			}
 
-			const res = await fetch('https://api.tavily.com/search', {
+			const res = await fetch('[https://api.tavily.com/search](https://api.tavily.com/search)', {
 				method: 'POST',
 				headers: { 
 					'Content-Type': 'application/json',
@@ -861,7 +911,9 @@ ${docContext}
 ${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:
 ${crossSessionMemory}`;
 
-				let targetedModel = body.model || DEFAULT_MODEL_ROUTING;
+				const userMessageText = body.messages[body.messages.length - 1].content;
+				const classifiedIntent = classifyIntent(userMessageText);
+				const routedModel = selectModel(classifiedIntent);
 
 				const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 				const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
@@ -874,7 +926,7 @@ ${crossSessionMemory}`;
 					"anthropic-beta": "prompt-caching-2024-07-31"
 				};
 
-				const cleanModel = (targetedModel || DEFAULT_MODEL_ROUTING).replace("anthropic/", "").replace("4.7", "4-7");
+				const cleanModel = (routedModel).replace("anthropic/", "").replace("4.7", "4-7");
 
 				const firstPassMessages: any[] = [];
 				const firstPassSanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
@@ -907,6 +959,7 @@ ${crossSessionMemory}`;
 
 				let chatTxt = "Brain blip. Try again.";
 				try {
+					console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
 					const firstPassRes = await fetch(firstPassUrl, {
 						method: "POST",
 						headers: firstPassHeaders,
@@ -1006,7 +1059,7 @@ ${crossSessionMemory}`;
 								let mcpOk = false;
 
 								try {
-									const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+									const mcpRes = await fetch("[https://mcp.jolenesego.com/api/tools/execute](https://mcp.jolenesego.com/api/tools/execute)", {
 										method: "POST",
 										headers: { "Content-Type": "application/json" },
 										body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
@@ -1087,6 +1140,7 @@ const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS
 											max_tokens: 8192
 										};
 										
+										console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
 										const secondPassRes = await fetch(secondPassUrl, {
 											method: "POST",
 											headers: secondPassHeaders,
