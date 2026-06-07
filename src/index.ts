@@ -572,7 +572,7 @@ export class ChatSession extends DurableObject<Env> {
 				},
 				body: JSON.stringify({
 					text: cleanText,
-					model_id: "eleven_monolingual_v2",
+					model_id: "eleven_multilingual_v2",
 					language_id: "en",
 					voice_settings: { stability: 0.75, similarity_boost: 0.85 }
 				})
