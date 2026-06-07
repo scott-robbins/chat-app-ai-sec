@@ -548,10 +548,11 @@ export class ChatSession extends DurableObject<Env> {
 
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
 		if (!this.env.ELEVEN_LABS_API_KEY) {
-			console.error("Missing ELEVEN_LABS_API_KEY variable context flag.");
+			console.error("[VOICE] Missing ELEVEN_LABS_API_KEY variable context flag.");
 			return "";
 		}
 		try {
+			console.log("[VOICE] generateHerAudioStream called. Text length:", textToSpeak.length);
 			const VOICE_ID = "cgSgspJ2msm6clMC92cN"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
@@ -559,8 +560,10 @@ export class ChatSession extends DurableObject<Env> {
 				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
 				.trim();
 
+			console.log("[VOICE] Clean text after stripping:", cleanText.length, "chars");
 			if (!cleanText) return "";
 
+			console.log("[VOICE] Firing ElevenLabs API request. VOICE_ID:", VOICE_ID);
 			const res = await fetch(url, {
 				method: 'POST',
 				headers: {
@@ -575,21 +578,28 @@ export class ChatSession extends DurableObject<Env> {
 				})
 			});
 
+			console.log("[VOICE] ElevenLabs response status:", res.status);
 			if (!res.ok) {
-				console.error(`ElevenLabs rejected synthesis request with status: ${res.status}`);
+				const errBody = await res.text();
+				console.error("[VOICE] ElevenLabs rejected request. Status:", res.status, "Body:", errBody);
 				return "";
 			}
 
 			const audioBuffer = await res.arrayBuffer();
+			console.log("[VOICE] Audio buffer received. Size:", audioBuffer.byteLength, "bytes");
 			const fileKey = "voice-system-online.mp3";
 
+			console.log("[VOICE] Writing to R2 bucket. Key:", fileKey);
 			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
 				httpMetadata: { contentType: "audio/mpeg" }
 			});
 
-			return `http://jolene-audio.jolenesego.com/${fileKey}`;
+			console.log("[VOICE] R2 write completed successfully.");
+			const publicUrl = `https://jolene-audio.jolenesego.com/${fileKey}`;
+			console.log("[VOICE] Returning public URL:", publicUrl);
+			return publicUrl;
 		} catch (err) {
-			console.error("Audio Generation Loop Failed:", err);
+			console.error("[VOICE] Audio Generation Loop Failed:", err);
 			return "";
 		}
 	}
@@ -749,6 +759,35 @@ export class ChatSession extends DurableObject<Env> {
 				return new Response(JSON.stringify({ success: true, status: `Prune fence passed! Verified zero leaks. Embedded and indexed ${chunks.length} clean chunks from ScottIdentityV8.txt cleanly into Vectorize index namespace.` }), { headers });
 			} catch (err: any) {
 				return new Response(JSON.stringify({ success: false, error: "Verification gate failed: " + err.message }), { status: 500, headers });
+			}
+		}
+
+		if (url.pathname === "/api/voice-test") {
+			console.log("[VOICE TEST] /api/voice-test endpoint triggered.");
+			try {
+				const testSentence = "Jolene online. Voice pipeline test firing. If you can hear this, Samantha is alive.";
+				const audioUrl = await this.generateHerAudioStream(testSentence);
+				console.log("[VOICE TEST] generateHerAudioStream outcome URL value:", audioUrl || "EMPTY_STRING");
+				
+				if (audioUrl) {
+					return new Response(JSON.stringify({
+						success: true,
+						audioUrl: audioUrl,
+						message: "Voice pipeline test successfully built audio segment asset."
+					}), { status: 200, headers });
+				} else {
+					return new Response(JSON.stringify({
+						success: false,
+						audioUrl: "",
+						message: "Voice generation execution failed. Inspect Cloudflare Worker dashboard application logs for internal failure points."
+					}), { status: 200, headers });
+				}
+			} catch (testErr: any) {
+				console.error("[VOICE TEST] Critical route handler breakdown exception caught:", testErr.message);
+				return new Response(JSON.stringify({
+					success: false,
+					error: testErr.message
+				}), { status: 500, headers });
 			}
 		}
 
