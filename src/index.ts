@@ -883,6 +883,22 @@ export class ChatSession extends DurableObject<Env> {
 					console.error("Episodic ledger lookup failure bypassed safely:", dbErr);
 				}
 
+				let canonContext = "";
+				try {
+					const canonRows = await this.env.jolene_db.prepare(
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE source_tag = 'canon_fact' ORDER BY id ASC"
+					).all();
+					console.log('[CANON QUERY] canon_fact rows loaded:', canonRows.results?.length || 0);
+					if (canonRows.results && canonRows.results.length > 0) {
+						canonContext = "\n=== PERMANENT CANON FACTS (ALWAYS ACTIVE) ===\n";
+						canonRows.results.forEach((row: any) => {
+							canonContext += `• [Canon - ${row.timestamp}]: ${row.fact_text}\n`;
+						});
+					}
+				} catch (canonErr) {
+					console.error("Canon facts lookup failure bypassed safely:", canonErr);
+				}
+
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 50"
 				).bind(sessionId).all();
@@ -901,14 +917,14 @@ export class ChatSession extends DurableObject<Env> {
 					}
 				}
 
-			const stableSystemText = STABLE_SYSTEM_BLOCK(currentPersonality as keyof typeof PERSONALITIES);
+				const stableSystemText = STABLE_SYSTEM_BLOCK(currentPersonality as keyof typeof PERSONALITIES);
 
 				const volatileSystemText = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
 ### CONTEXT: LIVE: ${liveContext} | SEMORY:
 ${docContext}
-${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:
+${canonContext}${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:
 ${crossSessionMemory}`;
 
 				const userMessageText = body.messages[body.messages.length - 1].content;
