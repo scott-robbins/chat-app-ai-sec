@@ -1115,7 +1115,7 @@ ${crossSessionMemory}`;
 								let mcpOk = false;
 
 								try {
-									const mcpRes = await fetch("[https://mcp.jolenesego.com/api/tools/execute](https://mcp.jolenesego.com/api/tools/execute)", {
+									const mcpRes = await fetch("fetch("https://mcp.jolenesego.com/api/tools/execute"/api/tools/execute](https://mcp.jolenesego.com/api/tools/execute)", {
 										method: "POST",
 										headers: { "Content-Type": "application/json" },
 										body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
