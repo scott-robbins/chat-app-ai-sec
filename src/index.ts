@@ -794,6 +794,7 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
+				console.log("[DIAGNOSTIC] body.messages count:", body.messages.length, "last content length:", body.messages[body.messages.length - 1].content.length);
 				const userMsg = body.messages[body.messages.length - 1].content;
 				
 				// 🛡️ SECURITY FIX PASS 1: Validate personality property matches to ensure prototype properties cannot inject errors
