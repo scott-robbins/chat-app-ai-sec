@@ -1145,7 +1145,7 @@ ${crossSessionMemory}`;
 									try {
 										console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
 										
-const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
+										const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
 
 										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
 
@@ -1208,8 +1208,7 @@ const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS
 											if (summaryText) {
 												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
 												chatTxt = summaryText;
-											if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
-
+												if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
 											} else {
 												throw new Error("Empty content block array returned from Anthropic gateway endpoint.");
 											}
@@ -1253,11 +1252,30 @@ const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS
 					}
 				}
 
+				let voiceUrl: string | null = null;
+				const sentenceMatch = chatTxt.match(/[^.!?]+[.!?]+/g);
+				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
+
+				if (body.voiceEnabled === true && sentenceCount >= 1 && sentenceCount <= 3 && this.env.ELEVEN_LABS_API_KEY) {
+					const generatedAudio = await this.generateHerAudioStream(chatTxt);
+					voiceUrl = generatedAudio || null;
+					console.log("[VOICE CHAT] Sentences detected:", sentenceCount, "Voice url created successfully:", !!voiceUrl);
+				} else if (body.voiceEnabled !== true) {
+					voiceUrl = null;
+					console.log("[VOICE CHAT] skipped - voice toggle was off.");
+				} else if (sentenceCount > 3) {
+					voiceUrl = null;
+					console.log("[VOICE CHAT] skipped - response too long. Sentence count:", sentenceCount);
+				} else {
+					voiceUrl = null;
+					console.log("[VOICE CHAT] skipped - no valid sentences or environment layout context configuration constraint.");
+				}
+
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
 					.bind(sessionId, "assistant", chatTxt).run();
-				return new Response(`data: ${JSON.stringify({ response: chatTxt })}\n\ndata: [DONE]\n\n`);
+				return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
 
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message })}\n\ndata: [DONE]\n\n`); }
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
 		}
 		return new Response("OK");
 	}
