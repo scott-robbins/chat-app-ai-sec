@@ -968,6 +968,8 @@ ${canonContext}${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTOR
 ${crossSessionMemory}`;
 
 				const userMessageText = body.messages[body.messages.length - 1].content;
+				console.log("[DIAGNOSTIC-2] userMessageText.length right after assignment:", userMessageText.length);
+				
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
 
@@ -1015,6 +1017,7 @@ ${crossSessionMemory}`;
 
 				let chatTxt = "Brain blip. Try again.";
 				try {
+					console.log("[DIAGNOSTIC-3] userMessageText.length right before classifyIntent:", userMessageText.length);
 					console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
 					const firstPassRes = await fetch(firstPassUrl, {
 						method: "POST",
