@@ -94,7 +94,7 @@ Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_house_lights","arguments":{"
 Available Tool 3: "control_sonos_audio"
 Description: Streams dynamic text-to-speech audio announcements directly to physical whole-house speaker master zones.
 Arguments: { "zone": "theater" | "office" | "main_bedroom" | "kitchen", "audioUrl": string }
-Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"[https://jolene-audio.jolenesego.com/sample.mp3](https://jolene-audio.jolenesego.com/sample.mp3)"}}
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"control_sonos_audio","arguments":{"zone":"office","audioUrl":"https://jolene-audio.jolenesego.com/sample.mp3"}}
 
 Available Tool 4: "set_house_temperature"
 Description: Adjusts the cooling targets for specific climate zones at the Hatherly Rise home structure.
@@ -323,9 +323,9 @@ export class ChatSession extends DurableObject<Env> {
 			console.log("[NBA LIVE] Entering ESPN fallback path");
 			
 			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
-				fetch("[https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard](https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard)", { headers: { "User-Agent": "Mozilla/5.0" } }),
-				fetch("[https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1](https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1)", { headers: { "User-Agent": "Mozilla/5.0" } }),
-				fetch("[https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100](https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100)", { headers: { "User-Agent": "Mozilla/5.0" } })
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1", { headers: { "User-Agent": "Mozilla/5.0" } }),
+				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?groups=100", { headers: { "User-Agent": "Mozilla/5.0" } })
 			]);
 
 			const dataToday: any = await resToday.json();
@@ -515,7 +515,7 @@ export class ChatSession extends DurableObject<Env> {
 				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
 			}
 
-			const res = await fetch('[https://api.tavily.com/search](https://api.tavily.com/search)', {
+			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: { 
 					'Content-Type': 'application/json',
@@ -1115,7 +1115,7 @@ ${crossSessionMemory}`;
 								let mcpOk = false;
 
 								try {
-									const mcpRes = await fetch("[https://mcp.jolenesego.com/api/tools/execute](https://mcp.jolenesego.com/api/tools/execute)", {
+									const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 										method: "POST",
 										headers: { "Content-Type": "application/json" },
 										body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
