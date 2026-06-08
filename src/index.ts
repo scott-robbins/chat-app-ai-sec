@@ -587,7 +587,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			const audioBuffer = await res.arrayBuffer();
 			console.log("[VOICE] Audio buffer received. Size:", audioBuffer.byteLength, "bytes");
-			const fileKey = "voice-system-online.mp3";
+			const fileKey = `voice-${Date.now()}.mp3`;
 
 			console.log("[VOICE] Writing to R2 bucket. Key:", fileKey);
 			await this.env.JOLENE_AUDIO_BUCKET.put(fileKey, audioBuffer, {
