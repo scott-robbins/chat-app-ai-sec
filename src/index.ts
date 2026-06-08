@@ -557,7 +557,7 @@ export class ChatSession extends DurableObject<Env> {
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
-				.replace(/[🥊🏀🛍️💻👶⚠️🚨]/g, "")
+				.replace(/\p{Extended_Pictographic}/gu, "")
 				.trim();
 
 			console.log("[VOICE] Clean text after stripping:", cleanText.length, "chars");
