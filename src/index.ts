@@ -794,7 +794,6 @@ export class ChatSession extends DurableObject<Env> {
 		if (url.pathname === "/api/chat" && request.method === "POST") {
 			try {
 				const body = await request.json() as any;
-				console.log("[DIAGNOSTIC] body.messages count:", body.messages.length, "last content length:", body.messages[body.messages.length - 1].content.length);
 				const userMsg = body.messages[body.messages.length - 1].content;
 				
 				// 🛡️ SECURITY FIX PASS 1: Validate personality property matches to ensure prototype properties cannot inject errors
@@ -968,7 +967,6 @@ ${canonContext}${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTOR
 ${crossSessionMemory}`;
 
 				const userMessageText = body.messages[body.messages.length - 1].content;
-				console.log("[DIAGNOSTIC-2] userMessageText.length right after assignment:", userMessageText.length);
 				
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
@@ -1017,7 +1015,6 @@ ${crossSessionMemory}`;
 
 				let chatTxt = "Brain blip. Try again.";
 				try {
-					console.log("[DIAGNOSTIC-3] userMessageText.length right before classifyIntent:", userMessageText.length);
 					console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
 					const firstPassRes = await fetch(firstPassUrl, {
 						method: "POST",
@@ -1256,23 +1253,60 @@ ${crossSessionMemory}`;
 					}
 				}
 
+				// === SERVER-SIDE VOICE SUMMARY ARCHITECTURE PASS ===
+				let voiceSummaryText = "";
+				if (body.voiceEnabled === true && this.env.ELEVEN_LABS_API_KEY) {
+					try {
+						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
+						const summaryPrompt = `Summarize the following response in exactly 1-3 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio. If the response covers more than fits in 3 sentences, end with a natural handoff like 'Check the chat for the full details.' Response to summarize: ${chatTxt}`;
+						
+						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
+						const summaryHeaders = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const summaryBody = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: summaryPrompt }],
+							max_tokens: 150
+						};
+
+						const summaryRes = await fetch(summaryUrl, {
+							method: "POST",
+							headers: summaryHeaders,
+							body: JSON.stringify(summaryBody)
+						});
+
+						if (summaryRes.ok) {
+							const summaryData: any = await summaryRes.json();
+							voiceSummaryText = summaryData.content?.[0]?.text || "";
+							console.log("[VOICE SUMMARY] Generation complete. Length:", voiceSummaryText.length);
+						} else {
+							console.error("[VOICE SUMMARY] Haiku gateway call failed with status:", summaryRes.status);
+						}
+					} catch (summaryErr: any) {
+						console.error("[VOICE SUMMARY] Fallback triggered. Haiku call threw an exception:", summaryErr.message);
+					}
+				}
+
 				let voiceUrl: string | null = null;
-				const sentenceMatch = chatTxt.match(/[^.!?]+[.!?]+/g);
+				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
 				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
 
-				if (body.voiceEnabled === true && sentenceCount >= 1 && sentenceCount <= 3 && this.env.ELEVEN_LABS_API_KEY) {
-					const generatedAudio = await this.generateHerAudioStream(chatTxt);
+				if (body.voiceEnabled === true && sentenceCount >= 1 && sentenceCount <= 3 && this.env.ELEVEN_LABS_API_KEY && voiceSummaryText) {
+					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
 					voiceUrl = generatedAudio || null;
-					console.log("[VOICE CHAT] Sentences detected:", sentenceCount, "Voice url created successfully:", !!voiceUrl);
+					console.log("[VOICE CHAT] Sentences detected in summary:", sentenceCount, "Voice url created successfully:", !!voiceUrl);
 				} else if (body.voiceEnabled !== true) {
 					voiceUrl = null;
 					console.log("[VOICE CHAT] skipped - voice toggle was off.");
 				} else if (sentenceCount > 3) {
 					voiceUrl = null;
-					console.log("[VOICE CHAT] skipped - response too long. Sentence count:", sentenceCount);
+					console.log("[VOICE CHAT] skipped - summary response too long. Sentence count:", sentenceCount);
 				} else {
 					voiceUrl = null;
-					console.log("[VOICE CHAT] skipped - no valid sentences or environment layout context configuration constraint.");
+					console.log("[VOICE CHAT] skipped - no valid summary sentences or execution failed.");
 				}
 
 				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
