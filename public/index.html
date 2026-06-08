@@ -433,7 +433,33 @@
 								
 								/* VOICE WIRING ADDITION */
 								if (data.audioUrl && voiceEnabled) {
-									new Audio(data.audioUrl).play().catch(() => {});
+									const assistantBubbles = document.querySelectorAll('#chat-messages .assistant-message');
+									const targetBubble = assistantBubbles[assistantBubbles.length - 1];
+									if (targetBubble) {
+										const playBtn = document.createElement('button');
+										playBtn.style.display = 'block';
+										playBtn.style.marginTop = '8px';
+										playBtn.style.padding = '4px 10px';
+										playBtn.style.fontSize = '0.85em';
+										playBtn.style.backgroundColor = 'rgba(255,255,255,0.1)';
+										playBtn.style.color = 'inherit';
+										playBtn.style.border = 'none';
+										playBtn.style.borderRadius = '18px';
+										playBtn.style.cursor = 'pointer';
+										playBtn.innerText = '🔊 Play';
+										
+										playBtn.addEventListener('click', () => {
+											playBtn.innerText = '🔊 Playing...';
+											playBtn.disabled = true;
+											const audio = new Audio(data.audioUrl);
+											audio.play().catch(() => {});
+											audio.onended = () => {
+												playBtn.innerText = '🔊 Play';
+												playBtn.disabled = false;
+											};
+										});
+										targetBubble.appendChild(playBtn);
+									}
 								}
 
 								if (data.response) {
@@ -488,7 +514,33 @@
 
 									/* VOICE WIRING ADDITION */
 									if (data.audioUrl && voiceEnabled) {
-										new Audio(data.audioUrl).play().catch(() => {});
+										const assistantBubbles = document.querySelectorAll('#chat-messages .assistant-message');
+										const targetBubble = assistantBubbles[assistantBubbles.length - 1];
+										if (targetBubble) {
+											const playBtn = document.createElement('button');
+											playBtn.style.display = 'block';
+											playBtn.style.marginTop = '8px';
+											playBtn.style.padding = '4px 10px';
+											playBtn.style.fontSize = '0.85em';
+											playBtn.style.backgroundColor = 'rgba(255,255,255,0.1)';
+											playBtn.style.color = 'inherit';
+											playBtn.style.border = 'none';
+											playBtn.style.borderRadius = '18px';
+											playBtn.style.cursor = 'pointer';
+											playBtn.innerText = '🔊 Play';
+											
+											playBtn.addEventListener('click', () => {
+												playBtn.innerText = '🔊 Playing...';
+												playBtn.disabled = true;
+												const audio = new Audio(data.audioUrl);
+												audio.play().catch(() => {});
+												audio.onended = () => {
+													playBtn.innerText = '🔊 Play';
+													playBtn.disabled = false;
+												};
+											});
+											targetBubble.appendChild(playBtn);
+										}
 									}
 
 									if (data.response) { 
