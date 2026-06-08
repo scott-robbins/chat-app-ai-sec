@@ -1258,7 +1258,21 @@ ${crossSessionMemory}`;
 				if (body.voiceEnabled === true && this.env.ELEVEN_LABS_API_KEY) {
 					try {
 						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
-						const summaryPrompt = `Summarize the following response in exactly 1-3 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio. The current date and time is ${easternTimeStr}. If the response covers more than fits in 3 sentences, end with a natural handoff like 'Check the chat for the full details.' Response to summarize: ${chatTxt}`;
+						const requiresHandoff = chatTxt.length > 500;
+						const handoffInstruction = requiresHandoff 
+							? "You MUST end the summary with the exact phrase 'Check the chat for the full details.' as the final sentence. This is required because the full response is long."
+							: "If the response covers more than fits in 3 sentences, end with a natural handoff like 'Check the chat for the full details.'";
+						
+						const summaryPrompt = `Summarize the following response in exactly 1-3 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio. The current date and time is ${easternTimeStr}.
+
+PRONUNCIATION RULES — apply these spellings in your summary text so the text-to-speech engine pronounces them correctly:
+- When referring to Scott's daughter Bryana or Bry, always spell her name as "Bree" in the summary (never "Bry" or "Bryana")
+- When referring to the town Tiverton, always spell it as "Tiver-Ton" in the summary (with the hyphen to enforce the Tiver rhyming with Shiver pronunciation, not "Tieve")
+- When referring to the last name Frysinger, always spell it as "Fry-Singer" in the summary
+
+${handoffInstruction}
+
+Response to summarize: ${chatTxt}`;
 						
 						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
 						const summaryHeaders = {
