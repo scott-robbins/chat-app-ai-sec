@@ -1258,7 +1258,7 @@ ${crossSessionMemory}`;
 				if (body.voiceEnabled === true && this.env.ELEVEN_LABS_API_KEY) {
 					try {
 						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
-						const summaryPrompt = `Summarize the following response in exactly 1-3 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio. If the response covers more than fits in 3 sentences, end with a natural handoff like 'Check the chat for the full details.' Response to summarize: ${chatTxt}`;
+						const summaryPrompt = `Summarize the following response in exactly 1-3 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio. The current date and time is ${easternTimeStr}. If the response covers more than fits in 3 sentences, end with a natural handoff like 'Check the chat for the full details.' Response to summarize: ${chatTxt}`;
 						
 						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
 						const summaryHeaders = {
