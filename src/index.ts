@@ -815,7 +815,7 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
-				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
+				} else if (["weather", "forecast", "temperature", "outside", "weather", "forecast", "outside", "news", "mma", "ufc", "fight", "today"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
