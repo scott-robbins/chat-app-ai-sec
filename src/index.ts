@@ -1109,21 +1109,6 @@ ${crossSessionMemory}`;
 								realDispatchFired = true;
 							} else {
 								console.log("[MCP DISPATCH] Hardware execution routing to Pi gateway. Tool targeted:", payload.tool);
-
-								// === SONOS PRE-DISPATCH URL INJECTION ===
-								// control_sonos_audio payloads arrive with a placeholder audioUrl string.
-								// Generate a real R2 MP3 URL here and inject it into the payload before dispatching to Pi.
-								if (payload.tool === "control_sonos_audio") {
-									console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
-									const sonosRealUrl = await this.generateHerAudioStream(chatTxt);
-									if (sonosRealUrl && sonosRealUrl.length > 0) {
-										payload.arguments.audioUrl = sonosRealUrl;
-										console.log("[SONOS PRE-DISPATCH] Injected real audioUrl into payload:", sonosRealUrl);
-									} else {
-										console.warn("[SONOS PRE-DISPATCH] Audio generation returned empty URL — Pi dispatch will likely fail");
-									}
-								}
-
 								const controller = new AbortController();
 								const timeoutHandle = setTimeout(() => controller.abort(), 8000);
 								let mcpResultText = "";
@@ -1251,7 +1236,7 @@ ${crossSessionMemory}`;
 						/⚠️\s*\*\[Hardware bridge unreachable\s*[^\]]*\]\*/g,
 						/✅\s*\*\[Long-term memory verified\s*[^\]]*\]\*/g,
 						/⚠️\s*\*\[MEMORY WRITE FAILED\s*[^\]]*\]\*/g,
-						/ℹ\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
+						/ℹ️\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
 					];
 					let fakeFooterDetected = false;
 					for (const pattern of fakeFooterPatterns) {
