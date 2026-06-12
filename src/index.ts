@@ -553,7 +553,7 @@ export class ChatSession extends DurableObject<Env> {
 		}
 		try {
 			console.log("[VOICE] generateHerAudioStream called. Text length:", textToSpeak.length);
-			const VOICE_ID = "LHtEOa67vATDqPQsNyXd"; 
+			const VOICE_ID = "kumVRZ0vIS8Ka7L4m8ed"; 
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
