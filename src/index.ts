@@ -1132,7 +1132,7 @@ if (isQuestion) {
             body: JSON.stringify({
                 model: "claude-haiku-4-5",
                 system: "You are Jolene, a witty snarky AI assistant. Answer the question in 1-2 complete spoken sentences. No markdown, no emojis, no bullet points. Speak directly and naturally as if talking out loud.",
-				messages: [{ role: "user", content: `Live context: ${liveContext.slice(0, 2000)}\n\nMemory context: ${chatTxt.slice(0, 800)}\n\nNow answer this out loud in 1-2 sentences as Jolene with snark intact: ${sonosRawContent}` }],
+				messages: [{ role: "user", content: `Live context: ${liveContext.slice(0, 8000)}\n\nMemory context: ${chatTxt.slice(0, 800)}\n\nNow answer this out loud in 1-2 sentences as Jolene with snark intact: ${sonosRawContent}` }],
                 max_tokens: 150
             })
         });
