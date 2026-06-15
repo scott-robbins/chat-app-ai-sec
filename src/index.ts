@@ -1270,16 +1270,21 @@ ${crossSessionMemory}`;
 				if (body.voiceEnabled === true && this.env.ELEVEN_LABS_API_KEY) {
 					try {
 						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
-						const requiresHandoff = chatTxt.length > 500;
-						const handoffInstruction = requiresHandoff 
-							? "You MUST end the summary with the exact phrase 'Check the chat for the full details.' as the final sentence. This is required because the full response is long."
-							: "If the response covers more than fits in 3 sentences, end with a natural handoff like 'Check the chat for the full details.'";
-						
-						const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott. 
-  Do NOT summarize or narrate. Do NOT say "according to the response" or "the response indicates" or any third-person description of a response. 
-  Instead speak AS Jolene directly to Scott in first person exactly as if you are saying this yourself out loud right now.
+						const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott.
+Do NOT summarize or narrate. Do NOT say "according to the response" or "the response indicates" or any third-person description of a response.
+Instead speak AS Jolene directly to Scott in first person exactly as if you are saying this yourself out loud right now.
 
-Deliver this in exactly 1-3 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio meant for text-to-speech playback.
+Deliver this in exactly 1 to 2 plain spoken sentences with no markdown, no bullet points, no headers, no emojis, and no code. Write it as natural spoken audio meant for text-to-speech playback.
+
+CRITICAL COMPLETION RULES:
+
+Every sentence must be a COMPLETE thought that can stand alone if cut off.
+
+Never end mid-sentence. Never trail off. Never use ellipsis.
+
+Do NOT include any handoff line like "check the chat" or "full details in the UI" — the final sentence must be the punchline or key takeaway itself, fully complete.
+
+If in doubt between 1 and 2 sentences, choose 1 complete sentence over 2 risky ones.
 
 The current date and time is ${easternTimeStr}.
 
@@ -1293,8 +1298,6 @@ PRONUNCIATION RULES — apply these spellings so the text-to-speech engine prono
 - The town Tiverton: always spell as "Tiver-Ton" (hyphen enforces correct pronunciation)
 - The last name Frysinger: always spell as "Fry-Singer"
 
-${handoffInstruction}
-
 Content to speak as Jolene: ${chatTxt}`;
 						
 						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
@@ -1306,7 +1309,7 @@ Content to speak as Jolene: ${chatTxt}`;
 						const summaryBody = {
 							model: "claude-haiku-4-5",
 							messages: [{ role: "user", content: summaryPrompt }],
-							max_tokens: 150
+							max_tokens: 225
 						};
 
 						const summaryRes = await fetch(summaryUrl, {
@@ -1331,14 +1334,14 @@ Content to speak as Jolene: ${chatTxt}`;
 				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
 				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
 
-				if (body.voiceEnabled === true && sentenceCount >= 1 && sentenceCount <= 3 && this.env.ELEVEN_LABS_API_KEY && voiceSummaryText) {
+				if (body.voiceEnabled === true && sentenceCount >= 1 && sentenceCount <= 2 && this.env.ELEVEN_LABS_API_KEY && voiceSummaryText) {
 					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
 					voiceUrl = generatedAudio || null;
 					console.log("[VOICE CHAT] Sentences detected in summary:", sentenceCount, "Voice url created successfully:", !!voiceUrl);
 				} else if (body.voiceEnabled !== true) {
 					voiceUrl = null;
 					console.log("[VOICE CHAT] skipped - voice toggle was off.");
-				} else if (sentenceCount > 3) {
+				} else if (sentenceCount > 2) {
 					voiceUrl = null;
 					console.log("[VOICE CHAT] skipped - summary response too long. Sentence count:", sentenceCount);
 				} else {
