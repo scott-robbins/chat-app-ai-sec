@@ -1113,7 +1113,11 @@ ${crossSessionMemory}`;
 								// === SONOS PRE-DISPATCH URL INJECTION ===
 								if (payload.tool === "control_sonos_audio") {
 									console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
-									const sonosRealUrl = await this.generateHerAudioStream(chatTxt);
+									// Extract the actual spoken message from the user's request
+									// Strip everything except the content after the colon
+									const sonosMessageMatch = userMsg.match(/(?:say to|speak to|announce|tell \w+)[^:]*:\s*(.+)/i);
+									const sonosSpokenContent = sonosMessageMatch ? sonosMessageMatch[1].trim() : userMsg;
+									const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									if (sonosRealUrl && sonosRealUrl.length > 0) {
 										payload.arguments.audioUrl = sonosRealUrl;
 										console.log("[SONOS PRE-DISPATCH] Injected real audioUrl into payload:", sonosRealUrl);
