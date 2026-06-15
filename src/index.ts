@@ -1125,6 +1125,7 @@ let sonosSpokenContent = sonosRawContent;
 if (isQuestion) {
     // Generate a spoken answer via Haiku
     try {
+		console.log("[SONOS HAIKU DEBUG] chatTxt length:", chatTxt.length, "sonosRawContent:", sonosRawContent, "context slice:", chatTxt.slice(0, 100));
         const sonosAnswerRes = await fetch(`${gatewayBase}/anthropic/v1/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
