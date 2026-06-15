@@ -819,7 +819,7 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
-				if (["temp", "temperature", "thermostat", "degrees", "cool", "warm", "heat", "ac", "climate", "status", "set at"].some(kw => lowerMsg.includes(kw))) {
+				if (["temp", "temperature", "thermostat", "degrees", "cool ", "warm ", " heat", " ac ", "climate", "set at"].some(kw => lowerMsg.includes(kw)) && !lowerMsg.includes("say to") && !lowerMsg.includes("speak to") && !lowerMsg.includes("announce")) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
