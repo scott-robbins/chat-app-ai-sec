@@ -1116,8 +1116,36 @@ ${crossSessionMemory}`;
 									// Extract the actual spoken message from the user's request
 									// Strip everything except the content after the colon
 									const sonosMessageMatch = userMsg.match(/(?:say to|speak to|announce|tell \w+)[^:]*:\s*(.+)/i);
-									const sonosSpokenContent = sonosMessageMatch ? sonosMessageMatch[1].trim() : userMsg;
-									const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
+const sonosRawContent = sonosMessageMatch ? sonosMessageMatch[1].trim() : userMsg;
+
+// Determine if content is a question/prompt needing an answer, or a direct statement to speak
+const isQuestion = sonosRawContent.trim().endsWith('?') || sonosRawContent.toLowerCase().match(/^(what|who|when|where|why|how|tell me|remind me)/);
+
+let sonosSpokenContent = sonosRawContent;
+if (isQuestion) {
+    // Generate a spoken answer via Haiku
+    try {
+        const sonosAnswerRes = await fetch(`${gatewayBase}/anthropic/v1/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({
+                model: "claude-haiku-4-5",
+                system: "You are Jolene, a witty snarky AI assistant. Answer the question in 1-2 complete spoken sentences. No markdown, no emojis, no bullet points. Speak directly and naturally as if talking out loud.",
+                messages: [{ role: "user", content: sonosRawContent }],
+                max_tokens: 150
+            })
+        });
+        if (sonosAnswerRes.ok) {
+            const sonosAnswerData: any = await sonosAnswerRes.json();
+            sonosSpokenContent = sonosAnswerData.content?.[0]?.text || sonosRawContent;
+            console.log("[SONOS PRE-DISPATCH] Generated spoken answer:", sonosSpokenContent);
+        }
+    } catch (sonosAnswerErr) {
+        console.error("[SONOS PRE-DISPATCH] Answer generation failed, falling back to raw content:", sonosAnswerErr);
+    }
+}
+
+const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									if (sonosRealUrl && sonosRealUrl.length > 0) {
 										payload.arguments.audioUrl = sonosRealUrl;
 										console.log("[SONOS PRE-DISPATCH] Injected real audioUrl into payload:", sonosRealUrl);
