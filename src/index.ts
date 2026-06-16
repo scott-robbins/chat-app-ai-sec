@@ -168,6 +168,54 @@ export class ChatSession extends DurableObject<Env> {
 		this.doCtx = ctx;
 		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
+	export class ChatSession extends DurableObject<Env> {
+	private doCtx: DurableObjectState;
+	private threadWorkingMemory: Record<string, string> = {};
+
+	constructor(ctx: DurableObjectState, env: Env) { 
+		super(ctx, env); 
+		this.doCtx = ctx;
+		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
+	}
+
+	async alarm() {
+		console.log("[TIMER ALARM] Durable Object alarm fired at", new Date().toISOString());
+		try {
+			const storedZone = await this.doCtx.storage.get<string>("timerZone") || "kitchen";
+			const beepUrl = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3";
+			console.log("[TIMER ALARM] Firing three beeps to zone:", storedZone);
+			
+			for (let i = 0; i < 3; i++) {
+				try {
+					await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							tool: "control_sonos_audio",
+							arguments: { zone: storedZone, audioUrl: beepUrl }
+						})
+					});
+					console.log("[TIMER ALARM] Beep", i + 1, "dispatched");
+				} catch (beepErr) {
+					console.error("[TIMER ALARM] Beep", i + 1, "failed:", beepErr);
+				}
+				if (i < 2) await new Promise(resolve => setTimeout(resolve, 2000));
+			}
+			
+			await this.doCtx.storage.delete("timerZone");
+			await this.doCtx.storage.delete("timerExpireTime");
+			console.log("[TIMER ALARM] Sequence complete, storage cleaned");
+		} catch (err) {
+			console.error("[TIMER ALARM] Top-level failure:", err);
+		}
+	}
+
+	async saveMsg(sessionId: string, role: string, content: string) {
+		try {
+			await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+				.bind(sessionId, role, content).run();
+		} catch (e) { console.error("D1 Error:", e); }
+	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
