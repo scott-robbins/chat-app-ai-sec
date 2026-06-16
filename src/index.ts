@@ -22,7 +22,8 @@ function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 		'remember', 'recall', 'what did', 'who is', 'when did', 'calendar', 
 		'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare', 
 		'family', 'kids', 'pi', 'mcp', 'theater', 'kitchen', 'master bedroom', 
-		'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat'
+		'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat',
+		'timer', 'set a timer', 'set timer'
 	];
 
 	const hasHeavyKeyword = heavyKeywords.some(kw => lower.includes(kw));
@@ -863,7 +864,7 @@ export class ChatSession extends DurableObject<Env> {
 					if (zone === "bedroom") zone = "main_bedroom";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
 				}
-				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
+				  else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
