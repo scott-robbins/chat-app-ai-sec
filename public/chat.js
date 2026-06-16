@@ -172,7 +172,12 @@ async function sendMessage() {
 
 function addMessageToChat(role, content) {
     const el = createMessageElement(role);
-    el.querySelector(".message-content").innerHTML = marked.parse(content);
+    const contentEl = el.querySelector(".message-content");
+    if (role === "user") {
+        contentEl.textContent = content;
+    } else {
+        contentEl.innerHTML = marked.parse(content);
+    }
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
