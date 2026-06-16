@@ -1183,6 +1183,27 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 									}
 								}
 								realDispatchFired = true;
+							} else if (payload.tool === "set_timer") {
+								console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
+								
+								const minutes = payload.arguments.minutes || 5;
+								const zone = payload.arguments.zone || "kitchen";
+								const alarmTime = Date.now() + (minutes * 60 * 1000);
+								
+								try {
+									await this.doCtx.storage.put("timerZone", zone);
+									await this.doCtx.storage.put("timerExpireTime", alarmTime);
+									await this.doCtx.storage.setAlarm(alarmTime);
+									
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })}]*`;
+									console.log("[TIMER DISPATCH] Alarm scheduled for", new Date(alarmTime).toISOString());
+								} catch (timerErr: any) {
+									console.error("[TIMER DISPATCH] Failed to schedule alarm:", timerErr.message);
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n⚠️ *[Timer scheduling failed: ${timerErr.message}]*`;
+								}
+								realDispatchFired = true;
 							} else {
 								console.log("[MCP DISPATCH] Hardware execution routing to Pi gateway. Tool targeted:", payload.tool);
 
