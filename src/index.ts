@@ -1118,33 +1118,8 @@ ${crossSessionMemory}`;
 									const sonosMessageMatch = userMsg.match(/(?:say to|speak to|announce|tell \w+)[^:]*:\s*(.+)/i);
 const sonosRawContent = sonosMessageMatch ? sonosMessageMatch[1].trim() : userMsg;
 
-// Determine if content is a question/prompt needing an answer, or a direct statement to speak
-const isQuestion = sonosRawContent.trim().endsWith('?') || sonosRawContent.toLowerCase().match(/^(what|who|when|where|why|how|tell me|remind me)/);
-
-let sonosSpokenContent = sonosRawContent;
-if (isQuestion) {
-    // Generate a spoken answer via Haiku
-    try {
-		console.log("[SONOS HAIKU DEBUG] liveContext length:", liveContext.length, "liveContext slice:", liveContext.slice(0, 300), "chatTxt length:", chatTxt.length, "sonosRawContent:", sonosRawContent);
-        const sonosAnswerRes = await fetch(`${gatewayBase}/anthropic/v1/messages`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
-            body: JSON.stringify({
-                model: "claude-haiku-4-5",
-                system: "You are Jolene, a witty snarky AI assistant. Answer the question in 1-2 complete spoken sentences. No markdown, no emojis, no bullet points. Speak directly and naturally as if talking out loud.",
-				messages: [{ role: "user", content: `Live context: ${liveContext.slice(0, 8000)}\n\nMemory context: ${chatTxt.slice(0, 800)}\n\nNow answer this out loud in 1-2 sentences as Jolene with snark intact: ${sonosRawContent}` }],
-                max_tokens: 150
-            })
-        });
-        if (sonosAnswerRes.ok) {
-            const sonosAnswerData: any = await sonosAnswerRes.json();
-            sonosSpokenContent = sonosAnswerData.content?.[0]?.text || sonosRawContent;
-            console.log("[SONOS PRE-DISPATCH] Generated spoken answer:", sonosSpokenContent);
-        }
-    } catch (sonosAnswerErr) {
-        console.error("[SONOS PRE-DISPATCH] Answer generation failed, falling back to raw content:", sonosAnswerErr);
-    }
-}
+// UNIFIED JOLENE: Use the same chatTxt that powers laptop voice — one brain, two speakers
+const sonosSpokenContent = chatTxt;
 
 const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									if (sonosRealUrl && sonosRealUrl.length > 0) {
@@ -1155,7 +1130,7 @@ const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									}
 								}
 								const controller = new AbortController();
-								const timeoutHandle = setTimeout(() => controller.abort(), 8000);
+								const timeoutHandle = setTimeout(() => controller.abort(), 15000);
 								let mcpResultText = "";
 								let mcpOk = false;
 
