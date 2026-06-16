@@ -816,7 +816,14 @@ export class ChatSession extends DurableObject<Env> {
 
 				let liveContext = "";
 				const lowerMsg = userMsg.toLowerCase();
-
+				if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
+					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
+					const minutes = minuteMatch ? parseInt(minuteMatch[1]) : 5;
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
+					if (zone === "bedroom") zone = "main_bedroom";
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
+				}
 				if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
