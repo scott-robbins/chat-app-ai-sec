@@ -111,6 +111,12 @@ Description: Persists newly learned, evolving facts or life events (e.g., meals 
 Arguments: { "factToRemember": string }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"remember_factual_event","arguments":{"factToRemember":"Scott made a great batch of gumbo tonight"}}
 
+Available Tool 7: "set_timer"
+Description: Sets a countdown timer for a specified duration in minutes. When the timer expires, the Sonos speaker in the specified zone plays three beeps spaced 2 seconds apart to alert the user. Default zone is kitchen if not specified.
+Arguments: { "minutes": number, "zone": "kitchen" | "theater" | "main_bedroom" | "office" }
+Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_timer","arguments":{"minutes":5,"zone":"kitchen"}}
+
+
 === TOOL EXECUTION GROUND TRUTH (CRITICAL HALLUCINATION PREVENTION) ===
 
 CRITICAL RULE: You must NEVER write the following footer strings yourself in any response:
