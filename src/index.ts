@@ -168,16 +168,7 @@ export class ChatSession extends DurableObject<Env> {
 		this.doCtx = ctx;
 		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
-	export class ChatSession extends DurableObject<Env> {
-	private doCtx: DurableObjectState;
-	private threadWorkingMemory: Record<string, string> = {};
-
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
-		this.doCtx = ctx;
-		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
-	}
-
+	
 	async alarm() {
 		console.log("[TIMER ALARM] Durable Object alarm fired at", new Date().toISOString());
 		try {
