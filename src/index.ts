@@ -996,23 +996,47 @@ ${crossSessionMemory}`;
 					firstPassMessages.push({ role: "user", content: userMsg });
 				}
 
+				const systemBlocks: any[] = [];
+
+				if (sonosTargetZone) {
+					const triggerExample = "🚨" + "THEATER_ACTION_TRIGGER:" + JSON.stringify({
+						tool: "control_sonos_audio",
+						arguments: { zone: sonosTargetZone, audioUrl: "https://jolene-audio.jolenesego.com/sample.mp3" }
+					});
+
+					systemBlocks.push({
+						type: "text",
+						text: `### ABSOLUTE TOP PRIORITY DIRECTIVE — SONOS TOOL EMISSION MANDATORY
+
+The user's message contains a Sonos broadcast keyword (say to, speak to, announce, tell, broadcast). You MUST end your response with this exact trigger payload format on its own line:
+
+${triggerExample}
+
+This is NON-NEGOTIABLE. Even if the user asks a question with rich context data attached, you must:
+1. Answer the question naturally in your response prose with full Jolene personality
+2. Emit the trigger payload as the final line of your response
+
+The Worker layer will inject the real audioUrl after generation. Your job is ONLY to emit the trigger structure with the correct zone. Do NOT skip this. Do NOT explain why you are not emitting it. Do NOT replace it with narration. EMIT THE TRIGGER.`
+					});
+				}
+
+				systemBlocks.push({
+					type: "text",
+					text: stableSystemText,
+					cache_control: { type: "ephemeral" }
+				});
+
+				systemBlocks.push({
+					type: "text",
+					text: volatileSystemText
+				});
+
 				const firstPassBody = {
 					model: cleanModel,
-					system: [
-						{
-							type: "text",
-							text: stableSystemText,
-							cache_control: { type: "ephemeral" }
-						},
-						{
-							type: "text",
-							text: volatileSystemText
-						}
-					],
+					system: systemBlocks,
 					messages: firstPassMessages,
 					max_tokens: 8192
 				};
-
 				let chatTxt = "Brain blip. Try again.";
 				try {
 					console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
