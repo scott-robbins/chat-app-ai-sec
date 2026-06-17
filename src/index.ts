@@ -23,7 +23,7 @@ function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 		'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare', 
 		'family', 'kids', 'pi', 'mcp', 'theater', 'kitchen', 'master bedroom', 
 		'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat',
-		'timer', 'set a timer', 'set timer'
+		'timer', 'set a timer', 'set timer', 'play', 'spotify', 'music', 'song'
 	];
 
 	const hasHeavyKeyword = heavyKeywords.some(kw => lower.includes(kw));
@@ -116,6 +116,10 @@ Available Tool 7: "set_timer"
 Description: Sets a countdown timer for a specified duration in minutes. When the timer expires, the Sonos speaker in the specified zone plays three beeps spaced 2 seconds apart to alert the user. Default zone is kitchen if not specified.
 Arguments: { "minutes": number, "zone": "kitchen" | "theater" | "main_bedroom" | "office" }
 Format: 🚨THEATER_ACTION_TRIGGER:{"tool":"set_timer","arguments":{"minutes":5,"zone":"kitchen"}}
+
+Available Tool 8: "play_spotify"
+Description: Plays a Spotify track on a specified Sonos whole-house zone via Spotify Connect.
+Arguments: { "track": string (required), "zone": "kitchen" | "theater" | "main_bedroom" | "office" (optional, defaults to kitchen) }
 
 
 === TOOL EXECUTION GROUND TRUTH (CRITICAL HALLUCINATION PREVENTION) ===
@@ -863,8 +867,15 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
-				}
-				  else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
+				} else if (["play ", "spotify", "music", "song"].some(kw => lowerMsg.includes(kw))) {
+					const trackMatch = userMsg.match(/(?:play|listen to|queue)\s+(?:the\s+)?['"]?([^'"]+?)['"]?(?:\s+(?:in|on|through|via)\s+(?:the\s+)?)?(?:theater|kitchen|bedroom|office)?/i);
+					const trackName = trackMatch ? trackMatch[1].trim() : userMsg.replace(/(?:play|listen to|queue|spotify|music|song|in|on|through|via|the|theater|kitchen|bedroom|office)/gi, '').trim();
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
+					if (zone === "bedroom") zone = "main_bedroom";
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackName} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
+
+				} else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
@@ -1203,6 +1214,44 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 									console.error("[TIMER DISPATCH] Failed to schedule alarm:", timerErr.message);
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 									chatTxt += `\n\n⚠️ *[Timer scheduling failed: ${timerErr.message}]*`;
+								}
+								realDispatchFired = true;
+							} else if (payload.tool === "play_spotify") {
+								console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
+								
+								const track = payload.arguments.track;
+								const zone = payload.arguments.zone || "kitchen";
+								
+								try {
+									const controller = new AbortController();
+									const timeoutId = setTimeout(() => controller.abort(), 15000);
+									
+									const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({
+											tool: "play_spotify",
+											arguments: { track, zone }
+										}),
+										signal: controller.signal
+									});
+									
+									clearTimeout(timeoutId);
+									const piResult: any = await piResponse.json();
+									
+									if (piResponse.ok && piResult.status === "Success") {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n🎵 *[${piResult.message}]*`;
+										console.log("[SPOTIFY DISPATCH] Playback initiated successfully");
+									} else {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n⚠️ *[Spotify playback failed: ${piResult.error || 'Unknown error'}]*`;
+										console.error("[SPOTIFY DISPATCH] Pi returned error:", piResult.error);
+									}
+								} catch (spotifyErr: any) {
+									console.error("[SPOTIFY DISPATCH] Error:", spotifyErr.message);
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n⚠️ *[Spotify error: ${spotifyErr.message}]*`;
 								}
 								realDispatchFired = true;
 							} else {
