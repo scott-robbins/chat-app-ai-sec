@@ -867,9 +867,10 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
-				} else if (["play ", "spotify", "music", "song"].some(kw => lowerMsg.includes(kw))) {
-					const trackMatch = userMsg.match(/(?:play|listen to|queue)\s+(?:the\s+)?['"]?([^'"]+?)['"]?(?:\s+(?:in|on|through|via)\s+(?:the\s+)?)?(?:theater|kitchen|bedroom|office)?/i);
-					const trackName = trackMatch ? trackMatch[1].trim() : userMsg.replace(/(?:play|listen to|queue|spotify|music|song|in|on|through|via|the|theater|kitchen|bedroom|office)/gi, '').trim();
+				} else if (lowerMsg.match(/^(?:play|listen to|queue|put on)\s+/i)) {
+					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via|by)\s+.+)?$/i);
+					const trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
+
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
@@ -892,7 +893,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				let sonosTargetZone = "";
-				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.includes(kw))) {
+				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.startsWith(kw) || lowerMsg.match(/^(jolene[,.]?\s+)?(say|speak|broadcast|announce|tell)/i))) {
 					if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
 					else if (lowerMsg.includes("theater") || lowerMsg.includes("game")) sonosTargetZone = "theater";
 					else if (lowerMsg.includes("kitchen")) sonosTargetZone = "kitchen";
