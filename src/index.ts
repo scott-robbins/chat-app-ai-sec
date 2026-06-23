@@ -918,6 +918,28 @@ export class ChatSession extends DurableObject<Env> {
 						value = volMatch ? parseInt(volMatch[1]) : 30;
 					}
 
+					// Direct dispatch — fire transport action immediately without waiting for LLM trigger
+					if (action) {
+						try {
+							const transportController = new AbortController();
+							const transportTimeoutId = setTimeout(() => transportController.abort(), 10000);
+							const directTransportArgs: any = { action, zone };
+							if (value !== null && value !== undefined) directTransportArgs.value = value;
+							await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									tool: "sonos_transport",
+									arguments: directTransportArgs
+								}),
+								signal: transportController.signal
+							});
+							clearTimeout(transportTimeoutId);
+							console.log("[TRANSPORT DIRECT] Fired transport action immediately:", action, zone, value);
+						} catch (transportDirectErr: any) {
+							console.error("[TRANSPORT DIRECT] Direct dispatch failed:", transportDirectErr.message);
+						}
+					}
 					const argsObj = action === "volume" 
 						? `{ "action": "volume", "zone": "${zone}", "value": ${value} }`
 						: `{ "action": "${action}", "zone": "${zone}" }`;
