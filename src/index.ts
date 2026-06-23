@@ -121,6 +121,15 @@ Available Tool 8: "play_spotify"
 Description: Plays a Spotify track on a specified Sonos whole-house zone via Spotify Connect.
 Arguments: { "track": string (required), "zone": "kitchen" | "theater" | "main_bedroom" | "office" (optional, defaults to kitchen) }
 
+Available Tool 9: "spotify_artist"
+Description: Plays a queue of 10 tracks by a specified artist on a Sonos zone. Use this when the user asks to play music by an artist without specifying a single track (e.g., "play some Deftones", "play music by Dua Lipa", "play Chappell Roan").
+Arguments: { "artist": string (required), "zone": "kitchen" | "theater" | "main_bedroom" | "office" (optional, defaults to theater) }
+
+Available Tool 10: "sonos_transport"
+Description: Controls Sonos playback transport on a specified zone. Use for skip, pause, resume, and volume changes.
+Arguments: { "action": "skip" | "pause" | "resume" | "volume" (required), "zone": "kitchen" | "theater" | "main_bedroom" | "office" (optional, defaults to theater), "value": number (required only when action is volume, range 0-100) }
+
+
 
 === TOOL EXECUTION GROUND TRUTH (CRITICAL HALLUCINATION PREVENTION) ===
 
@@ -867,6 +876,14 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
+				} else if (lowerMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some)\s+/i) || (lowerMsg.match(/^play\s+/i) && !lowerMsg.match(/\s+by\s+/i) && !lowerMsg.match(/^play\s+(?:the\s+)?(?:song|track)\s+/i))) {
+					const artistMatch = userMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some|play)\s+(.+?)(?:\s+(?:in|on|through|via)\s+.+)?$/i);
+					const artistName = artistMatch ? artistMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
+
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "theater";
+					if (zone === "bedroom") zone = "main_bedroom";
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a queue of tracks by an artist. You MUST execute the tool "spotify_artist" with arguments { "artist": "${artistName}", "zone": "${zone}" }. Respond naturally confirming the artist queue is starting (e.g., "Queueing up ${artistName} on the ${zone} Sonos — 10 tracks loaded"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (lowerMsg.match(/^(?:play|listen to|queue|put on)\s+/i)) {
 					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via|by)\s+.+)?$/i);
 					const trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
@@ -875,8 +892,38 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackName} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
+				} else if (lowerMsg.match(/^(?:skip|next track|next song|pause|resume|unpause|volume|turn it (?:up|down)|louder|quieter)\b/i) || lowerMsg.match(/^set\s+volume\s+to\s+\d+/i)) {
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "theater";
+					if (zone === "bedroom") zone = "main_bedroom";
 
-				} else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
+					let action = "";
+					let value: number | null = null;
+
+					if (lowerMsg.match(/^(?:skip|next track|next song)/i)) {
+						action = "skip";
+					} else if (lowerMsg.match(/^pause/i)) {
+						action = "pause";
+					} else if (lowerMsg.match(/^(?:resume|unpause)/i)) {
+						action = "resume";
+					} else if (lowerMsg.match(/^(?:volume\s+up|turn it up|louder)/i)) {
+						action = "volume";
+						value = 50;
+					} else if (lowerMsg.match(/^(?:volume\s+down|turn it down|quieter)/i)) {
+						action = "volume";
+						value = 20;
+					} else if (lowerMsg.match(/(?:volume\s+to|set\s+volume\s+to|volume)\s+(\d+)/i)) {
+						const volMatch = lowerMsg.match(/(?:volume\s+to|set\s+volume\s+to|volume)\s+(\d+)/i);
+						action = "volume";
+						value = volMatch ? parseInt(volMatch[1]) : 30;
+					}
+
+					const argsObj = action === "volume" 
+						? `{ "action": "volume", "zone": "${zone}", "value": ${value} }`
+						: `{ "action": "${action}", "zone": "${zone}" }`;
+
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to control Sonos transport. You MUST execute the tool "sonos_transport" with arguments ${argsObj}. Respond naturally confirming the action (e.g., "Skipping to the next track", "Pausing the music", "Volume set to ${value || ''}"). Then emit the trigger payload at the very end. This is NOT optional.`;
+		        } else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
