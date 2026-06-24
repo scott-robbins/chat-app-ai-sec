@@ -232,6 +232,56 @@ memorizeBtn?.addEventListener("click", async () => {
     }
 });
 
+// --- PHASE 1 PUSH-TO-TALK VOICE (Web Speech API) ---
+const micButton = document.getElementById("mic-button");
+let recognition = null;
+let isRecording = false;
+
+if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (userInput) {
+            userInput.value = transcript;
+            sendMessage();
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        isRecording = false;
+        micButton?.classList.remove("recording");
+    };
+
+    recognition.onend = () => {
+        isRecording = false;
+        micButton?.classList.remove("recording");
+    };
+} else {
+    console.warn("Web Speech API not supported in this browser");
+    if (micButton) micButton.style.display = "none";
+}
+
+micButton?.addEventListener("click", () => {
+    if (!recognition) return;
+    if (isRecording) {
+        recognition.stop();
+    } else {
+        try {
+            recognition.start();
+            isRecording = true;
+            micButton.classList.add("recording");
+        } catch (err) {
+            console.error("Failed to start recognition:", err);
+        }
+    }
+});
+
 sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 toggleSidebarBtn?.addEventListener("click", () => { sidebar.classList.add("open"); updateSidebarContent(); });
