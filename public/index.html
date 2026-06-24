@@ -648,6 +648,55 @@
 			}
 
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
+			// --- PHASE 1 PUSH-TO-TALK VOICE (Web Speech API) ---
+const micButton = document.getElementById("mic-button");
+let recognition = null;
+let isRecording = false;
+
+if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (document.getElementById("user-input")) {
+            document.getElementById("user-input").value = transcript;
+            sendMessage();
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        isRecording = false;
+        micButton?.classList.remove("recording");
+    };
+
+    recognition.onend = () => {
+        isRecording = false;
+        micButton?.classList.remove("recording");
+    };
+} else {
+    console.warn("Web Speech API not supported in this browser");
+    if (micButton) micButton.style.display = "none";
+}
+
+micButton?.addEventListener("click", () => {
+    if (!recognition) return;
+    if (isRecording) {
+        recognition.stop();
+    } else {
+        try {
+            recognition.start();
+            isRecording = true;
+            micButton.classList.add("recording");
+        } catch (err) {
+            console.error("Failed to start recognition:", err);
+        }
+    }
+});
 			document.getElementById('send-button').onclick = () => sendMessage();
 			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
 
