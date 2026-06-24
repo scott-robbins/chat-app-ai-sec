@@ -184,3 +184,34 @@ body.theme-plain .btn-secondary {
     color: #0f172a !important;
     border: 1px solid #cbd5e1 !important;
 }
+
+/* --- MIC BUTTON (Phase 1 Push-to-Talk Voice) --- */
+#mic-button {
+    padding: 0 1.5rem;
+    height: 54px;
+    background-color: #475569;
+    color: white;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    font-size: 1.25rem;
+    transition: all 0.2s;
+}
+#mic-button:hover {
+    transform: scale(1.05);
+    background-color: #64748b;
+}
+#mic-button.recording {
+    background-color: #ef4444;
+    animation: mic-pulse 1s infinite;
+}
+@keyframes mic-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.75; transform: scale(1.08); }
+}
+body.theme-plain #mic-button {
+    background-color: #64748b;
+}
+body.theme-plain #mic-button:hover {
+    background-color: #475569;
+}
