@@ -533,7 +533,29 @@ export class ChatSession extends DurableObject<Env> {
 			return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} trading at $210.13 per share.`;
 		}
 	}
-
+async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number; expires_at_iso: string } | null> {
+		try {
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), 3000);
+			const response = await fetch("https://mcp.jolenesego.com/api/nest-token-status", {
+				method: "GET",
+				headers: { "Content-Type": "application/json" },
+				signal: controller.signal
+			});
+			clearTimeout(timeoutId);
+			if (!response.ok) {
+				console.error("[NEST TOKEN CHECK] Pi returned status:", response.status);
+				return null;
+			}
+			const data = await response.json() as { urgency: string; days_remaining: number; expires_at_iso: string };
+			console.log("[NEST TOKEN CHECK] Days remaining:", data.days_remaining, "Urgency:", data.urgency);
+			return data;
+		} catch (err: any) {
+			console.error("[NEST TOKEN CHECK] Failed:", err.message);
+			return null;
+		}
+	}
+	
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -862,12 +884,27 @@ export class ChatSession extends DurableObject<Env> {
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
 					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
 				}).format(new Date());
-
+				
+				// Proactive Nest token age check — fires on every chat turn
+				const nestTokenStatus = await this.checkNestTokenStatus();
+				
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 50").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
+
+				// === NEST TOKEN PROACTIVE REMINDER INJECTION ===
+				if (nestTokenStatus && nestTokenStatus.urgency !== "GREEN" && nestTokenStatus.urgency !== "YELLOW") {
+					const daysWord = nestTokenStatus.days_remaining === 1 ? "day" : "days";
+					const reminderLevel = nestTokenStatus.urgency === "CRITICAL" ? "CRITICAL — reauth NOW or thermostats die" :
+						nestTokenStatus.urgency === "URGENT" ? "URGENT — expires tomorrow, run reauth today" :
+						"RED — expires in 2 days, schedule reauth soon";
+					liveContext = `[SYSTEM DIRECTIVE - NEST TOKEN PROACTIVE REMINDER] Your Nest OAuth refresh token is in ${reminderLevel} state (${nestTokenStatus.days_remaining} ${daysWord} remaining, expires ${nestTokenStatus.expires_at_iso}). You MUST proactively raise this in conversation with Scott naturally. Do NOT be silent. Examples: "Heads up — your Nest token dies in 2 days." OR "Hey — token expires tomorrow, run the reauth script today before it breaks." OR "Your Nest token is DEAD or expiring today — run the reauth NOW." Pick the tone that matches urgency level. Make it conversational, not robotic. This is NOT optional.`;
+				} else if (nestTokenStatus?.urgency === "YELLOW") {
+					liveContext = `[SYSTEM CONTEXT - NEST TOKEN YELLOW ZONE] Your Nest token has 3-4 days remaining (expires ${nestTokenStatus.expires_at_iso}). No action required yet, but you may proactively mention this if it naturally fits the conversation flow (e.g., if Scott asks about planning something for next week, you could say "By the way, Nest reauth window coming up next week"). Not mandatory, but optional awareness.`;
+				}
+				
 				const lowerMsg = userMsg.toLowerCase();
 				if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
