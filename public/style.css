@@ -215,3 +215,28 @@ body.theme-plain #mic-button {
 body.theme-plain #mic-button:hover {
     background-color: #475569;
 }
+
+/* --- MOBILE DEFAULT — FORCE PLAIN MODE --- */
+@media (max-width: 768px) {
+    body {
+        --body-bg: #ffffff !important;
+        --app-bg: #ffffff !important;
+        --text-color: #0f172a !important;
+        --border-color: #e2e8f0 !important;
+        --assistant-msg-bg: #f8fafc !important;
+        --glass-blur: none !important;
+    }
+    .lava-lamp-container {
+        display: none !important;
+    }
+    .chat-container {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+    }
+    .message-input {
+        background: #ffffff !important;
+    }
+    textarea {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+}
