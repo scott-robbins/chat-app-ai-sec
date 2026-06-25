@@ -1,3 +1,16 @@
+// === MOBILE BULLETPROOF GUARD - RUNS INSTANTLY ON LOAD ===
+if (window.innerWidth < 768) {
+    document.body.classList.remove("theme-fancy");
+    // Also watch for any future attempts to add it
+    const observer = new MutationObserver(() => {
+        if (document.body.classList.contains("theme-fancy")) {
+            document.body.classList.remove("theme-fancy");
+        }
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    console.log("MOBILE GUARD ACTIVE - theme-fancy permanently blocked");
+}
+
 const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
