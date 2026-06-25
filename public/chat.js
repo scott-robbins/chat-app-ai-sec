@@ -313,9 +313,12 @@ async function init() {
         const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
         if (profileRes.ok) {
             const data = await profileRes.json();
-            // Mobile guard - never apply fancy theme on mobile screens
-        const isMobile = window.innerWidth < 768;
-        document.body.classList.toggle("theme-fancy", !isMobile && data.theme === "fancy");
+           // Mobile guard - never apply fancy theme on mobile screens
+          if (window.innerWidth < 768) {
+              document.body.classList.remove("theme-fancy");
+          } else {
+              document.body.classList.toggle("theme-fancy", data.theme === "fancy");
+          }
 
             
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
