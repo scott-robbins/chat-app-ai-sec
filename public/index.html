@@ -505,18 +505,36 @@ if ('serviceWorker' in navigator) {
 										playBtn.innerText = '🔊 Play';
 										
 										playBtn.addEventListener('click', () => {
-											playBtn.innerText = '🔊 Playing...';
-											playBtn.disabled = true;
-											const audio = new Audio(data.audioUrl);
-											audio.play().catch(() => {});
-											audio.onended = () => {
-												playBtn.innerText = '🔊 Play';
-												playBtn.disabled = false;
-											};
-										});
-										targetBubble.appendChild(playBtn);
-									}
-								}
+    playBtn.innerText = '🔊 Playing...';
+    playBtn.disabled = true;
+    const audio = new Audio();
+    audio.src = data.audioUrl;
+    audio.preload = 'auto';
+    audio.crossOrigin = 'anonymous';
+    audio.load();
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+        playPromise.then(() => {
+            console.log("Audio playback started successfully");
+        }).catch((err) => {
+            console.error("Audio playback failed:", err);
+            playBtn.innerText = '🔊 Play';
+            playBtn.disabled = false;
+        });
+    }
+    audio.onended = () => {
+        playBtn.innerText = '🔊 Play';
+        playBtn.disabled = false;
+    };
+    audio.onerror = (e) => {
+        console.error("Audio error:", e);
+        playBtn.innerText = '🔊 Play';
+        playBtn.disabled = false;
+    };
+});
+									targetBubble.appendChild(playBtn);
+                                    }
+                                }
 
 								if (data.response) {
 									assistantText += data.response;
