@@ -1376,7 +1376,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 const sonosRawContent = sonosMessageMatch ? sonosMessageMatch[1].trim() : userMsg;
 
 // UNIFIED JOLENE: Use the same chatTxt that powers laptop voice — one brain, two speakers
-const sonosSpokenContent = chatTxt;
+const sonosSpokenContent = sonosRawContent;
 
 const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									if (sonosRealUrl && sonosRealUrl.length > 0) {
@@ -1486,24 +1486,7 @@ const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 											if (summaryText) {
 												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
 												chatTxt = summaryText;
-												// UNIFIED JOLENE: Re-generate Sonos audio from second-pass summary if this was a Sonos call
-												if (payload.tool === "control_sonos_audio") {
-													const refinedSonosUrl = await this.generateHerAudioStream(summaryText);
-													if (refinedSonosUrl && refinedSonosUrl.length > 0) {
-														payload.arguments.audioUrl = refinedSonosUrl;
-														console.log("[SONOS SECOND PASS] Re-injected refined audio URL:", refinedSonosUrl);
-														try {
-															await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-																method: "POST",
-																headers: { "Content-Type": "application/json" },
-																body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments })
-															});
-															console.log("[SONOS SECOND PASS] Re-dispatch fired successfully.");
-														} catch(redispatchErr: any) {
-															console.error("[SONOS SECOND PASS] Re-dispatch threw:", redispatchErr.message);
-														}
-													}
-												}
+												
 												if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
 
 											} else {
