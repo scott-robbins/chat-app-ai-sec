@@ -49,6 +49,11 @@ voiceToggleBtn?.addEventListener("click", () => {
 });
 
 themeToggleBtn?.addEventListener("click", async () => {
+    // Mobile guard - prevent fancy theme on small screens
+    if (window.innerWidth < 768) {
+        console.log("Theme toggle disabled on mobile - default theme only");
+        return;
+    }
     const isFancy = document.body.classList.toggle("theme-fancy");
     const currentTheme = isFancy ? "fancy" : "plain";
     localStorage.setItem("chatTheme", currentTheme);
@@ -308,7 +313,10 @@ async function init() {
         const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
         if (profileRes.ok) {
             const data = await profileRes.json();
-            document.body.classList.toggle("theme-fancy", data.theme === "fancy");
+            // Mobile guard - never apply fancy theme on mobile screens
+        const isMobile = window.innerWidth < 768;
+        document.body.classList.toggle("theme-fancy", !isMobile && data.theme === "fancy");
+
             
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
