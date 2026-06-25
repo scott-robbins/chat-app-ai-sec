@@ -314,11 +314,11 @@ async function init() {
         if (profileRes.ok) {
             const data = await profileRes.json();
            // Mobile guard - never apply fancy theme on mobile screens
-          if (window.innerWidth < 768) {
-              document.body.classList.remove("theme-fancy");
-          } else {
-              document.body.classList.toggle("theme-fancy", data.theme === "fancy");
-          }
+           if (window.innerWidth < 768) {
+               document.body.classList.remove("theme-fancy");
+           } else {
+               document.body.classList.toggle("theme-fancy", data.theme === "fancy");
+           }
 
             
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
