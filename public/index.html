@@ -166,7 +166,32 @@
 				background: var(--primary-color);
 				color: #ffffff;
 			}
+			/* --- MOBILE FORCE PLAIN MODE --- */
+@media (max-width: 768px) {
+    body.theme-fancy,
+    body.theme-fancy .chat-container,
+    body.theme-fancy .sidebar,
+    body.theme-fancy #user-input,
+    body.theme-fancy header h1,
+    body.theme-fancy .message-input,
+    body.theme-fancy .system-indicator {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        background-image: none !important;
+        color: #0f172a !important;
+        text-shadow: none !important;
+        border-color: #e2e8f0 !important;
+        backdrop-filter: none !important;
+    }
+    body.theme-fancy {
+        background: #ffffff !important;
+    }
+    .lava-lamp-container {
+        display: none !important;
+    }
+}
 		</style>
+	
 	<script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/service-worker.js');
