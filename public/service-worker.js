@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jolene-v1';
+const CACHE_NAME = 'jolene-v2';
 const urlsToCache = [
   '/',
   '/index.html',
