@@ -179,7 +179,7 @@ async function sendMessage() {
         }
         chatHistory.push({ role: "assistant", content: text });
         speak(text);
-        if (sidebar.classList.contains("open")) updateSidebarContent();
+        updateSidebarContent();
     } catch (err) { 
         addMessageToChat("assistant", "Error: " + err.message); 
     } finally { 
@@ -304,7 +304,13 @@ sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 toggleSidebarBtn?.addEventListener("click", () => { sidebar.classList.add("open"); updateSidebarContent(); });
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
-newChatBtn?.addEventListener("click", () => { localStorage.removeItem("chatSessionId"); location.reload(); });
+newChatBtn?.addEventListener("click", () => { 
+    const newSessionId = crypto.randomUUID();
+    localStorage.setItem("chatSessionId", newSessionId);
+    chatHistory = [];
+    chatMessages.innerHTML = '';
+    location.reload(); 
+});
 clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; addMessageToChat('assistant', "Screen cleared!"); });
 
 window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
