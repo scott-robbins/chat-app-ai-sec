@@ -1379,7 +1379,6 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 									const sonosSpokenContent = sonosRawContent;
 
 									const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
-WHAT CHANGED 🔧
 
 const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									if (sonosRealUrl && sonosRealUrl.length > 0) {
