@@ -1006,9 +1006,11 @@ const timerMetaObserver = new MutationObserver((mutations) => {
             }
         }
         if (mutation.type === 'childList' || mutation.type === 'characterData') {
-            const allAssistantMessages = chatMessagesContainer.querySelectorAll('.assistant-message');
-            const lastAssistant = allAssistantMessages[allAssistantMessages.length - 1];
-            if (lastAssistant) checkForTimerMeta(lastAssistant);
+            // Only re-scan if the mutation target is INSIDE an assistant message
+            // (not when a new user message is being added)
+            const target = mutation.target;
+            const assistantParent = target.closest ? target.closest('.assistant-message') : null;
+            if (assistantParent) checkForTimerMeta(assistantParent);
         }
     }
 });
