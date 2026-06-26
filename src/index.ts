@@ -1380,7 +1380,6 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 									const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 
-const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
 									if (sonosRealUrl && sonosRealUrl.length > 0) {
 										payload.arguments.audioUrl = sonosRealUrl;
 										console.log("[SONOS PRE-DISPATCH] Injected real audioUrl into payload:", sonosRealUrl);
