@@ -973,18 +973,38 @@ document.getElementById('timer-close-btn').onclick = dismissTimerWidget;
 
 // Detect TIMER_META markers in assistant responses via MutationObserver
 const chatMessagesContainer = document.getElementById('chat-messages');
+const seenTimerEndTimes = new Set();
+
+function checkForTimerMeta(messageNode) {
+    const html = messageNode.innerHTML;
+    const metaMatch = html.match(/<!--\s*TIMER_META:\s*(\{[^}]+\})\s*-->/);
+    if (metaMatch) {
+        try {
+            const payload = JSON.parse(metaMatch[1]);
+            if (payload.endTime && payload.zone && payload.minutes) {
+                // Only fire if we haven't seen this exact endTime before
+                if (!seenTimerEndTimes.has(payload.endTime)) {
+                    // Only fire if endTime is actually in the future
+                    if (payload.endTime > Date.now()) {
+                        seenTimerEndTimes.add(payload.endTime);
+                        showTimerWidget(payload.endTime, payload.zone, payload.minutes);
+                    } else {
+                        console.warn('[TIMER WIDGET] Stale TIMER_META detected and ignored — endTime already passed:', payload.endTime);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[TIMER WIDGET] Failed to parse TIMER_META:', e);
+        }
+    }
+}
+
 const timerMetaObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
             if (node.nodeType === 1 && node.classList && node.classList.contains('assistant-message')) {
                 checkForTimerMeta(node);
             }
-        }
-        // Also check character data changes (streaming updates)
-        if (mutation.type === 'characterData' || mutation.type === 'childList') {
-            const allAssistantMessages = chatMessagesContainer.querySelectorAll('.assistant-message');
-            const lastAssistant = allAssistantMessages[allAssistantMessages.length - 1];
-            if (lastAssistant) checkForTimerMeta(lastAssistant);
         }
     }
 });
