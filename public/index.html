@@ -176,7 +176,18 @@ if ('serviceWorker' in navigator) {
        </script>
 	</head>
 	<body class="theme-fancy">
-		<div class="lava-lamp-container"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
+        <!-- === VISUAL TIMER WIDGET === -->
+        <div id="timer-widget-container" style="display: none;">
+            <div id="timer-widget" class="timer-widget">
+                <div class="timer-content">
+                    <span class="timer-label" id="timer-zone-label">Kitchen Timer</span>
+                    <span class="timer-display" id="timer-countdown">2:00</span>
+                    <button class="timer-close-btn" id="timer-close-btn" aria-label="Dismiss timer">✕</button>
+               </div>
+           </div>
+       </div>
+		
+	   <div class="lava-lamp-container"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
 
 		<header>
 			<h1>Jolene</h1>
