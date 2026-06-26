@@ -982,14 +982,13 @@ function checkForTimerMeta(messageNode) {
         try {
             const payload = JSON.parse(metaMatch[1]);
             if (payload.endTime && payload.zone && payload.minutes) {
-                // Only fire if we haven't seen this exact endTime before
                 if (!seenTimerEndTimes.has(payload.endTime)) {
-                    // Only fire if endTime is actually in the future
                     if (payload.endTime > Date.now()) {
                         seenTimerEndTimes.add(payload.endTime);
                         showTimerWidget(payload.endTime, payload.zone, payload.minutes);
                     } else {
-                        console.warn('[TIMER WIDGET] Stale TIMER_META detected and ignored — endTime already passed:', payload.endTime);
+                        console.warn('[TIMER WIDGET] Stale TIMER_META ignored — endTime already passed:', payload.endTime);
+                        seenTimerEndTimes.add(payload.endTime);
                     }
                 }
             }
@@ -1006,9 +1005,13 @@ const timerMetaObserver = new MutationObserver((mutations) => {
                 checkForTimerMeta(node);
             }
         }
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+            const allAssistantMessages = chatMessagesContainer.querySelectorAll('.assistant-message');
+            const lastAssistant = allAssistantMessages[allAssistantMessages.length - 1];
+            if (lastAssistant) checkForTimerMeta(lastAssistant);
+        }
     }
 });
-
 function checkForTimerMeta(messageNode) {
     const html = messageNode.innerHTML;
     const metaMatch = html.match(/<!--\s*TIMER_META:\s*(\{[^}]+\})\s*-->/);
