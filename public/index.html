@@ -895,6 +895,127 @@ micButton?.addEventListener("click", () => {
 			};
 
 			updateDashboard();
+			// === VISUAL TIMER WIDGET LOGIC ===
+let activeTimerInterval = null;
+let activeTimerEndTime = null;
+
+function showTimerWidget(endTime, zone, minutes) {
+    // Clear any existing timer first
+    if (activeTimerInterval) {
+        clearInterval(activeTimerInterval);
+        activeTimerInterval = null;
+    }
+    
+    activeTimerEndTime = endTime;
+    const container = document.getElementById('timer-widget-container');
+    const widget = document.getElementById('timer-widget');
+    const label = document.getElementById('timer-zone-label');
+    const display = document.getElementById('timer-countdown');
+    
+    // Reset visual state
+    widget.classList.remove('timer-red-30', 'timer-red-10', 'timer-done');
+    
+    // Set zone label (capitalize first letter)
+    const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1).replace('_', ' ') + ' Timer';
+    label.innerText = zoneLabel;
+    
+    // Show the widget
+    container.style.display = 'block';
+    
+    // Start the countdown loop
+    function updateCountdown() {
+        const now = Date.now();
+        const remaining = activeTimerEndTime - now;
+        
+        if (remaining <= 0) {
+            // Timer done state
+            display.innerText = '0:00';
+            widget.classList.remove('timer-red-30', 'timer-red-10');
+            widget.classList.add('timer-done');
+            label.innerText = zoneLabel.replace('Timer', 'Done!');
+            clearInterval(activeTimerInterval);
+            activeTimerInterval = null;
+            return;
+        }
+        
+        const totalSeconds = Math.ceil(remaining / 1000);
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = totalSeconds % 60;
+        display.innerText = mins + ':' + String(secs).padStart(2, '0');
+        
+        // Apply glow states based on remaining seconds
+        if (totalSeconds <= 10) {
+            widget.classList.remove('timer-red-30');
+            widget.classList.add('timer-red-10');
+        } else if (totalSeconds <= 30) {
+            widget.classList.remove('timer-red-10');
+            widget.classList.add('timer-red-30');
+        } else {
+            widget.classList.remove('timer-red-30', 'timer-red-10');
+        }
+    }
+    
+    updateCountdown();
+    activeTimerInterval = setInterval(updateCountdown, 250);
+}
+
+function dismissTimerWidget() {
+    if (activeTimerInterval) {
+        clearInterval(activeTimerInterval);
+        activeTimerInterval = null;
+    }
+    activeTimerEndTime = null;
+    const container = document.getElementById('timer-widget-container');
+    container.style.display = 'none';
+}
+
+// Wire up the close button
+document.getElementById('timer-close-btn').onclick = dismissTimerWidget;
+
+// Detect TIMER_META markers in assistant responses via MutationObserver
+const chatMessagesContainer = document.getElementById('chat-messages');
+const timerMetaObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains('assistant-message')) {
+                checkForTimerMeta(node);
+            }
+        }
+        // Also check character data changes (streaming updates)
+        if (mutation.type === 'characterData' || mutation.type === 'childList') {
+            const allAssistantMessages = chatMessagesContainer.querySelectorAll('.assistant-message');
+            const lastAssistant = allAssistantMessages[allAssistantMessages.length - 1];
+            if (lastAssistant) checkForTimerMeta(lastAssistant);
+        }
+    }
+});
+
+function checkForTimerMeta(messageNode) {
+    const html = messageNode.innerHTML;
+    const metaMatch = html.match(/<!--\s*TIMER_META:\s*(\{[^}]+\})\s*-->/);
+    if (metaMatch) {
+        try {
+            const payload = JSON.parse(metaMatch[1]);
+            if (payload.endTime && payload.zone && payload.minutes) {
+                // Check if this is a new timer (not already showing this one)
+                if (activeTimerEndTime !== payload.endTime) {
+                    showTimerWidget(payload.endTime, payload.zone, payload.minutes);
+                }
+            }
+        } catch (e) {
+            console.warn('[TIMER WIDGET] Failed to parse TIMER_META:', e);
+        }
+    }
+}
+
+timerMetaObserver.observe(chatMessagesContainer, {
+    childList: true,
+    subtree: true,
+    characterData: true
+});
+
+console.log('[TIMER WIDGET] Phase 3 logic loaded and observing chat for TIMER_META markers');
+
 		</script>
 	</body>
 </html>
