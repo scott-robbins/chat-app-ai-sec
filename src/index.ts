@@ -187,6 +187,7 @@ export class ChatSession extends DurableObject<Env> {
     console.log("[TIMER ALARM] Durable Object alarm fired at", new Date().toISOString());
     try {
         const storedZone = await this.doCtx.storage.get<string>("timerZone") || "kitchen";
+        console.log("[TIMER ALARM] Retrieved zone from storage:", storedZone);
         const timerLines = [
             "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-1.mp3",
             "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-2.mp3",
@@ -1304,16 +1305,20 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								}
 								realDispatchFired = true;
 							} else if (payload.tool === "set_timer") {
-								console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
-								
-								const minutes = payload.arguments.minutes || 5;
-								const zone = payload.arguments.zone || "kitchen";
-								const alarmTime = Date.now() + (minutes * 60 * 1000);
-								
-								try {
-									await this.doCtx.storage.put("timerZone", zone);
-									await this.doCtx.storage.put("timerExpireTime", alarmTime);
-									await this.doCtx.storage.setAlarm(alarmTime);
+    							console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
+    
+   								const minutes = payload.arguments.minutes || 5;
+    							const zone = payload.arguments.zone || "kitchen";
+   								const alarmTime = Date.now() + (minutes * 60 * 1000);
+    
+    							try {
+        							await this.doCtx.storage.put("timerZone", zone);
+        							await this.doCtx.storage.put("timerExpireTime", alarmTime);
+        							await this.doCtx.storage.setAlarm(alarmTime);
+        
+        							const verifyAlarm = await this.doCtx.storage.getAlarm();
+       								const verifyZone = await this.doCtx.storage.get<string>("timerZone");
+        							console.log("[TIMER DISPATCH] Verification readback - alarm:", verifyAlarm, "expected:", alarmTime, "match:", verifyAlarm === alarmTime, "zone:", verifyZone);
 									
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
                                     chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })}]*`;
