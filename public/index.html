@@ -981,14 +981,16 @@ function checkForTimerMeta(messageNode) {
     if (metaMatch) {
         try {
             const payload = JSON.parse(metaMatch[1]);
-            if (payload.durationMs && payload.zone && payload.minutes) {
-    			const computedEndTime = Date.now() + payload.durationMs;
-   				if (!seenTimerEndTimes.has(computedEndTime)) {
-       				seenTimerEndTimes.add(computedEndTime);
-        			showTimerWidget(computedEndTime, payload.zone, payload.minutes);
-        			console.log('[TIMER WIDGET] Computed endTime in browser:', computedEndTime, 'for zone:', payload.zone, 'duration:', payload.durationMs, 'ms');
-    			}
-			}
+            if (payload.endTime && payload.zone && payload.minutes) {
+                if (!seenTimerEndTimes.has(payload.endTime)) {
+                    if (payload.endTime > Date.now()) {
+                        seenTimerEndTimes.add(payload.endTime);
+                        showTimerWidget(payload.endTime, payload.zone, payload.minutes);
+                    } else {
+                        console.warn('[TIMER WIDGET] Stale TIMER_META ignored — endTime already passed:', payload.endTime);
+                        seenTimerEndTimes.add(payload.endTime);
+                    }
+                }
             }
         } catch (e) {
             console.warn('[TIMER WIDGET] Failed to parse TIMER_META:', e);
