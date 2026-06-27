@@ -1329,9 +1329,8 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 									
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
                                     chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })}]*`;
-									const widgetEndTime = Date.now() + (minutes * 60 * 1000);
-									chatTxt += `\n<!--TIMER_META:{"endTime":${widgetEndTime},"zone":"${zone}","minutes":${minutes}}-->`;
-
+									const freshAlarmTime = await this.doCtx.storage.getAlarm();
+									chatTxt += `\n<!--TIMER_META:{"endTime":${freshAlarmTime},"zone":"${zone}","minutes":${minutes}}-->`;
 
 									console.log("[TIMER DISPATCH] Alarm scheduled for", new Date(alarmTime).toISOString());
 								} catch (timerErr: any) {
