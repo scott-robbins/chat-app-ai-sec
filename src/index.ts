@@ -1307,9 +1307,16 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 							} else if (payload.tool === "set_timer") {
     							console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
     
-   								const minutes = payload.arguments.minutes || 5;
+    							let minutes = payload.arguments.minutes || 5;
     							const zone = payload.arguments.zone || "kitchen";
-   								const alarmTime = Date.now() + (minutes * 60 * 1000);
+    
+    							// Enforce 1-minute minimum — Cloudflare DO alarms have platform floor
+   		 						if (minutes < 1) {
+        						console.log("[TIMER DISPATCH] Sub-1-minute timer requested:", minutes, "minutes. Rounding up to 1 minute (platform minimum)");
+        						minutes = 1;
+    							}
+    
+    							const alarmTime = Date.now() + (minutes * 60 * 1000);
     
     							try {
         							await this.doCtx.storage.put("timerZone", zone);
