@@ -629,6 +629,10 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 		}
 	}
 
+		detectSonosZoneIntent(userMsg: string): boolean {
+	    		const lower = (userMsg || "").toLowerCase();
+	    		return /\b(in|out of|through|to|on)\s+(the\s+)?(kitchen|theater|master\s+bedroom|bedroom|office)\b/.test(lower);
+	}
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
 		if (!this.env.ELEVEN_LABS_API_KEY) {
 			console.error("[VOICE] Missing ELEVEN_LABS_API_KEY variable context flag.");
@@ -1548,7 +1552,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 				// === SERVER-SIDE VOICE SUMMARY ARCHITECTURE PASS ===
 				let voiceSummaryText = "";
-				if (body.voiceEnabled === true && this.env.ELEVEN_LABS_API_KEY) {
+				if ((body.voiceEnabled === true || this.detectSonosZoneIntent(userMsg)) && this.env.ELEVEN_LABS_API_KEY) {
 					try {
 						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
 						const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott.
