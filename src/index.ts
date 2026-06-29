@@ -630,8 +630,8 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 	}
 
 		detectSonosZoneIntent(userMsg: string): boolean {
-	    		const lower = (userMsg || "").toLowerCase();
-	    		return /\b(in|out of|through|to|on)\s+(the\s+)?(kitchen|theater|master\s+bedroom|bedroom|office)\b/.test(lower);
+		const lower = (userMsg || "").toLowerCase();
+		return /\b(answer|respond|reply|say|speak|tell|broadcast|announce|play|say it|put it)\s+(?:that\s+|this\s+)?(?:in|on|through|to|out of|via|over)\s+(?:the\s+)?(kitchen|theater|master\s+bedroom|bedroom|office)\b/.test(lower);
 	}
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
 		if (!this.env.ELEVEN_LABS_API_KEY) {
