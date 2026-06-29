@@ -1611,38 +1611,65 @@ Content to speak as Jolene: ${chatTxt}`;
 					}
 				}
 
-				let voiceUrl: string | null = null;
-				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
-				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
-
-				if (body.voiceEnabled === true && sentenceCount >= 1 && sentenceCount <= 2 && this.env.ELEVEN_LABS_API_KEY && voiceSummaryText) {
-					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
-					voiceUrl = generatedAudio || null;
-					console.log("[VOICE CHAT] Sentences detected in summary:", sentenceCount, "Voice url created successfully:", !!voiceUrl);
-				} else if (body.voiceEnabled !== true) {
-					voiceUrl = null;
-					console.log("[VOICE CHAT] skipped - voice toggle was off.");
-				} else if (sentenceCount > 2) {
-					voiceUrl = null;
-					console.log("[VOICE CHAT] skipped - summary response too long. Sentence count:", sentenceCount);
-				} else {
-					voiceUrl = null;
-					console.log("[VOICE CHAT] skipped - no valid summary sentences or execution failed.");
-				}
-
-				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-					.bind(sessionId, "assistant", chatTxt).run();
-				return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
-
-			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
-		}
-		return new Response("OK");
-	}
-}
-
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-		return env.CHAT_SESSION.get(id).fetch(request);
-	}
-} satisfies ExportedHandler<Env>;
+									// Detect Sonos zone routing intent from user prompt
+					const userPromptLower = (userMsg || "").toLowerCase();
+					let sonosZone: string | null = null;
+					if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
+					else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
+					else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
+					else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+					
+					console.log("[SONOS ZONE] Detected:", sonosZone || "none");
+					
+					let voiceUrl: string | null = null;
+					const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
+					const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
+					
+					const shouldGenerateAudio = (body.voiceEnabled === true || sonosZone !== null)
+					    && sentenceCount >= 1 && sentenceCount <= 2
+					    && this.env.ELEVEN_LABS_API_KEY
+					    && voiceSummaryText;
+					
+					if (shouldGenerateAudio) {
+					    const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
+					    voiceUrl = generatedAudio || null;
+					    console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
+					
+					    if (sonosZone && voiceUrl) {
+					        try {
+					            await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+					                method: "POST",
+					                headers: { "Content-Type": "application/json" },
+					                body: JSON.stringify({
+					                    tool: "control_sonos_audio",
+					                    arguments: { zone: sonosZone, audioUrl: voiceUrl }
+					                })
+					            });
+					            console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
+					        } catch (sonosErr) {
+					            console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
+					        }
+					    }
+					
+					    if (body.voiceEnabled !== true) voiceUrl = null;
+					} else {
+					    voiceUrl = null;
+					    console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
+					}
+					
+									await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+										.bind(sessionId, "assistant", chatTxt).run();
+									return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
+					
+								} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
+							}
+							return new Response("OK");
+						}
+					}
+					
+					export default {
+						async fetch(request: Request, env: Env): Promise<Response> {
+							const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+							return env.CHAT_SESSION.get(id).fetch(request);
+						}
+					} satisfies ExportedHandler<Env>;
