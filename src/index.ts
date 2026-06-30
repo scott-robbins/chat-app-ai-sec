@@ -934,7 +934,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
         				.bind(sessionId, "assistant", timerChatTxt).run();
     				return new Response(`data: ${JSON.stringify({ response: timerChatTxt, audioUrl: null })}\n\ndata: [DONE]\n\n`);
 				}
-				} else if (lowerMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some)\s+/i) || (lowerMsg.match(/^play\s+/i) && !lowerMsg.match(/\s+by\s+/i) && !lowerMsg.match(/^play\s+(?:the\s+)?(?:song|track)\s+/i))) {
+				    if (lowerMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some)\s+/i) || (lowerMsg.match(/^play\s+/i) && !lowerMsg.match(/\s+by\s+/i) && !lowerMsg.match(/^play\s+(?:the\s+)?(?:song|track)\s+/i))) {
 					const artistMatch = userMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some|play)\s+(.+?)(?:\s+(?:in|on|through|via)\s+.+)?$/i);
 					const artistName = artistMatch ? artistMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
 
