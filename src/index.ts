@@ -983,11 +983,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 							console.error("[TRANSPORT DIRECT] Direct dispatch failed:", transportDirectErr.message);
 						}
 					}
-					const argsObj = action === "volume" 
-						? `{ "action": "volume", "zone": "${zone}", "value": ${value} }`
-						: `{ "action": "${action}", "zone": "${zone}" }`;
-
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to control Sonos transport. You MUST execute the tool "sonos_transport" with arguments ${argsObj}. Respond naturally confirming the action (e.g., "Skipping to the next track", "Pausing the music", "Volume set to ${value || ''}"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					
 		        } else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
