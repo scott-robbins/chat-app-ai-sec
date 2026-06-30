@@ -497,7 +497,15 @@ if ('serviceWorker' in navigator) {
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
 				const formData = new FormData();
 				formData.append('file', file);
-				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
+				await fetch('/api/upload', {
+                   method: 'POST',
+                   headers: {
+                       'x-session-id': sessionId,
+                       'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                       'CF-Access-Client-Secret': '60e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+                    },
+                    body: formData
+               });
 				fileNameIndicator.innerText = "";
 				fileInput.value = "";
 				updateDashboard();
@@ -509,9 +517,13 @@ if ('serviceWorker' in navigator) {
 				
 				try {
 					const res = await fetch('/api/reset', { 
-						method: 'POST', 
-						headers: { 'x-session-id': sessionId } 
-					});
+                        method: 'POST', 
+                        headers: { 
+                         'x-session-id': sessionId,
+                         'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                         'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+                      } 
+                  });
 					
 					if (res.ok) {
 						appendMessage('system-indicator', "System: Edge Wipe Complete. Refreshing environment...");
@@ -526,12 +538,16 @@ if ('serviceWorker' in navigator) {
 
 			async function deleteFile(fullKey) {
 				if (!confirm(`Permanently remove ${fullKey}?`)) return;
-				try {
-					const res = await fetch('/api/delete', {
-						method: 'DELETE',
-						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-						body: JSON.stringify({ filename: fullKey })
-					});
+				const res = await fetch('/api/delete', {
+                    method: 'DELETE',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'x-session-id': sessionId,
+                        'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                        'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+                     },
+                     body: JSON.stringify({ filename: fullKey })
+                 });
 					if (res.ok) {
 						appendMessage('system-indicator', `System: Deleted ${fullKey}`);
 						updateDashboard();
@@ -587,8 +603,13 @@ if ('serviceWorker' in navigator) {
 			async function sendCustomMessage(content) {
 				showTyping(true);
 				const res = await fetch('/api/chat', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'x-session-id': sessionId,
+                        'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                        'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+                    },
 					/* VOICE WIRING ADDITION */
 					body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled })
 				});
@@ -680,8 +701,13 @@ if ('serviceWorker' in navigator) {
 
 				try {
 					const res = await fetch('/api/chat', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+                        method: 'POST',
+                        headers: { 
+                         'Content-Type': 'application/json', 
+                         'x-session-id': sessionId,
+                         'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                         'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+                      },
 						/* VOICE WIRING ADDITION */
 						body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled })
 					});
