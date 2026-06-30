@@ -71,11 +71,15 @@ themeToggleBtn?.addEventListener("click", async () => {
     const currentTheme = isFancy ? "fancy" : "plain";
     localStorage.setItem("chatTheme", currentTheme);
     try {
-        await fetch("/api/save-theme", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ theme: currentTheme })
-        });
+       await fetch("/api/save-theme", {
+           method: "POST",
+           headers: {
+               "Content-Type": "application/json",
+               "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
+               "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
+           },
+           body: JSON.stringify({ theme: currentTheme })
+       });
     } catch (e) { console.error("KV Sync Failed", e); }
 });
 
@@ -91,7 +95,13 @@ modelSelector?.addEventListener("change", () => {
 // --- DASHBOARD UPDATER (UPDATED WITH DO & D1 VOLUME FIX) ---
 async function updateSidebarContent() {
     try {
-        const res = await fetch("/api/profile", { headers: { 'x-session-id': sessionId } });
+        const res = await fetch("/api/profile", {
+           headers: {
+               'x-session-id': sessionId,
+               'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+               'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+             }
+         });
         const data = await res.json();
         
         // 1. Update Profile/Identity Info
@@ -150,7 +160,12 @@ async function sendMessage() {
     try {
         const response = await fetch("/api/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+            headers: {
+             "Content-Type": "application/json",
+             "x-session-id": sessionId,
+             "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
+             "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
+        },
             body: JSON.stringify({ messages: chatHistory, model: modelSelector?.value })
         });
         typingIndicator?.classList.remove("visible");
@@ -225,7 +240,11 @@ memorizeBtn?.addEventListener("click", async () => {
     try {
         const res = await fetch("/api/memorize", { 
             method: "POST", 
-            headers: { "x-session-id": sessionId }, 
+            headers: { 
+                 "x-session-id": sessionId,
+                 "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
+                 "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
+            }, 
             body: formData 
         });
         
@@ -318,7 +337,13 @@ window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
 // --- INITIALIZATION ---
 async function init() {
     try {
-        const res = await fetch('/api/history', { headers: { 'x-session-id': sessionId } });
+        const res = await fetch('/api/history', {
+            headers: {
+             'x-session-id': sessionId,
+             'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+             'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+         }
+    });
         if (res.ok) {
             const data = await res.json();
             const messages = data.messages || [];
@@ -329,7 +354,13 @@ async function init() {
             }
         }
 
-        const profileRes = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
+        const profileRes = await fetch('/api/profile', {
+            headers: {
+            'x-session-id': sessionId,
+            'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+            'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+          }
+      });
         if (profileRes.ok) {
             const data = await profileRes.json();
            // Mobile guard - never apply fancy theme on mobile screens
