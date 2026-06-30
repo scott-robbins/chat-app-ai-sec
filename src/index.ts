@@ -1317,7 +1317,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
         						minutes = 1;
     							}
     
-    							const alarmTime = Date.now() + (minutes * 60 * 1000);
+    							const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
     
     							try {
         							await this.doCtx.storage.put("timerZone", zone);
@@ -1329,7 +1329,9 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
         							console.log("[TIMER DISPATCH] Verification readback - alarm:", verifyAlarm, "expected:", alarmTime, "match:", verifyAlarm === alarmTime, "zone:", verifyZone);
 									
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-                                    chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })}]*`;
+									const displayTime = new Date(Date.now() + (minutes * 60 * 1000) + 5000).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
+									chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*`;
+
 									const durationMs = minutes * 60 * 1000;
 									chatTxt += `\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
 
