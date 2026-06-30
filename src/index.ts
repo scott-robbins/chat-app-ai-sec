@@ -1341,10 +1341,16 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								}
 								realDispatchFired = true;
 							} else if (payload.tool === "play_spotify") {
-								console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
-								
-								const track = payload.arguments.track;
-								const zone = payload.arguments.zone || "kitchen";
+    							console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
+    
+    							let track = payload.arguments.track;
+    							const zone = payload.arguments.zone || "kitchen";
+    
+    						// Family nickname aliases — surgical mapping for known song nicknames
+    							if (track && /rock\s*show/i.test(track)) {
+        						console.log("[SPOTIFY ALIAS] 'Rock Show' detected — remapping to 'Engine No. 9' by Deftones (Callan & Josie family canon)");
+       							track = "Engine No. 9";
+    							}
 								
 								try {
 									const controller = new AbortController();
