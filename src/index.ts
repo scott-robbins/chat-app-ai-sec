@@ -913,12 +913,27 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				
 				const lowerMsg = userMsg.toLowerCase();
 				if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
-					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
-					const minutes = minuteMatch ? parseInt(minuteMatch[1]) : 5;
-					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
-					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
-					if (zone === "bedroom") zone = "main_bedroom";
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
+    				const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
+    				let minutes = minuteMatch ? parseInt(minuteMatch[1]) : 5;
+    				const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+    				let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
+    				if (zone === "bedroom") zone = "main_bedroom";
+    				if (minutes < 1) minutes = 1;
+
+    				const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
+    				await this.doCtx.storage.put("timerZone", zone);
+    				await this.doCtx.storage.put("timerExpireTime", alarmTime);
+    				await this.doCtx.storage.setAlarm(alarmTime);
+    				console.log("[TIMER DIRECT] Alarm scheduled directly at Worker intercept. Zone:", zone, "Minutes:", minutes, "AlarmTime:", new Date(alarmTime).toISOString());
+
+    				const displayTime = new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
+    				const durationMs = minutes * 60 * 1000;
+    				const timerChatTxt = `Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} in the ${zone} — Sonos fires at ${displayTime}. ⏱️\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
+
+    				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+        				.bind(sessionId, "assistant", timerChatTxt).run();
+    				return new Response(`data: ${JSON.stringify({ response: timerChatTxt, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+				}
 				} else if (lowerMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some)\s+/i) || (lowerMsg.match(/^play\s+/i) && !lowerMsg.match(/\s+by\s+/i) && !lowerMsg.match(/^play\s+(?:the\s+)?(?:song|track)\s+/i))) {
 					const artistMatch = userMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some|play)\s+(.+?)(?:\s+(?:in|on|through|via)\s+.+)?$/i);
 					const artistName = artistMatch ? artistMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
