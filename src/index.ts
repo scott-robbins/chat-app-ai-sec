@@ -949,16 +949,21 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a queue of tracks by an artist. You MUST execute the tool "spotify_artist" with arguments { "artist": "${artistName}", "zone": "${zone}" }. Respond naturally confirming the artist queue is starting (e.g., "Queueing up ${artistName} on the ${zone} Sonos — 10 tracks loaded"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (lowerMsg.match(/^(?:play|listen to|queue|put on)\s+/i)) {
 					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via|by)\s+.+)?$/i);
-					const trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
+					let trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
 
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 
+					// Rock Show alias — Callan and Josie's favorite = Engine No. 9 by Deftones
+					if (lowerMsg.includes("rock show")) {
+						trackName = "Engine No. 9 Deftones";
+					}
+
 					// Pre-dispatch: fire Sonos announcement BEFORE music starts (fail silently on error)
 					let announcePhrase: string;
 					if (lowerMsg.includes("rock show")) {
-						announcePhrase = `Playing Rock Show in the ${zone} for Callan and Josie`;
+						announcePhrase = `Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie`;
 					} else {
 						const trackTemplates = [
 							`Playing ${trackName} in the ${zone} now`,
