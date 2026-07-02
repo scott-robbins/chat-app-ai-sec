@@ -353,11 +353,10 @@ if ('serviceWorker' in navigator) {
 			</div>
 
 			<div class="message-input">
-				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
-					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
-					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
-					<span id="file-name-indicator" style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
-					<input type="file" id="file-input" style="display: none;">
+				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px; align-items: center;">
+    				<button id="upload-btn" class="btn-secondary" title="Upload file" style="padding: 6px 8px; font-size: 0.9rem; line-height: 1;"><i class="ph ph-upload"></i></button>
+    				<span id="file-name-indicator" style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
+    				<input type="file" id="file-input" style="display: none;">
 				</div>
 				<div class="input-row">
     				<textarea id="user-input" placeholder="Ask Jolene a question..." rows="1"></textarea>
