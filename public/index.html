@@ -1010,6 +1010,23 @@ const timerMetaObserver = new MutationObserver((mutations) => {
         }
     }
 });
+function checkForTimerMeta(messageNode) {
+    const html = messageNode.innerHTML;
+    const metaMatch = html.match(/<!--\s*TIMER_META:\s*(\{[^}]+\})\s*-->/);
+    if (metaMatch) {
+        try {
+            const payload = JSON.parse(metaMatch[1]);
+            if (payload.endTime && payload.zone && payload.minutes) {
+                // Check if this is a new timer (not already showing this one)
+                if (activeTimerEndTime !== payload.endTime) {
+                    showTimerWidget(payload.endTime, payload.zone, payload.minutes);
+                }
+            }
+        } catch (e) {
+            console.warn('[TIMER WIDGET] Failed to parse TIMER_META:', e);
+        }
+    }
+}
 
 timerMetaObserver.observe(chatMessagesContainer, {
     childList: true,
