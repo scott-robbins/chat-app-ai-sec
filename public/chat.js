@@ -192,6 +192,7 @@ async function sendMessage() {
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+        if (typeof checkForTimerMeta === 'function') checkForTimerMeta(msgEl);
         chatHistory.push({ role: "assistant", content: text });
         speak(text);
         updateSidebarContent();
