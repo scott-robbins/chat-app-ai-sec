@@ -1192,7 +1192,57 @@ ${canonContext}${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTOR
 ${crossSessionMemory}`;
 
 				const userMessageText = body.messages[body.messages.length - 1].content;
-				
+
+				// ==================== TIMER INTERCEPT ====================
+				// Bypass LLM for timer requests — pattern match user message
+				// and schedule DO alarm directly. Solves trigger reliability issue.
+				const timerRegex = /(?:set\s+(?:a\s+)?)?(?:(\d+)\s*[- ]?\s*(?:minute|min|m)\b)|timer\s+(?:for\s+)?(\d+)/i;
+				const timerMatch = userMessageText.match(timerRegex);
+				const hasTimerKeyword = /\btimer\b/i.test(userMessageText);
+
+				if (timerMatch && hasTimerKeyword) {
+					const minutesRaw = parseInt(timerMatch[1] || timerMatch[2], 10);
+					let minutes = isNaN(minutesRaw) ? 1 : minutesRaw;
+					if (minutes < 1) minutes = 1;
+
+					const zoneRegex = /\b(kitchen|theater|master[\s_-]?bedroom|main[\s_-]?bedroom|bedroom|office)\b/i;
+					const zoneMatch = userMessageText.match(zoneRegex);
+					let zone = "kitchen";
+					if (zoneMatch) {
+						const z = zoneMatch[1].toLowerCase().replace(/[\s_-]/g, "");
+						if (z.includes("bedroom")) zone = "main_bedroom";
+						else if (z === "theater") zone = "theater";
+						else if (z === "office") zone = "office";
+						else zone = "kitchen";
+					}
+
+					console.log("[TIMER INTERCEPT] Bypassing LLM. minutes:", minutes, "zone:", zone);
+
+					const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
+
+					try {
+						await this.doCtx.storage.put("timerZone", zone);
+						await this.doCtx.storage.put("timerExpireTime", alarmTime);
+						await this.doCtx.storage.setAlarm(alarmTime);
+
+						const verifyAlarm = await this.doCtx.storage.getAlarm();
+						console.log("[TIMER INTERCEPT] Verification - alarm:", verifyAlarm, "match:", verifyAlarm === alarmTime);
+
+						const displayTime = new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
+						const durationMs = minutes * 60 * 1000;
+						const responseText = `Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} in the ${zone.replace('_', ' ')} — Jolene's voice will fire when done. 🎯\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
+
+						return new Response(
+							`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`,
+							{ headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } }
+						);
+					} catch (timerErr: any) {
+						console.error("[TIMER INTERCEPT] Failed to schedule alarm:", timerErr.message);
+						// Fall through to LLM as fallback
+					}
+				}
+				// ==================== END TIMER INTERCEPT ====================
+
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
 
