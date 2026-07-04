@@ -497,7 +497,7 @@ if ('serviceWorker' in navigator) {
 				appendMessage('system-indicator', `Memorizing ${file.name}...`);
 				const formData = new FormData();
 				formData.append('file', file);
-				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId }, body: formData });
+				await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
 				fileNameIndicator.innerText = "";
 				fileInput.value = "";
 				updateDashboard();
