@@ -545,7 +545,13 @@ if ('serviceWorker' in navigator) {
 
 			async function updateDashboard() {
 				try {
-					const res = await fetch('/api/profile', { headers: { 'x-session-id': sessionId } });
+					const res = await fetch('/api/profile', { 
+						headers: { 
+							'x-session-id': sessionId,
+							'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+							'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+						} 
+					});
 					const data = await res.json();
 					
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
