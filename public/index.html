@@ -508,10 +508,14 @@ if ('serviceWorker' in navigator) {
 				if (!confirm("### ⚠️ WARNING\nThis will permanently wipe Scott's identity, tax records, and chat history from the edge. Proceed?")) return;
 				
 				try {
-					const res = await fetch('/api/reset', { 
-						method: 'POST', 
-						headers: { 'x-session-id': sessionId } 
-					});
+				const res = await fetch('/api/reset', { 
+					method: 'POST', 
+					headers: { 
+						'x-session-id': sessionId,
+						'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+						'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+					} 
+				});
 					
 					if (res.ok) {
 						appendMessage('system-indicator', "System: Edge Wipe Complete. Refreshing environment...");
