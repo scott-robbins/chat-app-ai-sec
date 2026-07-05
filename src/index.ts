@@ -11,17 +11,17 @@ const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
  */
 function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 	const lower = message.toLowerCase();
-	
+
 	const heavyKeywords = [
-		'code', 'debug', 'architecture', 'audit', 'memory', 'diagnose', 'refactor', 
-		'deploy', 'error', 'exception', 'stack trace', 'regex', 'src/', '.ts', 
+		'code', 'debug', 'architecture', 'audit', 'memory', 'diagnose', 'refactor',
+		'deploy', 'error', 'exception', 'stack trace', 'regex', 'src/', '.ts',
 		'.js', '.html', 'function', 'class', 'interface', 'schema', 'migration'
 	];
-	
+
 	const mediumKeywords = [
-		'remember', 'recall', 'what did', 'who is', 'when did', 'calendar', 
-		'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare', 
-		'family', 'kids', 'pi', 'mcp', 'theater', 'kitchen', 'master bedroom', 
+		'remember', 'recall', 'what did', 'who is', 'when did', 'calendar',
+		'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare',
+		'family', 'kids', 'pi', 'mcp', 'theater', 'kitchen', 'master bedroom',
 		'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat',
 		'timer', 'set a timer', 'set timer', 'play', 'spotify', 'music', 'song'
 	];
@@ -177,52 +177,52 @@ export class ChatSession extends DurableObject<Env> {
 	private doCtx: DurableObjectState;
 	private threadWorkingMemory: Record<string, string> = {};
 
-	constructor(ctx: DurableObjectState, env: Env) { 
-		super(ctx, env); 
+	constructor(ctx: DurableObjectState, env: Env) {
+		super(ctx, env);
 		this.doCtx = ctx;
 		console.log(`[DO INIT] New Durable Object context lifecycle frame generated via unique ID identifier: ${ctx.id.toString()}`);
 	}
-	
+
 	async alarm() {
-    console.log("[TIMER ALARM] Durable Object alarm fired at", new Date().toISOString());
-    try {
-        const storedZone = await this.doCtx.storage.get<string>("timerZone") || "kitchen";
-        console.log("[TIMER ALARM] Retrieved zone from storage:", storedZone);
-        const timerLines = [
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-1.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-2.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-3.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-4.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-5.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-6.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-7.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-8.mp3",
-            "https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-9.mp3"
-        ];
-        const voiceUrl = timerLines[Math.floor(Math.random() * timerLines.length)];
-        console.log("[TIMER ALARM] Firing voice line to zone:", storedZone, "URL:", voiceUrl);
-        
-        try {
-            await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    tool: "control_sonos_audio",
-                    arguments: { zone: storedZone, audioUrl: voiceUrl }
-                })
-            });
-            console.log("[TIMER ALARM] Voice line dispatched successfully");
-        } catch (voiceErr) {
-            console.error("[TIMER ALARM] Voice line dispatch failed:", voiceErr);
-        }
-        
-        await this.doCtx.storage.delete("timerZone");
-        await this.doCtx.storage.delete("timerExpireTime");
-        console.log("[TIMER ALARM] Sequence complete, storage cleaned");
-    } catch (err) {
-        console.error("[TIMER ALARM] Top-level failure:", err);
-    }
-}
+		console.log("[TIMER ALARM] Durable Object alarm fired at", new Date().toISOString());
+		try {
+			const storedZone = await this.doCtx.storage.get<string>("timerZone") || "kitchen";
+			console.log("[TIMER ALARM] Retrieved zone from storage:", storedZone);
+			const timerLines = [
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-1.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-2.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-3.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-4.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-5.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-6.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-7.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-8.mp3",
+				"https://jolene-audio.jolenesego.com/jolene-alarm/timer-done-9.mp3"
+			];
+			const voiceUrl = timerLines[Math.floor(Math.random() * timerLines.length)];
+			console.log("[TIMER ALARM] Firing voice line to zone:", storedZone, "URL:", voiceUrl);
+
+			try {
+				await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						tool: "control_sonos_audio",
+						arguments: { zone: storedZone, audioUrl: voiceUrl }
+					})
+				});
+				console.log("[TIMER ALARM] Voice line dispatched successfully");
+			} catch (voiceErr) {
+				console.error("[TIMER ALARM] Voice line dispatch failed:", voiceErr);
+			}
+
+			await this.doCtx.storage.delete("timerZone");
+			await this.doCtx.storage.delete("timerExpireTime");
+			console.log("[TIMER ALARM] Sequence complete, storage cleaned");
+		} catch (err) {
+			console.error("[TIMER ALARM] Top-level failure:", err);
+		}
+	}
 
 	async saveMsg(sessionId: string, role: string, content: string) {
 		try {
@@ -234,7 +234,7 @@ export class ChatSession extends DurableObject<Env> {
 	// === MULTI-DAY DYNAMIC NBA DATA ENGINE ===
 	async getLiveNBAScore(query: string): Promise<string> {
 		console.log("[NBA LIVE] getLiveNBAScore fired with query:", query);
-		
+
 		try {
 			const normalizedQuery = query.toLowerCase();
 			const today = new Date();
@@ -242,7 +242,7 @@ export class ChatSession extends DurableObject<Env> {
 			const mm = String(today.getMonth() + 1).padStart(2, '0');
 			const dd = String(today.getDate()).padStart(2, '0');
 			const todayStr = `${yyyy}-${mm}-${dd}`;
-			
+
 			// Compute "recent window" — today + last 7 days for "most recent completed" queries
 			const recentDates: string[] = [];
 			for (let i = 0; i < 8; i++) {
@@ -275,7 +275,7 @@ export class ChatSession extends DurableObject<Env> {
 						} else {
 							console.error(`[NBA LIVE] RapidAPI day fetch failed for ${dateStr}, status: ${dayRes.status}`);
 						}
-					} catch(dayErr) {
+					} catch (dayErr) {
 						console.error(`[NBA LIVE] RapidAPI day fetch exception for ${dateStr}:`, dayErr);
 					}
 				}
@@ -340,7 +340,7 @@ export class ChatSession extends DurableObject<Env> {
 
 							if (players.length > 0) {
 								contextPayload += `\n\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS ===\n`;
-								
+
 								// Group by team
 								const byTeam: Record<string, any[]> = {};
 								for (const p of players) {
@@ -382,7 +382,7 @@ export class ChatSession extends DurableObject<Env> {
 
 			// === FALLBACK PATH: ESPN public API (preserved from prior implementation) ===
 			console.log("[NBA LIVE] Entering ESPN fallback path");
-			
+
 			const [resToday, resYesterday, resPlayoffs] = await Promise.all([
 				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", { headers: { "User-Agent": "Mozilla/5.0" } }),
 				fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?days=1", { headers: { "User-Agent": "Mozilla/5.0" } }),
@@ -486,7 +486,7 @@ export class ChatSession extends DurableObject<Env> {
 						for (const teamEntry of summaryData.boxscore.teams) {
 							const teamDisplayName = teamEntry.team?.displayName || "Unknown Team";
 							const statistics = teamEntry.statistics || [];
-							
+
 							let avgPoints = "0";
 							let avgPointsAgainst = "0";
 							let fieldGoalPct = "0";
@@ -523,7 +523,7 @@ export class ChatSession extends DurableObject<Env> {
 				headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
 			});
 			const text = await res.text();
-			
+
 			if (text.includes("lastPrice")) {
 				const match = text.match(/"lastPrice":\s*\{\s*"value":\s*([0-9.]+)/);
 				if (match && match[1]) {
@@ -535,7 +535,7 @@ export class ChatSession extends DurableObject<Env> {
 			return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} trading at $210.13 per share.`;
 		}
 	}
-async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number; expires_at_iso: string } | null> {
+	async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number; expires_at_iso: string } | null> {
 		try {
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -557,12 +557,12 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 			return null;
 		}
 	}
-	
+
 	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
-			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); } 
+			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
@@ -573,7 +573,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 		let url = `${gatewayBase}/anthropic/v1/messages`;
 		let headers = { "Content-Type": "application/json", "x-api-key": this.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" };
-		
+
 		let incomingModel = model || DEFAULT_MODEL_ROUTING;
 		const cleanModel = incomingModel.replace("anthropic/", "").replace("4.7", "4-7");
 		const body = { model: cleanModel, system: systemPrompt, messages: chatMessages, max_tokens: 8192 };
@@ -600,16 +600,16 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 
 			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
-				headers: { 
+				headers: {
 					'Content-Type': 'application/json',
 					'Authorization': `Bearer ${this.env.TAVILY_API_KEY || ""}`
 				},
-				body: JSON.stringify({ 
-					query: `${deepQuery} live now`, 
-					search_depth: "advanced", 
+				body: JSON.stringify({
+					query: `${deepQuery} live now`,
+					search_depth: "advanced",
 					topic: topicMode,
-					include_answer: true, 
-					max_results: 10 
+					include_answer: true,
+					max_results: 10
 				})
 			});
 
@@ -623,9 +623,9 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 			console.log("Tavily raw response payload:", JSON.stringify(data));
 
 			return `[LIVE TAVILY FEED] Current Time Horizon: ${dateStr}\nDIRECT_ANSWER: ${data.answer || "N/A"}\n\nSOURCES:\n${data.results?.map((r: any) => `- ${r.title}: ${r.content}`).join("\n")}\n[/END FEED]`;
-		} catch (e) { 
+		} catch (e) {
 			console.error("Tavily search threw exception:", e);
-			return "Search unavailable."; 
+			return "Search unavailable.";
 		}
 	}
 
@@ -636,35 +636,35 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 
 	detectSearchIntent(userMsg: string): boolean {
 		const lower = (userMsg || "").toLowerCase();
-		
+
 		if (/\b(search|look up|lookup|google|find out|what is|what's|who is|who's|when did|when is|where did|where is|how much|how many)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		if (/\b(today|yesterday|tonight|this week|current|latest|news|breaking|just happened|recently)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		if (/\b(who won|who's playing|score of|game score|red sox|patriots|celtics|nba|nfl|mlb|world cup|ufc)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		if (/\b(weather|forecast|temperature outside|raining|snow|storm)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		if (/\b(on netflix|on hulu|on max|on prime|streaming|movie|tv show|series)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		if (/\b(stock price|market cap|shares|nasdaq|dow|s&p)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		if (/\b(taylor swift|kanye|joe rogan|elon musk|trump|biden|logan paul|jake paul)\b/.test(lower)) {
 			return true;
 		}
-		
+
 		return false;
 	}
 
@@ -675,7 +675,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 		}
 		try {
 			console.log("[VOICE] generateHerAudioStream called. Text length:", textToSpeak.length);
-			const VOICE_ID = "kumVRZ0vIS8Ka7L4m8ed"; 
+			const VOICE_ID = "kumVRZ0vIS8Ka7L4m8ed";
 			const url = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`;
 
 			const cleanText = textToSpeak.split("🚨THEATER_ACTION_TRIGGER:")[0]
@@ -739,7 +739,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 			const personality = await this.env.SETTINGS.get("personality") || "warm";
 			const history = await this.env.jolene_db.prepare("SELECT role, content FROM (SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100) ORDER BY id ASC").bind(sessionId).all();
 			const storage = await this.env.DOCUMENTS.list();
-			
+
 			return new Response(JSON.stringify({
 				profile: `Scott E Robbins | Cloudflare Solutions Engineer`,
 				messages: history.results || [],
@@ -755,12 +755,12 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 		if (url.pathname === "/api/diagnostic") {
 			try {
 				const results: any = { timestamp: new Date().toISOString(), tests: {} };
-				
-				try { results.tests.indexDescribe = await this.env.VECTORIZE.describe(); } catch(e: any){ results.tests.indexDescribe = { error: e.message }; }
+
+				try { results.tests.indexDescribe = await this.env.VECTORIZE.describe(); } catch (e: any) { results.tests.indexDescribe = { error: e.message }; }
 
 				const probePhrase = "Bry is pregnant with her third child a boy due November 2026";
 				const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [probePhrase] });
-				
+
 				// 🛠️ NAMESPACE AUDIT PASS: Inspecting the separate segments cleanly using native syntax
 				const matches = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 10, returnMetadata: "all", namespace: "canon" });
 
@@ -794,7 +794,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				if (!rawText) {
 					return new Response(JSON.stringify({ success: false, error: "R2 Object read context resolved empty character string string." }), { status: 500, headers });
 				}
-				
+
 				// 🧹 DYNAMIC GHOST DRAGNET HARVEST PRUNER: Scan index namespaces to harvest absolute IDs from zombie shards dynamically
 				const macroGhostTokens = [
 					"Josie", "Callan", "music", "heavy metal", "deftones", "diner", "diner-3-9.pdf", "Family-and-Personal-v4.txt", "Family-and-Personal-v2.txt", "Renee", "Bry",
@@ -802,7 +802,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 					"a", "e", "i", "o", "u", "t", "s", "n"
 				];
 				let deadChunkIds = new Set<string>(["1cbdff51-bafd-46e1-b8cc-bf1cb213ec50"]);
-				
+
 				for (const token of macroGhostTokens) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [token] });
 					const scan = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 20, returnMetadata: "all" });
@@ -828,7 +828,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 
 				const legacyIds = Array.from({ length: 250 }, (_, i) => `v8-identity-chunk-${i}`);
 				for (let i = 0; i < legacyIds.length; i += 50) {
-					try { await this.env.VECTORIZE.deleteByIds(legacyIds.slice(i, i + 50)); } catch(e){}
+					try { await this.env.VECTORIZE.deleteByIds(legacyIds.slice(i, i + 50)); } catch (e) { }
 				}
 
 				// 🔬 JOLENE VERIFICATION GATE GATED PASS: Explicit zombie query validation check
@@ -868,11 +868,11 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				for (let i = 0; i < chunks.length; i++) {
 					const chunkText = chunks[i];
 					const embeddingResult = await this.env.AI.run(EMBEDDING_MODEL, { text: [chunkText] });
-					
+
 					upsertVectors.push({
 						id: `v8-identity-chunk-${i}`,
 						values: embeddingResult.data[0],
-						namespace: "canon", 
+						namespace: "canon",
 						metadata: { text: chunkText, contentType: "plaintext", source: "ScottIdentityV8.txt", fileName: "ScottIdentityV8.txt" }
 					});
 				}
@@ -890,7 +890,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				const testSentence = "Jolene online. Voice pipeline test firing. If you can hear this, Samantha is alive.";
 				const audioUrl = await this.generateHerAudioStream(testSentence);
 				console.log("[VOICE TEST] generateHerAudioStream outcome URL value:", audioUrl || "EMPTY_STRING");
-				
+
 				if (audioUrl) {
 					return new Response(JSON.stringify({
 						success: true,
@@ -917,18 +917,27 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				
+
+				// === USER NAMESPACE DERIVATION FROM CLOUDFLARE ACCESS ===
+				const authenticatedEmail = request.headers.get("Cf-Access-Authenticated-User-Email") || "";
+				let userId = "scott"; // default fallback
+				if (authenticatedEmail.toLowerCase().includes("renee")) {
+					userId = "renee";
+				} else if (authenticatedEmail.toLowerCase().includes("scott") || authenticatedEmail === "") {
+					userId = "scott";
+				}
+				console.log(`[USER NAMESPACE] Authenticated email: "${authenticatedEmail}" -> user_id: "${userId}"`);
 				// 🛡️ SECURITY FIX PASS 1: Validate personality property matches to ensure prototype properties cannot inject errors
 				const rawPersonality = await this.env.SETTINGS.get("personality") || "warm";
 				const currentPersonality = Object.prototype.hasOwnProperty.call(PERSONALITIES, rawPersonality) ? rawPersonality : "warm";
 
-				const easternTimeStr = new Intl.DateTimeFormat('en-US', { 
-					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York' 
+				const easternTimeStr = new Intl.DateTimeFormat('en-US', {
+					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York'
 				}).format(new Date());
-				
+
 				// Proactive Nest token age check — fires on every chat turn
 				const nestTokenStatus = await this.checkNestTokenStatus();
-				
+
 				await this.saveMsg(sessionId, 'user', userMsg);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 50").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
@@ -940,12 +949,12 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 					const daysWord = nestTokenStatus.days_remaining === 1 ? "day" : "days";
 					const reminderLevel = nestTokenStatus.urgency === "CRITICAL" ? "CRITICAL — reauth NOW or thermostats die" :
 						nestTokenStatus.urgency === "URGENT" ? "URGENT — expires tomorrow, run reauth today" :
-						"RED — expires in 2 days, schedule reauth soon";
+							"RED — expires in 2 days, schedule reauth soon";
 					liveContext = `[SYSTEM DIRECTIVE - NEST TOKEN PROACTIVE REMINDER] Your Nest OAuth refresh token is in ${reminderLevel} state (${nestTokenStatus.days_remaining} ${daysWord} remaining, expires ${nestTokenStatus.expires_at_iso}). You MUST proactively raise this in conversation with Scott naturally. Do NOT be silent. Examples: "Heads up — your Nest token dies in 2 days." OR "Hey — token expires tomorrow, run the reauth script today before it breaks." OR "Your Nest token is DEAD or expiring today — run the reauth NOW." Pick the tone that matches urgency level. Make it conversational, not robotic. This is NOT optional.`;
 				} else if (nestTokenStatus?.urgency === "YELLOW") {
 					liveContext = `[SYSTEM CONTEXT - NEST TOKEN YELLOW ZONE] Your Nest token has 3-4 days remaining (expires ${nestTokenStatus.expires_at_iso}). No action required yet, but you may proactively mention this if it naturally fits the conversation flow (e.g., if Scott asks about planning something for next week, you could say "By the way, Nest reauth window coming up next week"). Not mandatory, but optional awareness.`;
 				}
-				
+
 				const lowerMsg = userMsg.toLowerCase();
 				if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
@@ -1022,7 +1031,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackName} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (lowerMsg.match(/\b(?:skip|next track|next song|pause|resume|unpause|louder|quieter)\b/i) || lowerMsg.match(/(?:volume\s+to|set\s+volume\s+to)\s+\d+/i)) {
 
-					
+
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
@@ -1070,16 +1079,16 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 							console.error("[TRANSPORT DIRECT] Direct dispatch failed:", transportDirectErr.message);
 						}
 					}
-					
-		        } else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
+
+				} else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
 				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
-    				liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				} else if (this.detectSearchIntent(userMsg)) {
-    				console.log("[SEARCH INTERCEPT] detectSearchIntent matched — firing Tavily for query:", userMsg);
-    				liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+					console.log("[SEARCH INTERCEPT] detectSearchIntent matched — firing Tavily for query:", userMsg);
+					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
 
@@ -1098,7 +1107,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 					else if (lowerMsg.includes("kitchen")) sonosTargetZone = "kitchen";
 					else sonosTargetZone = "office";
 
-				liveContext = liveContext + `\n\n[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user explicitly used "say to" or "speak to" or "announce" which is a HARD COMMAND to fire the control_sonos_audio tool. You MUST emit the trigger payload at the very end of your response. This is NOT optional. Even if the question has a clear answer, you must answer it AND emit the trigger payload to broadcast that answer to the "${sonosTargetZone}" zone. Construct your response as the actual spoken content you want broadcast through Sonos. Do not mention URL strings.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+					liveContext = liveContext + `\n\n[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user explicitly used "say to" or "speak to" or "announce" which is a HARD COMMAND to fire the control_sonos_audio tool. You MUST emit the trigger payload at the very end of your response. This is NOT optional. Even if the question has a clear answer, you must answer it AND emit the trigger payload to broadcast that answer to the "${sonosTargetZone}" zone. Construct your response as the actual spoken content you want broadcast through Sonos. Do not mention URL strings.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
 				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
@@ -1132,7 +1141,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				for (const term of searchTerms) {
 					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
 					console.log(`[VECTORIZE RETRIEVAL DIAL] Querying index namespace via token: "${term}"`);
-					
+
 					const matchesCanon = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "canon" });
 					const matchesEpisodic = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "episodic" });
 					const matchesWork = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "work" });
@@ -1154,7 +1163,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 					.map(m => {
 						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
 						let provenance = m.metadata.source || m.metadata.fileName || "unknown_origin";
-						
+
 						if (!m.metadata.source && !m.metadata.fileName) {
 							if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
 							else if (text.includes("Saved on")) provenance = "live_session_write";
@@ -1205,7 +1214,7 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
 					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 50"
 				).bind(sessionId).all();
-				
+
 				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
 					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
 					: "No out-of-band dialogue lines archived in production dialogue databases yet.";
@@ -1370,7 +1379,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 				let realDispatchFired = false;
 				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}]THEATER_ACTION_TRIGGER:\s*\{/u;
-				
+
 				if (strictTriggerRegex.test(chatTxt)) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => strictTriggerRegex.test(line));
@@ -1380,7 +1389,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
 								const rawFact = payload.arguments.factToRemember;
-								
+
 								let isDuplicate = false;
 								let existingId: number | null = null;
 								try {
@@ -1391,10 +1400,10 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										isDuplicate = true;
 										existingId = existingCheck.id;
 									}
-								} catch(e){}
+								} catch (e) { }
 
 								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
-								
+
 								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
 								const ephemeralKey = `fact_${Date.now()}`;
 								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
@@ -1411,7 +1420,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										const insertResult = await this.env.jolene_db.prepare(
 											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
 										).bind(easternTimeStr, rawFact, "live_session_write").run();
-										
+
 										const insertedRowId = insertResult.meta?.last_row_id;
 										const changesApplied = insertResult.meta?.changes || 0;
 
@@ -1420,7 +1429,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 											newRowId = insertedRowId;
 										}
 										console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata. success: ${insertResult.success}, last_row_id: ${insertedRowId}, changes: ${changesApplied}, writeOk: ${writeOk}`);
-									} catch(sqlErr) {
+									} catch (sqlErr) {
 										console.error("Episodic D1 write block caught an exception:", sqlErr);
 										console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata caught error execution. writeOk: ${writeOk}`);
 									}
@@ -1428,7 +1437,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 									if (writeOk && newRowId !== null) {
 										const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
 										const uniqueMemoryId = `mem-${Date.now()}`;
-										
+
 										await this.env.VECTORIZE.upsert([{
 											id: uniqueMemoryId,
 											values: factVector.data[0],
@@ -1446,28 +1455,28 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								}
 								realDispatchFired = true;
 							} else if (payload.tool === "set_timer") {
-    							console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
-    
-    							let minutes = payload.arguments.minutes || 5;
-    							const zone = payload.arguments.zone || "kitchen";
-    
-    							// Enforce 1-minute minimum — Cloudflare DO alarms have platform floor
-   		 						if (minutes < 1) {
-        						console.log("[TIMER DISPATCH] Sub-1-minute timer requested:", minutes, "minutes. Rounding up to 1 minute (platform minimum)");
-        						minutes = 1;
-    							}
-    
-    							const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
-    
-    							try {
-        							await this.doCtx.storage.put("timerZone", zone);
-        							await this.doCtx.storage.put("timerExpireTime", alarmTime);
-        							await this.doCtx.storage.setAlarm(alarmTime);
-        
-        							const verifyAlarm = await this.doCtx.storage.getAlarm();
-       								const verifyZone = await this.doCtx.storage.get<string>("timerZone");
-        							console.log("[TIMER DISPATCH] Verification readback - alarm:", verifyAlarm, "expected:", alarmTime, "match:", verifyAlarm === alarmTime, "zone:", verifyZone);
-									
+								console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
+
+								let minutes = payload.arguments.minutes || 5;
+								const zone = payload.arguments.zone || "kitchen";
+
+								// Enforce 1-minute minimum — Cloudflare DO alarms have platform floor
+								if (minutes < 1) {
+									console.log("[TIMER DISPATCH] Sub-1-minute timer requested:", minutes, "minutes. Rounding up to 1 minute (platform minimum)");
+									minutes = 1;
+								}
+
+								const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
+
+								try {
+									await this.doCtx.storage.put("timerZone", zone);
+									await this.doCtx.storage.put("timerExpireTime", alarmTime);
+									await this.doCtx.storage.setAlarm(alarmTime);
+
+									const verifyAlarm = await this.doCtx.storage.getAlarm();
+									const verifyZone = await this.doCtx.storage.get<string>("timerZone");
+									console.log("[TIMER DISPATCH] Verification readback - alarm:", verifyAlarm, "expected:", alarmTime, "match:", verifyAlarm === alarmTime, "zone:", verifyZone);
+
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 									const displayTime = new Date(Date.now() + (minutes * 60 * 1000) + 5000).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
 									chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*`;
@@ -1483,21 +1492,21 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								}
 								realDispatchFired = true;
 							} else if (payload.tool === "play_spotify") {
-    							console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
-    
-    							let track = payload.arguments.track;
-    							const zone = payload.arguments.zone || "kitchen";
-    
-    						// Family nickname aliases — surgical mapping for known song nicknames
-    							if (track && /rock\s*show/i.test(track)) {
-        						console.log("[SPOTIFY ALIAS] 'Rock Show' detected — remapping to 'Engine No. 9' by Deftones (Callan & Josie family canon)");
-       							track = "Engine No. 9";
-    							}
-								
+								console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
+
+								let track = payload.arguments.track;
+								const zone = payload.arguments.zone || "kitchen";
+
+								// Family nickname aliases — surgical mapping for known song nicknames
+								if (track && /rock\s*show/i.test(track)) {
+									console.log("[SPOTIFY ALIAS] 'Rock Show' detected — remapping to 'Engine No. 9' by Deftones (Callan & Josie family canon)");
+									track = "Engine No. 9";
+								}
+
 								try {
 									const controller = new AbortController();
 									const timeoutId = setTimeout(() => controller.abort(), 15000);
-									
+
 									const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 										method: "POST",
 										headers: { "Content-Type": "application/json" },
@@ -1507,10 +1516,10 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										}),
 										signal: controller.signal
 									});
-									
+
 									clearTimeout(timeoutId);
 									const piResult: any = await piResponse.json();
-									
+
 									if (piResponse.ok && piResult.status === "Success") {
 										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 										chatTxt += `\n\n🎵 *[${piResult.message}]*`;
@@ -1581,11 +1590,11 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 								if (mcpOk) {
 									chatTxt += "\n\n" + "✅ *[Tool executed via Pi: " + payload.tool + "]*" + "\n\n```\n" + mcpResultText + "\n```";
-									
+
 									// === SECOND-PASS SUMMARIZER ENGINE EXECUTION ===
 									try {
 										console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
-										
+
 										const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
 
 										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
@@ -1610,7 +1619,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 										const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
 										const secondPassUrl = `${gatewayBase}/anthropic/v1/messages`;
-										
+
 										const secondPassHeaders = {
 											"Content-Type": "application/json",
 											"x-api-key": this.env.ANTHROPIC_API_KEY || "",
@@ -1635,7 +1644,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 											messages: chatMessages,
 											max_tokens: 8192
 										};
-										
+
 										console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
 										const secondPassRes = await fetch(secondPassUrl, {
 											method: "POST",
@@ -1649,7 +1658,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 											if (summaryText) {
 												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
 												chatTxt = summaryText;
-												
+
 												if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
 
 											} else {
@@ -1729,7 +1738,7 @@ PRONUNCIATION RULES — apply these spellings so the text-to-speech engine prono
 - The last name Frysinger: always spell as "Fry-Singer"
 
 Content to speak as Jolene: ${chatTxt}`;
-						
+
 						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
 						const summaryHeaders = {
 							"Content-Type": "application/json",
@@ -1760,65 +1769,65 @@ Content to speak as Jolene: ${chatTxt}`;
 					}
 				}
 
-									// Detect Sonos zone routing intent from user prompt
-					const userPromptLower = (userMsg || "").toLowerCase();
-					let sonosZone: string | null = null;
-					if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
-					
-					console.log("[SONOS ZONE] Detected:", sonosZone || "none");
-					
-					let voiceUrl: string | null = null;
-					const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
-					const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
-					
-					const shouldGenerateAudio = (body.voiceEnabled === true || sonosZone !== null)
-					    && sentenceCount >= 1 && sentenceCount <= 2
-					    && this.env.ELEVEN_LABS_API_KEY
-					    && voiceSummaryText;
-					
-					if (shouldGenerateAudio) {
-					    const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
-					    voiceUrl = generatedAudio || null;
-					    console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
-					
-					    if (sonosZone && voiceUrl) {
-					        try {
-					            await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-					                method: "POST",
-					                headers: { "Content-Type": "application/json" },
-					                body: JSON.stringify({
-					                    tool: "control_sonos_audio",
-					                    arguments: { zone: sonosZone, audioUrl: voiceUrl }
-					                })
-					            });
-					            console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
-					        } catch (sonosErr) {
-					            console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
-					        }
-					    }
-					
-					    if (body.voiceEnabled !== true) voiceUrl = null;
-					} else {
-					    voiceUrl = null;
-					    console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
-					}
-					
-									await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-										.bind(sessionId, "assistant", chatTxt).run();
-									return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
-					
-								} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
-							}
-							return new Response("OK");
+				// Detect Sonos zone routing intent from user prompt
+				const userPromptLower = (userMsg || "").toLowerCase();
+				let sonosZone: string | null = null;
+				if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+
+				console.log("[SONOS ZONE] Detected:", sonosZone || "none");
+
+				let voiceUrl: string | null = null;
+				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
+				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
+
+				const shouldGenerateAudio = (body.voiceEnabled === true || sonosZone !== null)
+					&& sentenceCount >= 1 && sentenceCount <= 2
+					&& this.env.ELEVEN_LABS_API_KEY
+					&& voiceSummaryText;
+
+				if (shouldGenerateAudio) {
+					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
+					voiceUrl = generatedAudio || null;
+					console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
+
+					if (sonosZone && voiceUrl) {
+						try {
+							await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									tool: "control_sonos_audio",
+									arguments: { zone: sonosZone, audioUrl: voiceUrl }
+								})
+							});
+							console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
+						} catch (sonosErr) {
+							console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
 						}
 					}
-					
-					export default {
-						async fetch(request: Request, env: Env): Promise<Response> {
-							const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
-							return env.CHAT_SESSION.get(id).fetch(request);
-						}
-					} satisfies ExportedHandler<Env>;
+
+					if (body.voiceEnabled !== true) voiceUrl = null;
+				} else {
+					voiceUrl = null;
+					console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
+				}
+
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatTxt).run();
+				return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
+
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
+		}
+		return new Response("OK");
+	}
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const id = env.CHAT_SESSION.idFromName(request.headers.get("x-session-id") || "global");
+		return env.CHAT_SESSION.get(id).fetch(request);
+	}
+} satisfies ExportedHandler<Env>;
