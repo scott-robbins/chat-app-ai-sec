@@ -629,10 +629,45 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 		}
 	}
 
-		detectSonosZoneIntent(userMsg: string): boolean {
+	detectSonosZoneIntent(userMsg: string): boolean {
 		const lower = (userMsg || "").toLowerCase();
 		return /\b(answer|respond|reply|say|speak|tell|broadcast|announce|play|say it|put it)\s+(?:that\s+|this\s+)?(?:in|on|through|to|out of|via|over)\s+(?:the\s+)?(kitchen|theater|master\s+bedroom|bedroom|office)\b/.test(lower);
 	}
+
+	detectSearchIntent(userMsg: string): boolean {
+		const lower = (userMsg || "").toLowerCase();
+		
+		if (/\b(search|look up|lookup|google|find out|what is|what's|who is|who's|when did|when is|where did|where is|how much|how many)\b/.test(lower)) {
+			return true;
+		}
+		
+		if (/\b(today|yesterday|tonight|this week|current|latest|news|breaking|just happened|recently)\b/.test(lower)) {
+			return true;
+		}
+		
+		if (/\b(who won|who's playing|score of|game score|red sox|patriots|celtics|nba|nfl|mlb|world cup|ufc)\b/.test(lower)) {
+			return true;
+		}
+		
+		if (/\b(weather|forecast|temperature outside|raining|snow|storm)\b/.test(lower)) {
+			return true;
+		}
+		
+		if (/\b(on netflix|on hulu|on max|on prime|streaming|movie|tv show|series)\b/.test(lower)) {
+			return true;
+		}
+		
+		if (/\b(stock price|market cap|shares|nasdaq|dow|s&p)\b/.test(lower)) {
+			return true;
+		}
+		
+		if (/\b(taylor swift|kanye|joe rogan|elon musk|trump|biden|logan paul|jake paul)\b/.test(lower)) {
+			return true;
+		}
+		
+		return false;
+	}
+
 	async generateHerAudioStream(textToSpeak: string): Promise<string> {
 		if (!this.env.ELEVEN_LABS_API_KEY) {
 			console.error("[VOICE] Missing ELEVEN_LABS_API_KEY variable context flag.");
@@ -1041,8 +1076,12 @@ async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number;
 				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.fetchLiveTickerPrice("NET");
 				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+    				liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+				} else if (this.detectSearchIntent(userMsg)) {
+    				console.log("[SEARCH INTERCEPT] detectSearchIntent matched — firing Tavily for query:", userMsg);
+    				liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
+
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool ", "warm ", " heat", " ac ", "climate", "set at"].some(kw => lowerMsg.includes(kw)) && !lowerMsg.includes("say to") && !lowerMsg.includes("speak to") && !lowerMsg.includes("announce")) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
