@@ -1,865 +1,490 @@
 <!doctype html>
-<html lang="en" <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jolene AI</title>
-<link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#f6821f" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<link rel="icon" type="image/svg+xml"
-	href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%230f172a'/><text x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' font-family='-apple-system,system-ui,sans-serif' font-size='44' font-weight='800' fill='%23f6821f'>J</text></svg>" />
-
-<script src="https://unpkg.com/@phosphor-icons/web"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<link rel="stylesheet"
-	href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-
-<style>
-	:root {
-		--primary-color: #f6821f;
-		--primary-hover: #e67e22;
-		--primary-light: rgba(246, 130, 31, 0.1);
-		--light-bg: #f4f6f8;
-		--app-bg: #ffffff;
-		--border-color: #e2e8f0;
-		--text-color: #1e293b;
-		--text-color-dark: #0f172a;
-		--text-light: #64748b;
-		--user-msg-bg: #f6821f;
-		--user-msg-text: #ffffff;
-		--assistant-msg-bg: #ffffff;
-		--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
-	}
-
-	body.theme-fancy {
-		--app-bg: rgba(30, 41, 59, 0.4);
-		--light-bg: transparent;
-		--border-color: rgba(255, 255, 255, 0.1);
-		--text-color: #f8fafc;
-		--text-light: #cbd5e1;
-		--assistant-msg-bg: rgba(255, 255, 255, 0.05);
-		--body-bg: #0f172a;
-	}
-
-	body.theme-fancy .chat-container,
-	body.theme-fancy .sidebar {
-		backdrop-filter: blur(25px) saturate(180%);
-		-webkit-backdrop-filter: blur(25px) saturate(180%);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-		background-color: var(--app-bg);
-	}
-
-	body.theme-fancy #user-input {
-		background-color: rgba(0, 0, 0, 0.2);
-		color: white;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-	}
-
-	body.theme-fancy header h1 {
-		color: #ffffff;
-		text-shadow: 0 0 20px rgba(246, 130, 31, 0.4);
-	}
-
-	* {
-		box-sizing: border-box;
-		margin: 0;
-		padding: 0;
-	}
-
-	body {
-		font-family: -apple-system, system-ui, sans-serif;
-		color: var(--text-color);
-		background: var(--body-bg);
-		min-height: 100vh;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		padding: 2rem 1rem;
-		transition: background 0.5s ease;
-		overflow-x: hidden;
-	}
-
-	.lava-lamp-container {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100vw;
-		height: 100vh;
-		z-index: -1;
-		overflow: hidden;
-		display: none;
-		pointer-events: none;
-	}
-
-	body.theme-fancy .lava-lamp-container {
-		display: block;
-	}
-
-	.blob {
-		position: absolute;
-		border-radius: 50%;
-		filter: blur(80px);
-		opacity: 0.5;
-		animation: float 15s infinite alternate ease-in-out;
-	}
-
-	.blob1 {
-		width: 500px;
-		height: 500px;
-		background: #f6821f;
-		top: -100px;
-		left: -100px;
-	}
-
-	.blob2 {
-		width: 600px;
-		height: 600px;
-		background: #d95d14;
-		bottom: -150px;
-		right: -100px;
-	}
-
-	.blob3 {
-		width: 400px;
-		height: 400px;
-		background: #faad3f;
-		top: 30%;
-		left: 60%;
-		animation-delay: -5s;
-	}
-
-	@keyframes float {
-		0% {
-			transform: translate(0, 0) scale(1);
-		}
-
-		100% {
-			transform: translate(120px, -60px) scale(1.1);
-		}
-	}
-
-	header {
-		text-align: center;
-		margin-bottom: 2rem;
-		width: 100%;
-		max-width: 1000px;
-		position: relative;
-	}
-
-	h1 {
-		font-size: 2rem;
-		color: var(--primary-color);
-		font-weight: 800;
-		letter-spacing: -1px;
-	}
-
-	header p {
-		color: var(--text-light);
-		font-size: 1rem;
-		margin-top: 0.25rem;
-		opacity: 0.8;
-	}
-
-	.chat-container {
-		display: flex;
-		flex-direction: column;
-		width: 100%;
-		max-width: 850px;
-		height: calc(100vh - 280px);
-		min-height: 500px;
-		background-color: var(--app-bg);
-		border-radius: 24px;
-		overflow: hidden;
-		border: 1px solid var(--border-color);
-		transition: all 0.3s ease;
-	}
-
-	#chat-messages {
-		flex: 1;
-		overflow-y: auto;
-		padding: 2rem;
-		background-color: var(--light-bg);
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	.message {
-		padding: 1rem 1.25rem;
-		max-width: 85%;
-		border-radius: 18px;
-		font-size: 0.95rem;
-		line-height: 1.6;
-	}
-
-	.user-message {
-		background-color: var(--user-msg-bg);
-		color: var(--user-msg-text);
-		align-self: flex-end;
-		border-radius: 18px 18px 4px 18px;
-		box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2);
-	}
-
-	.assistant-message {
-		background-color: var(--assistant-msg-bg);
-		color: var(--text-color);
-		align-self: flex-start;
-		border-radius: 18px 18px 18px 4px;
-		border: 1px solid var(--border-color);
-	}
-
-	.message-content img {
-		max-width: 100%;
-		height: auto;
-		border-radius: 12px;
-		margin: 12px 0;
-		display: block;
-		box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-		border: 1px solid var(--border-color);
-	}
-
-	.system-indicator {
-		align-self: center;
-		background: rgba(0, 0, 0, 0.05);
-		color: var(--text-light);
-		font-size: 0.75rem;
-		padding: 6px 16px;
-		border-radius: 20px;
-		font-style: italic;
-		border: 1px dashed var(--border-color);
-		margin: 10px 0;
-	}
-
-	body.theme-fancy .system-indicator {
-		background: rgba(255, 255, 255, 0.1);
-		color: #38bdf8;
-		border-color: rgba(56, 189, 248, 0.3);
-	}
-
-	.message-input {
-		display: flex;
-		flex-direction: column;
-		padding: 1.5rem;
-		background-color: transparent;
-		border-top: 1px solid var(--border-color);
-		gap: 0.75rem;
-	}
-
-	.input-row {
-		display: flex;
-		gap: 0.75rem;
-		width: 100%;
-	}
-
-	#user-input {
-		flex: 1;
-		padding: 1rem;
-		border: 1px solid var(--border-color);
-		border-radius: 14px;
-		min-height: 54px;
-		background-color: var(--app-bg);
-		color: inherit;
-		font-family: inherit;
-		resize: none;
-		outline: none;
-	}
-
-	#send-button {
-		padding: 0 1.5rem;
-		height: 54px;
-		background-color: var(--primary-color);
-		color: white;
-		border: none;
-		border-radius: 14px;
-		cursor: pointer;
-		font-size: 1.25rem;
-		transition: transform 0.2s;
-	}
-
-	#send-button:hover {
-		transform: scale(1.05);
-	}
-
-	.controls-row {
-		margin-top: 1rem;
-		display: flex;
-		justify-content: center;
-		gap: 10px;
-		flex-wrap: wrap;
-		position: relative;
-	}
-
-	.btn-secondary {
-		padding: 8px 16px;
-		border-radius: 10px;
-		border: 1px solid var(--border-color);
-		background: var(--app-bg);
-		color: var(--text-color-dark);
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		transition: all 0.2s;
-		font-size: 0.85rem;
-		font-weight: 600;
-	}
-
-	body.theme-fancy .btn-secondary {
-		color: white;
-		backdrop-filter: blur(10px);
-	}
-
-	.btn-primary {
-		padding: 8px 16px;
-		border-radius: 10px;
-		border: none;
-		background: var(--primary-color);
-		color: white;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 0.85rem;
-		font-weight: 600;
-		box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3);
-	}
-
-	.sidebar {
-		position: fixed;
-		top: 0;
-		right: -400px;
-		width: 350px;
-		height: 100%;
-		background: var(--app-bg);
-		border-left: 1px solid var(--border-color);
-		transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-		z-index: 1000;
-		padding: 30px;
-		display: flex;
-		flex-direction: column;
-		gap: 15px;
-		overflow-y: auto;
-	}
-
-	.sidebar.open {
-		right: 0;
-	}
-
-	.dash-card {
-		background: rgba(255, 255, 255, 0.08);
-		border: 1px solid var(--border-color);
-		border-radius: 12px;
-		padding: 12px;
-		margin-bottom: 8px;
-	}
-
-	.dash-label {
-		font-size: 0.65rem;
-		font-weight: 800;
-		color: var(--primary-color);
-		text-transform: uppercase;
-		letter-spacing: 1px;
-		margin-bottom: 4px;
-		display: block;
-	}
-
-	.dash-value {
-		font-size: 0.85rem;
-		font-weight: 500;
-		line-height: 1.3;
-	}
-
-	.dash-value {
-		font-size: 0.85rem;
-		font-weight: 500;
-		line-height: 1.3;
-	}
-
-	.dash-desc {
-		font-size: 0.7 micro;
-		color: var(--text-light);
-		margin-top: 4px;
-		font-style: italic;
-	}
-
-	#file-list-display {
-		margin-top: 10px;
-		padding: 0;
-		list-style: none;
-	}
-
-	#file-list-display li {
-		font-size: 0.75rem;
-		padding: 8px 0;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-		color: #38bdf8;
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.delete-file-btn {
-		color: #ef4444;
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.btn-danger {
-		width: 100%;
-		margin-top: 20px;
-		padding: 14px;
-		background: #ef4444;
-		color: white;
-		border: none;
-		border-radius: 12px;
-		cursor: pointer;
-		font-weight: 600;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-	}
-
-	#typing-indicator {
-		display: none;
-		align-self: flex-start;
-	}
-
-	#typing-indicator.visible {
-		display: block !important;
-	}
-
-	.typing-dots {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		padding: 10px 0;
-	}
-
-	.typing-dots span {
-		width: 8px;
-		height: 8px;
-		background: var(--primary-color);
-		border-radius: 50%;
-		display: inline-block;
-		animation: bounce 1.3s infinite ease-in-out;
-	}
-
-	@keyframes bounce {
-
-		0%,
-		80%,
-		100% {
-			transform: scale(0);
-		}
-
-		40% {
-			transform: scale(1);
-		}
-	}
-
-	#settings-dropdown {
-		display: none;
-		position: absolute;
-		top: calc(100% + 5px);
-		left: 50%;
-		transform: translateX(-50%);
-		background: rgba(15, 23, 42, 0.95);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 12px;
-		padding: 8px;
-		min-width: 180px;
-		z-index: 100;
-		box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-		backdrop-filter: blur(10px);
-		list-style: none;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	#settings-dropdown li {
-		padding: 10px 14px;
-		color: #f8fafc;
-		font-size: 0.85rem;
-		font-weight: 600;
-		cursor: pointer;
-		border-radius: 8px;
-		transition: background 0.2s, color 0.2s;
-		text-align: left;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	#settings-dropdown li:hover {
-		background: var(--primary-color);
-		color: #ffffff;
-	}
-
-	/* === VISUAL TIMER WIDGET STYLES === */
-	#timer-widget-container {
-		position: fixed;
-		top: 20px;
-		right: 20px;
-		z-index: 9999;
-	}
-
-	.timer-widget {
-		background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-		border: 2px solid #f6821f;
-		border-radius: 12px;
-		padding: 12px 20px;
-		box-shadow: 0 4px 20px rgba(246, 130, 31, 0.3);
-		font-family: 'Monaco', 'Courier New', monospace;
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		transition: all 0.3s ease;
-	}
-
-	.timer-content {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.timer-label {
-		font-size: 0.85rem;
-		color: #f6821f;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 1px;
-	}
-
-	.timer-display {
-		font-size: 1.8rem;
-		font-weight: 700;
-		color: #f6821f;
-		min-width: 80px;
-		text-align: center;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.timer-close-btn {
-		background: none;
-		border: none;
-		color: #f6821f;
-		font-size: 1.4rem;
-		cursor: pointer;
-		padding: 4px 8px;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.timer-close-btn:hover {
-		color: #ff4400;
-		transform: scale(1.15);
-	}
-
-	/* === RED GLOW AT 30 SECONDS === */
-	.timer-widget.timer-red-30 {
-		border-color: #ff4444;
-		box-shadow: 0 4px 20px rgba(255, 68, 68, 0.5);
-	}
-
-	.timer-widget.timer-red-30 .timer-label,
-	.timer-widget.timer-red-30 .timer-display,
-	.timer-widget.timer-red-30 .timer-close-btn {
-		color: #ff4444;
-	}
-
-	/* === INTENSE RED AT 10 SECONDS === */
-	.timer-widget.timer-red-10 {
-		border-color: #ff0000;
-		box-shadow: 0 4px 30px rgba(255, 0, 0, 0.7);
-		animation: timer-pulse-intense 0.6s ease-in-out infinite;
-	}
-
-	.timer-widget.timer-red-10 .timer-label,
-	.timer-widget.timer-red-10 .timer-display,
-	.timer-widget.timer-red-10 .timer-close-btn {
-		color: #ff0000;
-	}
-
-	@keyframes timer-pulse-intense {
-		0% {
-			transform: scale(1);
-			opacity: 1;
-		}
-
-		50% {
-			transform: scale(1.05);
-			opacity: 0.9;
-		}
-
-		100% {
-			transform: scale(1);
-			opacity: 1;
-		}
-	}
-
-	/* === TIMER DONE STATE === */
-	.timer-widget.timer-done {
-		border-color: #22c55e;
-		box-shadow: 0 4px 30px rgba(34, 197, 94, 0.6);
-		animation: none;
-	}
-
-	.timer-widget.timer-done .timer-label,
-	.timer-widget.timer-done .timer-display,
-	.timer-widget.timer-done .timer-close-btn {
-		color: #22c55e;
-	}
-
-	.timer-widget.timer-done .timer-display::after {
-		content: " ✓";
-	}
-</style>
-
-<script>
-	if ('serviceWorker' in navigator) {
-		navigator.serviceWorker.register('/service-worker.js');
-	}
-</script>
-</head>
-
-<body class="theme-fancy">
-	<!-- === VISUAL TIMER WIDGET === -->
-	<div id="timer-widget-container" style="display: none;">
-		<div id="timer-widget" class="timer-widget">
-			<div class="timer-content">
-				<span class="timer-label" id="timer-zone-label">Kitchen Timer</span>
-				<span class="timer-display" id="timer-countdown">2:00</span>
-				<button class="timer-close-btn" id="timer-close-btn" aria-label="Dismiss timer">✕</button>
-			</div>
-		</div>
-	</div>
-
-	<div class="lava-lamp-container">
-		<div class="blob blob1"></div>
-		<div class="blob blob2"></div>
-		<div class="blob blob3"></div>
-	</div>
-
-	<header>
-		<h1>Jolene</h1>
-		<p>Your house, your AI.</p>
-
-		<div class="controls-row">
-			<select id="model-selector" class="btn-secondary" style="display: none;">
-				<optgroup label="Cloudflare Workers AI">
-					<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (11B)</option>
-					<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
-					<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
-				</optgroup>
-				<optgroup label="AI Gateway (ai-sec-gateway)">
-					<option value="gpt-4o">GPT-4o (OpenAI)</option>
-					<option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</option>
-					<option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5 (Anthropic)</option>
-					<option value="anthropic/claude-opus-4.7">Claude 4.7 Opus (Anthropic)</option>
-				</optgroup>
-			</select>
-			<select id="personality-selector" class="btn-secondary"
-				style="border-color: var(--primary-color); display: none;">
-				<option value="warm">Warm Personality</option>
-				<option value="sarcastic">Sarcastic Personality</option>
-				<option value="cyber">Cyber Security Mode</option>
-			</select>
-			<button id="theme-toggle-btn" class="btn-secondary" style="display: none;"><i class="ph ph-magic-wand"></i>
-				Theme</button>
-			<button id="toggle-sidebar-btn" class="btn-secondary" style="display: none;"><i class="ph ph-database"></i>
-				Memory</button>
-
-			<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
-			<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-			<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i>
-				Voice</button>
-			<button id="settings-toggle-btn" class="btn-secondary"><i class="ph ph-gear"></i> Settings</button>
-		</div>
-		<ul id="settings-dropdown">
-			<li id="opt-model"><i class="ph ph-cpu"></i> Model</li>
-			<li id="opt-personality"><i class="ph ph-mask-happy"></i> Personality</li>
-			<li id="opt-theme"><i class="ph ph-palette"></i> Theme</li>
-			<li id="opt-memory"><i class="ph ph-database"></i> Memory</li>
-			<li id="opt-diagnostics"><i class="ph ph-activity"></i> Diagnostics</li>
-		</ul>
-	</header>
-
-	<div class="chat-container">
-		<div id="chat-messages">
-			<div class="message assistant-message">
-				<div class="message-content">
-					<p>Hey Scott — Jolene here. House controls, Cloudflare work prep, family context, or whatever else
-						you need. What's up?</p>
-				</div>
-			</div>
-		</div>
-
-		<div id="typing-indicator">
-			<div class="message-content">
-				<div class="typing-dots"><span></span><span></span><span></span></div>
-			</div>
-		</div>
-
-		<div class="message-input">
-			<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
-				<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i
-						class="ph ph-upload"></i> Upload</button>
-				<button id="memorize-btn" class="btn-secondary"
-					style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i>
-					Memorize</button>
-				<span id="file-name-indicator"
-					style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
-				<input type="file" id="file-input" style="display: none;">
-			</div>
-			<div class="input-row">
-				<textarea id="user-input" placeholder="Ask Jolene a question..." rows="1"></textarea>
-				<button id="mic-button" title="Hold to speak"><i class="ph-fill ph-microphone"></i></button>
-				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
-			</div>
-		</div>
-	</div>
-
-	<div id="memory-sidebar" class="sidebar">
-		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-			<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
-			<button id="close-sidebar-btn"
-				style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i
-					class="ph ph-x"></i></button>
-		</div>
-		<div class="sidebar-content">
-			<div class="dash-card">
-				<span class="dash-label">Cloudflare KV: User Profile</span>
-				<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
-				<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
-				<div id="kv-mode-container"
-					style="margin-top: 10px; font-size: 0.7rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
-					<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-						<span style="color: var(--text-light)">Session Context:</span>
-						<span id="kv-mode-display"
-							style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
-					</div>
-					<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-						<span style="color: var(--text-light)">Personality:</span>
-						<span id="kv-personality-display"
-							style="color: #f6821f; font-weight: 800; text-transform: uppercase;">WARM</span>
-					</div>
-				</div>
-			</div>
-
-			<div class="dash-card" style="border-left: 3px solid #22c55e;">
-				<span class="dash-label">Active Learning Session</span>
-				<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
-				<div id="quiz-status" class="dash-value">Idle</div>
-			</div>
-
-			<div class="dash-card" style="border-left: 3px solid #f6821f;">
-				<span class="dash-label">Durable Objects: State</span>
-				<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
-				<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status:
-					<span id="do-status-display" style="color: #22c55e;">Active</span></div>
-			</div>
-
-			<div class="dash-card">
-				<span class="dash-label">Cloudflare D1: SQL Metrics</span>
-				<div class="dash-desc">Relational database tracking history and interaction frequency.</div>
-				<div id="msg-count-display" class="dash-value">0 messages</div>
-			</div>
-
-			<div class="dash-card">
-				<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
-				<div class="dash-desc">Stores text embeddings from files for semantic search and RAG retrieval.</div>
-				<div id="vector-status" class="dash-value" style="color: #38bdf8;">Active Index</div>
-			</div>
-
-			<div class="dash-card">
-				<span class="dash-label">Cloudflare R2: Assets</span>
-				<div class="dash-desc">Object storage for raw uploaded documents and generated diagrams.</div>
-				<ul id="file-list-display">
-					<li>Scanning...</li>
-				</ul>
-			</div>
-
-			<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity &
-				History</button>
-		</div>
-	</div>
-
-	<footer>
-		<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy;
-			2026</p>
-	</footer>
-
-	<script>
-		let sessionId = getSessionId();
-		let isTyping = false;
-		let voiceEnabled = false;
-		let activeMode = "personal";
-
-		function getSessionId() {
-			let id = localStorage.getItem('jolene_session_id') || crypto.randomUUID();
-			localStorage.setItem('jolene_session_id', id);
-			return id;
-		}
-
-		const modelSelector = document.getElementById('model-selector');
-		modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
-
-		modelSelector.onchange = () => {
-			modelSelector.value = localStorage.setItem('jolene_selected_model', modelSelector.value);
-			const modelName = modelSelector.options[modelSelector.selectedIndex].text;
-			appendMessage('system-indicator', `System: Jolene is now using ${modelName}`);
-		};
-
-		// Personality logic
-		const personalitySelector = document.getElementById('personality-selector');
-		personalitySelector.onchange = async () => {
-			const val = personalitySelector.value;
-			appendMessage('user-message', `Set personality to ${val}`);
-			await sendCustomMessage(`set personality to ${val}`);
-		};
-
-		document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
-		document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
-		document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
-
-		document.getElementById('clear-screen-btn').onclick = () => {
-			document.getElementById('chat-messages').innerHTML = '';
-			appendMessage('assistant-message', "Screen cleared. How else can I assist?", true);
-		};
-
-		document.getElementById('voice-toggle-btn').onclick = () => {
-			voiceEnabled = !voiceEnabled;
-			const icon = document.getElementById('voice-icon');
-			icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
-			appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
-		};
-
-		document.getElementById('new-chat-btn').onclick = async () => {
-			sessionId = crypto.randomUUID();
-			localStorage.setItem('jolene_session_id', sessionId);
-			document.getElementById('chat-messages').innerHTML = '';
-			await updateDashboard();
-
-			const storedUser = localStorage.getItem('jolene_user_id') || 'scott';
-			let greeting = "";
-			if (storedUser === 'renee') {
-				greeting = "Hey Renee! 👋 I'm Jolene — named after your tan little dachshund, who was named after that Ray LaMontagne song that played during The Town credits. Not Dolly Parton. Anyone who tells you that is wrong and I will die on that hill. Scott built me to help run the house — timers, music, lights, temperature, the whole thing. Think of me as Alexa but I actually know your family. What do you want to try first? 😊";
-			} else {
-				greeting = "Hey Scott! 👋 Ready when you are. Music, timers, lights, temperature, house control — all of it. What do you need? 🥊";
+<html lang="en"
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Jolene AI</title>
+	    <link rel="manifest" href="/manifest.json" />
+		<meta name="theme-color" content="#f6821f" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%230f172a'/><text x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' font-family='-apple-system,system-ui,sans-serif' font-size='44' font-weight='800' fill='%23f6821f'>J</text></svg>" />
+		
+		<script src="https://unpkg.com/@phosphor-icons/web"></script>
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+		<style>
+			:root {
+				--primary-color: #f6821f;
+				--primary-hover: #e67e22;
+				--primary-light: rgba(246, 130, 31, 0.1);
+				--light-bg: #f4f6f8;
+				--app-bg: #ffffff;
+				--border-color: #e2e8f0;
+				--text-color: #1e293b;
+				--text-color-dark: #0f172a;
+				--text-light: #64748b;
+				--user-msg-bg: #f6821f;
+				--user-msg-text: #ffffff;
+				--assistant-msg-bg: #ffffff;
+				--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 			}
-			appendMessage('assistant-message', greeting);
+
+			body.theme-fancy {
+				--app-bg: rgba(30, 41, 59, 0.4); 
+				--light-bg: transparent; 
+				--border-color: rgba(255, 255, 255, 0.1);
+				--text-color: #f8fafc;
+				--text-light: #cbd5e1;
+				--assistant-msg-bg: rgba(255, 255, 255, 0.05);
+				--body-bg: #0f172a;
+			}
+
+			body.theme-fancy .chat-container, body.theme-fancy .sidebar {
+				backdrop-filter: blur(25px) saturate(180%);
+				-webkit-backdrop-filter: blur(25px) saturate(180%);
+				border: 1px solid rgba(255, 255, 255, 0.2);
+				box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+				background-color: var(--app-bg);
+			}
+
+			body.theme-fancy #user-input { background-color: rgba(0, 0, 0, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.1); }
+			body.theme-fancy header h1 { color: #ffffff; text-shadow: 0 0 20px rgba(246, 130, 31, 0.4); }
+
+			* { box-sizing: border-box; margin: 0; padding: 0; }
+
+			body {
+				font-family: -apple-system, system-ui, sans-serif;
+				color: var(--text-color);
+				background: var(--body-bg);
+				min-height: 100vh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				padding: 2rem 1rem;
+				transition: background 0.5s ease;
+				overflow-x: hidden;
+			}
+
+			.lava-lamp-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; display: none; pointer-events: none; }
+			body.theme-fancy .lava-lamp-container { display: block; }
+			
+			.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; animation: float 15s infinite alternate ease-in-out; }
+			.blob1 { width: 500px; height: 500px; background: #f6821f; top: -100px; left: -100px; }
+			.blob2 { width: 600px; height: 600px; background: #d95d14; bottom: -150px; right: -100px; }
+			.blob3 { width: 400px; height: 400px; background: #faad3f; top: 30%; left: 60%; animation-delay: -5s; }
+
+			@keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(120px, -60px) scale(1.1); } }
+
+			header { text-align: center; margin-bottom: 2rem; width: 100%; max-width: 1000px; position: relative; }
+			h1 { font-size: 2rem; color: var(--primary-color); font-weight: 800; letter-spacing: -1px; }
+			header p { color: var(--text-light); font-size: 1rem; margin-top: 0.25rem; opacity: 0.8; }
+
+			.chat-container {
+				display: flex; flex-direction: column; width: 100%; max-width: 850px;
+				height: calc(100vh - 280px); min-height: 500px; background-color: var(--app-bg);
+				border-radius: 24px; overflow: hidden; border: 1px solid var(--border-color);
+				transition: all 0.3s ease;
+			}
+
+			#chat-messages { flex: 1; overflow-y: auto; padding: 2rem; background-color: var(--light-bg); display: flex; flex-direction: column; gap: 1.5rem; }
+			.message { padding: 1rem 1.25rem; max-width: 85%; border-radius: 18px; font-size: 0.95rem; line-height: 1.6; }
+			.user-message { background-color: var(--user-msg-bg); color: var(--user-msg-text); align-self: flex-end; border-radius: 18px 18px 4px 18px; box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2); }
+			.assistant-message { background-color: var(--assistant-msg-bg); color: var(--text-color); align-self: flex-start; border-radius: 18px 18px 18px 4px; border: 1px solid var(--border-color); }
+			
+			.message-content img { max-width: 100%; height: auto; border-radius: 12px; margin: 12px 0; display: block; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid var(--border-color); }
+
+			.system-indicator { align-self: center; background: rgba(0,0,0,0.05); color: var(--text-light); font-size: 0.75rem; padding: 6px 16px; border-radius: 20px; font-style: italic; border: 1px dashed var(--border-color); margin: 10px 0; }
+			body.theme-fancy .system-indicator { background: rgba(255,255,255,0.1); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+
+			.message-input { display: flex; flex-direction: column; padding: 1.5rem; background-color: transparent; border-top: 1px solid var(--border-color); gap: 0.75rem; }
+			.input-row { display: flex; gap: 0.75rem; width: 100%; }
+			#user-input { flex: 1; padding: 1rem; border: 1px solid var(--border-color); border-radius: 14px; min-height: 54px; background-color: var(--app-bg); color: inherit; font-family: inherit; resize: none; outline: none; }
+			#send-button { padding: 0 1.5rem; height: 54px; background-color: var(--primary-color); color: white; border: none; border-radius: 14px; cursor: pointer; font-size: 1.25rem; transition: transform 0.2s; }
+			#send-button:hover { transform: scale(1.05); }
+
+			.controls-row { margin-top: 1rem; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; position: relative; }
+			.btn-secondary { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--app-bg); color: var(--text-color-dark); cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 0.85rem; font-weight: 600; }
+			body.theme-fancy .btn-secondary { color: white; backdrop-filter: blur(10px); }
+			.btn-primary { padding: 8px 16px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3); }
+
+			.sidebar { position: fixed; top: 0; right: -400px; width: 350px; height: 100%; background: var(--app-bg); border-left: 1px solid var(--border-color); transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; padding: 30px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+			.sidebar.open { right: 0; }
+
+			.dash-card { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+			.dash-label { font-size: 0.65rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; display: block; }
+			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
+			.dash-value { font-size: 0.85rem; font-weight: 500; line-height: 1.3; }
+			.dash-desc { font-size: 0.7 micro; color: var(--text-light); margin-top: 4px; font-style: italic; }
+
+			#file-list-display { margin-top: 10px; padding: 0; list-style: none; }
+			#file-list-display li { font-size: 0.75rem; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+			.delete-file-btn { color: #ef4444; background: none; border: none; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+
+			.btn-danger { width: 100%; margin-top: 20px; padding: 14px; background: #ef4444; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+			#typing-indicator { display: none; align-self: flex-start; }
+			#typing-indicator.visible { display: block !important; }
+			.typing-dots { display: flex; align-items: center; gap: 4px; padding: 10px 0; }
+			.typing-dots span { width: 8px; height: 8px; background: var(--primary-color); border-radius: 50%; display: inline-block; animation: bounce 1.3s infinite ease-in-out; }
+			@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+			#settings-dropdown {
+				display: none;
+				position: absolute;
+				top: calc(100% + 5px);
+				left: 50%;
+				transform: translateX(-50%);
+				background: rgba(15, 23, 42, 0.95);
+				border: 1px solid rgba(255, 255, 255, 0.2);
+				border-radius: 12px;
+				padding: 8px;
+				min-width: 180px;
+				z-index: 100;
+				box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+				backdrop-filter: blur(10px);
+				list-style: none;
+				flex-direction: column;
+				gap: 4px;
+			}
+			#settings-dropdown li {
+				padding: 10px 14px;
+				color: #f8fafc;
+				font-size: 0.85rem;
+				font-weight: 600;
+				cursor: pointer;
+				border-radius: 8px;
+				transition: background 0.2s, color 0.2s;
+				text-align: left;
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			#settings-dropdown li:hover {
+				background: var(--primary-color);
+				color: #ffffff;
+			}
+			/* === VISUAL TIMER WIDGET STYLES === */
+#timer-widget-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+}
+
+.timer-widget {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+    border: 2px solid #f6821f;
+    border-radius: 12px;
+    padding: 12px 20px;
+    box-shadow: 0 4px 20px rgba(246, 130, 31, 0.3);
+    font-family: 'Monaco', 'Courier New', monospace;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: all 0.3s ease;
+}
+
+.timer-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.timer-label {
+    font-size: 0.85rem;
+    color: #f6821f;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.timer-display {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #f6821f;
+    min-width: 80px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.timer-close-btn {
+    background: none;
+    border: none;
+    color: #f6821f;
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.timer-close-btn:hover {
+    color: #ff4400;
+    transform: scale(1.15);
+}
+
+/* === RED GLOW AT 30 SECONDS === */
+.timer-widget.timer-red-30 {
+    border-color: #ff4444;
+    box-shadow: 0 4px 20px rgba(255, 68, 68, 0.5);
+}
+
+.timer-widget.timer-red-30 .timer-label,
+.timer-widget.timer-red-30 .timer-display,
+.timer-widget.timer-red-30 .timer-close-btn {
+    color: #ff4444;
+}
+
+/* === INTENSE RED AT 10 SECONDS === */
+.timer-widget.timer-red-10 {
+    border-color: #ff0000;
+    box-shadow: 0 4px 30px rgba(255, 0, 0, 0.7);
+    animation: timer-pulse-intense 0.6s ease-in-out infinite;
+}
+
+.timer-widget.timer-red-10 .timer-label,
+.timer-widget.timer-red-10 .timer-display,
+.timer-widget.timer-red-10 .timer-close-btn {
+    color: #ff0000;
+}
+
+@keyframes timer-pulse-intense {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.9; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* === TIMER DONE STATE === */
+.timer-widget.timer-done {
+    border-color: #22c55e;
+    box-shadow: 0 4px 30px rgba(34, 197, 94, 0.6);
+    animation: none;
+}
+
+.timer-widget.timer-done .timer-label,
+.timer-widget.timer-done .timer-display,
+.timer-widget.timer-done .timer-close-btn {
+    color: #22c55e;
+}
+
+.timer-widget.timer-done .timer-display::after {
+    content: " ✓";
+}
+
+		</style>
+	
+	<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js');
+}
+       </script>
+	</head>
+	<body class="theme-fancy">
+        <!-- === VISUAL TIMER WIDGET === -->
+        <div id="timer-widget-container" style="display: none;">
+            <div id="timer-widget" class="timer-widget">
+                <div class="timer-content">
+                    <span class="timer-label" id="timer-zone-label">Kitchen Timer</span>
+                    <span class="timer-display" id="timer-countdown">2:00</span>
+                    <button class="timer-close-btn" id="timer-close-btn" aria-label="Dismiss timer">✕</button>
+               </div>
+           </div>
+       </div>
+		
+	   <div class="lava-lamp-container"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
+
+		<header>
+			<h1>Jolene</h1>
+			<p>Your house, your AI.</p>
+			
+			<div class="controls-row">
+				<select id="model-selector" class="btn-secondary" style="display: none;">
+					<optgroup label="Cloudflare Workers AI">
+						<option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (11B)</option>
+						<option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 (8B)</option>
+						<option value="@cf/mistral/mistral-7b-instruct-v0.1">Mistral (7B)</option>
+					</optgroup>
+					<optgroup label="AI Gateway (ai-sec-gateway)">
+						<option value="gpt-4o">GPT-4o (OpenAI)</option>
+						<option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</option>
+						<option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5 (Anthropic)</option>
+						<option value="anthropic/claude-opus-4.7">Claude 4.7 Opus (Anthropic)</option>
+					</optgroup>
+				</select>
+				<select id="personality-selector" class="btn-secondary" style="border-color: var(--primary-color); display: none;">
+					<option value="warm">Warm Personality</option>
+					<option value="sarcastic">Sarcastic Personality</option>
+					<option value="cyber">Cyber Security Mode</option>
+				</select>
+				<button id="theme-toggle-btn" class="btn-secondary" style="display: none;"><i class="ph ph-magic-wand"></i> Theme</button>
+				<button id="toggle-sidebar-btn" class="btn-secondary" style="display: none;"><i class="ph ph-database"></i> Memory</button>
+				
+				<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
+				<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
+				<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i> Voice</button>
+				<button id="settings-toggle-btn" class="btn-secondary"><i class="ph ph-gear"></i> Settings</button>
+			</div>
+			<ul id="settings-dropdown">
+				<li id="opt-model"><i class="ph ph-cpu"></i> Model</li>
+				<li id="opt-personality"><i class="ph ph-mask-happy"></i> Personality</li>
+				<li id="opt-theme"><i class="ph ph-palette"></i> Theme</li>
+				<li id="opt-memory"><i class="ph ph-database"></i> Memory</li>
+				<li id="opt-diagnostics"><i class="ph ph-activity"></i> Diagnostics</li>
+			</ul>
+		</header>
+
+		<div class="chat-container">
+			<div id="chat-messages">
+				<div class="message assistant-message">
+					<div class="message-content">
+						<p>Hey Scott — Jolene here. House controls, Cloudflare work prep, family context, or whatever else you need. What's up?</p>
+					</div>
+				</div>
+			</div>
+			
+			<div id="typing-indicator">
+				<div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+			</div>
+
+			<div class="message-input">
+				<div class="input-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px;">
+					<button id="upload-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;"><i class="ph ph-upload"></i> Upload</button>
+					<button id="memorize-btn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i> Memorize</button>
+					<span id="file-name-indicator" style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
+					<input type="file" id="file-input" style="display: none;">
+				</div>
+				<div class="input-row">
+    				<textarea id="user-input" placeholder="Ask Jolene a question..." rows="1"></textarea>
+    				<button id="mic-button" title="Hold to speak"><i class="ph-fill ph-microphone"></i></button>
+    				<button id="send-button"><i class="ph-fill ph-paper-plane-right"></i></button>
+			</div>
+			</div>
+		</div>
+
+		<div id="memory-sidebar" class="sidebar">
+			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+				<h2 style="color: var(--primary-color); font-weight: 700;">Command Center</h2>
+				<button id="close-sidebar-btn" style="background:none; border:none; cursor:pointer; font-size:1.5rem; color:inherit;"><i class="ph ph-x"></i></button>
+			</div>
+			<div class="sidebar-content">
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare KV: User Profile</span>
+					<div class="dash-desc">Stores persistent user identity and preferences across sessions.</div>
+					<div id="kv-profile-display" class="dash-value">Scott E Robbins | Senior Solutions Engineer</div>
+					<div id="kv-mode-container" style="margin-top: 10px; font-size: 0.7rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+						<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+							<span style="color: var(--text-light)">Session Context:</span> 
+							<span id="kv-mode-display" style="color: #22c55e; font-weight: 800; text-transform: uppercase;">PERSONAL</span>
+						</div>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+							<span style="color: var(--text-light)">Personality:</span> 
+							<span id="kv-personality-display" style="color: #f6821f; font-weight: 800; text-transform: uppercase;">WARM</span>
+						</div>
+					</div>
+				</div>
+
+				<div class="dash-card" style="border-left: 3px solid #22c55e;">
+					<span class="dash-label">Active Learning Session</span>
+					<div class="dash-desc">Tracking multi-step academic quiz progress via Durable Objects.</div>
+					<div id="quiz-status" class="dash-value">Idle</div>
+				</div>
+
+				<div class="dash-card" style="border-left: 3px solid #f6821f;">
+					<span class="dash-label">Durable Objects: State</span>
+					<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
+					<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status: <span id="do-status-display" style="color: #22c55e;">Active</span></div>
+				</div>
+
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare D1: SQL Metrics</span>
+					<div class="dash-desc">Relational database tracking history and interaction frequency.</div>
+					<div id="msg-count-display" class="dash-value">0 messages</div>
+				</div>
+
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare Vectorize: Semantic Memory</span>
+					<div class="dash-desc">Stores text embeddings from files for semantic search and RAG retrieval.</div>
+					<div id="vector-status" class="dash-value" style="color: #38bdf8;">Active Index</div>
+				</div>
+
+				<div class="dash-card">
+					<span class="dash-label">Cloudflare R2: Assets</span>
+					<div class="dash-desc">Object storage for raw uploaded documents and generated diagrams.</div>
+					<ul id="file-list-display"><li>Scanning...</li></ul>
+				</div>
+				
+				<button id="clear-vector-btn" class="btn-danger"><i class="ph ph-warning"></i> Reset Identity & History</button>
+			</div>
+		</div>
+
+		<footer>
+			<p style="margin-top: 2rem; color: var(--text-light); font-size: 0.85rem; font-weight: 500;">Jolene AI &copy; 2026</p>
+		</footer>
+
+		<script>
+			let sessionId = getSessionId();
+			let isTyping = false;
+			let voiceEnabled = false; 
+			let activeMode = "personal";
+
+			function getSessionId() {
+				let id = localStorage.getItem('jolene_session_id') || crypto.randomUUID();
+				localStorage.setItem('jolene_session_id', id);
+				return id;
+			}
+
+			const modelSelector = document.getElementById('model-selector');
+			modelSelector.value = localStorage.getItem('jolene_selected_model') || "@cf/meta/llama-3.2-11b-vision-instruct";
+
+			modelSelector.onchange = () => {
+				modelSelector.value = localStorage.setItem('jolene_selected_model', modelSelector.value);
+				const modelName = modelSelector.options[modelSelector.selectedIndex].text;
+				appendMessage('system-indicator', `System: Jolene is now using ${modelName}`);
+			};
+
+			// Personality logic
+			const personalitySelector = document.getElementById('personality-selector');
+			personalitySelector.onchange = async () => {
+				const val = personalitySelector.value;
+				appendMessage('user-message', `Set personality to ${val}`);
+				await sendCustomMessage(`set personality to ${val}`);
+			};
+
+			document.getElementById('toggle-sidebar-btn').onclick = () => { document.getElementById('memory-sidebar').classList.add('open'); updateDashboard(); };
+			document.getElementById('close-sidebar-btn').onclick = () => document.getElementById('memory-sidebar').classList.remove('open');
+			document.getElementById('theme-toggle-btn').onclick = () => document.body.classList.toggle('theme-fancy');
+			
+			document.getElementById('clear-screen-btn').onclick = () => { 
+				document.getElementById('chat-messages').innerHTML = ''; 
+				appendMessage('assistant-message', "Screen cleared. How else can I assist?", true); 
+			};
+
+			document.getElementById('voice-toggle-btn').onclick = () => {
+				voiceEnabled = !voiceEnabled;
+				const icon = document.getElementById('voice-icon');
+				icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
+				appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
+			};
+
+			document.getElementById('new-chat-btn').onclick = async () => { 
+				sessionId = crypto.randomUUID(); 
+				localStorage.setItem('jolene_session_id', sessionId); 
+				document.getElementById('chat-messages').innerHTML = ''; 
+				await updateDashboard();
+				
+				let greeting = "";
+				if (activeMode === "uva") {
+					greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.";
+				} else {
+					greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode.";
+				}
+				appendMessage('assistant-message', greeting);
+			};
 
 			const fileInput = document.getElementById('file-input');
 			const fileNameIndicator = document.getElementById('file-name-indicator');
@@ -881,17 +506,17 @@
 			// FIX: RESET IDENTITY & HISTORY HANDLER
 			document.getElementById('clear-vector-btn').onclick = async () => {
 				if (!confirm("### ⚠️ WARNING\nThis will permanently wipe Scott's identity, tax records, and chat history from the edge. Proceed?")) return;
-
+				
 				try {
-					const res = await fetch('/api/reset', {
-						method: 'POST',
-						headers: {
-							'x-session-id': sessionId,
-							'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
-							'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
-						}
-					});
-
+				const res = await fetch('/api/reset', { 
+					method: 'POST', 
+					headers: { 
+						'x-session-id': sessionId,
+						'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+						'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+					} 
+				});
+					
 					if (res.ok) {
 						appendMessage('system-indicator', "System: Edge Wipe Complete. Refreshing environment...");
 						setTimeout(() => location.reload(), 1500);
@@ -908,8 +533,8 @@
 				try {
 					const res = await fetch('/api/delete', {
 						method: 'DELETE',
-						headers: {
-							'Content-Type': 'application/json',
+						headers: { 
+							'Content-Type': 'application/json', 
 							'x-session-id': sessionId,
 							'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
 							'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
@@ -925,22 +550,22 @@
 
 			async function updateDashboard() {
 				try {
-					const res = await fetch('/api/profile', {
-						headers: {
+					const res = await fetch('/api/profile', { 
+						headers: { 
 							'x-session-id': sessionId,
 							'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
 							'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
-						}
+						} 
 					});
 					const data = await res.json();
-
+					
 					if (document.getElementById('chat-messages').children.length <= 1 && data.messages && data.messages.length > 0) {
-						document.getElementById('chat-messages').innerHTML = '';
+						document.getElementById('chat-messages').innerHTML = ''; 
 						data.messages.forEach(msg => appendMessage(msg.role === 'user' ? 'user-message' : 'assistant-message', msg.content, false));
 					}
 
 					document.getElementById('kv-profile-display').innerText = data.profile || "Scott E Robbins | Senior Solutions Engineer";
-
+					
 					if (data.profile.includes("Plain Mode")) {
 						document.body.classList.remove('theme-fancy');
 					} else {
@@ -950,18 +575,18 @@
 					document.getElementById('do-id-display').innerText = data.durableObject.id;
 					document.getElementById('msg-count-display').innerText = `${data.messageCount || 0} messages synced with D1`;
 					document.getElementById('quiz-status').innerText = data.activeQuiz ? "Quiz Session Active" : "Idle";
-
+					
 					const modeEl = document.getElementById('kv-mode-display');
 					const mode = data.mode || "personal";
 					modeEl.innerText = mode.toUpperCase();
-					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e";
+					modeEl.style.color = mode === "uva" ? "#38bdf8" : "#22c55e"; 
 					activeMode = mode;
 
 					// Update Personality Dashboard display
 					const personalityEl = document.getElementById('kv-personality-display');
 					personalityEl.innerText = (data.personality || "warm").toUpperCase();
 					personalitySelector.value = data.personality || "warm";
-
+					
 					const list = document.getElementById('file-list-display');
 					list.innerHTML = data.knowledgeAssets?.map(f => `
 						<li>
@@ -970,7 +595,7 @@
 								<i class="ph ph-trash"></i>
 							</button>
 						</li>`).join('') || '<li>No assets indexed</li>';
-				} catch (e) { }
+				} catch (e) {}
 			}
 
 			// Internal helper to send logic commands without messy typing loop
@@ -978,8 +603,8 @@
 				showTyping(true);
 				const res = await fetch('/api/chat', {
 					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
+					headers: { 
+						'Content-Type': 'application/json', 
 						'x-session-id': sessionId,
 						'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
 						'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
@@ -1003,7 +628,7 @@
 							if (raw === '[DONE]') continue;
 							try {
 								const data = JSON.parse(raw);
-
+								
 								/* VOICE WIRING ADDITION */
 								if (data.audioUrl && voiceEnabled) {
 									const assistantBubbles = document.querySelectorAll('#chat-messages .assistant-message');
@@ -1020,44 +645,44 @@
 										playBtn.style.borderRadius = '18px';
 										playBtn.style.cursor = 'pointer';
 										playBtn.innerText = '🔊 Play';
-
+										
 										playBtn.addEventListener('click', () => {
-											playBtn.innerText = '🔊 Playing...';
-											playBtn.disabled = true;
-											const audio = new Audio();
-											audio.src = data.audioUrl;
-											audio.preload = 'auto';
-											audio.crossOrigin = 'anonymous';
-											audio.load();
-											const playPromise = audio.play();
-											if (playPromise !== undefined) {
-												playPromise.then(() => {
-													console.log("Audio playback started successfully");
-												}).catch((err) => {
-													console.error("Audio playback failed:", err);
-													playBtn.innerText = '🔊 Play';
-													playBtn.disabled = false;
-												});
-											}
-											audio.onended = () => {
-												playBtn.innerText = '🔊 Play';
-												playBtn.disabled = false;
-											};
-											audio.onerror = (e) => {
-												console.error("Audio error:", e);
-												playBtn.innerText = '🔊 Play';
-												playBtn.disabled = false;
-											};
-										});
-										targetBubble.appendChild(playBtn);
-									}
-								}
+    playBtn.innerText = '🔊 Playing...';
+    playBtn.disabled = true;
+    const audio = new Audio();
+    audio.src = data.audioUrl;
+    audio.preload = 'auto';
+    audio.crossOrigin = 'anonymous';
+    audio.load();
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+        playPromise.then(() => {
+            console.log("Audio playback started successfully");
+        }).catch((err) => {
+            console.error("Audio playback failed:", err);
+            playBtn.innerText = '🔊 Play';
+            playBtn.disabled = false;
+        });
+    }
+    audio.onended = () => {
+        playBtn.innerText = '🔊 Play';
+        playBtn.disabled = false;
+    };
+    audio.onerror = (e) => {
+        console.error("Audio error:", e);
+        playBtn.innerText = '🔊 Play';
+        playBtn.disabled = false;
+    };
+});
+									targetBubble.appendChild(playBtn);
+                                    }
+                                }
 
 								if (data.response) {
 									assistantText += data.response;
 									contentDiv.innerHTML = marked.parse(assistantText);
 								}
-							} catch (e) { }
+							} catch (e) {}
 						}
 					}
 				}
@@ -1076,8 +701,8 @@
 				try {
 					const res = await fetch('/api/chat', {
 						method: 'POST',
-						headers: {
-							'Content-Type': 'application/json',
+						headers: { 
+							'Content-Type': 'application/json', 
 							'x-session-id': sessionId,
 							'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
 							'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
@@ -1091,15 +716,15 @@
 					let assistantText = "";
 					const msgDiv = appendMessage('assistant-message', "");
 					const contentDiv = msgDiv.querySelector('.message-content');
-
+					
 					let lineBuffer = "";
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
-
+						
 						lineBuffer += decoder.decode(value, { stream: true });
 						const lines = lineBuffer.split('\n');
-						lineBuffer = lines.pop();
+						lineBuffer = lines.pop(); 
 
 						for (const line of lines) {
 							if (line.startsWith('data: ')) {
@@ -1124,12 +749,12 @@
 											playBtn.style.borderRadius = '18px';
 											playBtn.style.cursor = 'pointer';
 											playBtn.innerText = '🔊 Play';
-
+											
 											playBtn.addEventListener('click', () => {
 												playBtn.innerText = '🔊 Playing...';
 												playBtn.disabled = true;
 												const audio = new Audio(data.audioUrl);
-												audio.play().catch(() => { });
+												audio.play().catch(() => {});
 												audio.onended = () => {
 													playBtn.innerText = '🔊 Play';
 													playBtn.disabled = false;
@@ -1139,28 +764,28 @@
 										}
 									}
 
-									if (data.response) {
-										assistantText += data.response;
-
+									if (data.response) { 
+										assistantText += data.response; 
+										
 										try {
 											contentDiv.innerHTML = marked.parse(assistantText);
 										} catch (parseErr) {
 											console.warn("[STREAM PARSE FALLBACK]", parseErr);
 											contentDiv.textContent = assistantText;
 										}
-										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+										document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight; 
 									}
 								} catch (e) { }
 							}
 						}
 					}
-
+					
 					// ====== JOLENE AGENTIC TRANSIT LAYER ======
 					// Stream completion check: Process tool intercept down the tunnel
 					if (assistantText.includes("🚨THEATER_ACTION_TRIGGER:")) {
 						const parts = assistantText.split("🚨THEATER_ACTION_TRIGGER:");
-						const visibleMessageText = parts[0];
-						const jsonPayloadString = parts[1].trim();
+						const visibleMessageText = parts[0]; 
+						const jsonPayloadString = parts[1].trim(); 
 
 						// Final clean message rendering
 						contentDiv.innerHTML = marked.parse(visibleMessageText);
@@ -1198,72 +823,72 @@
 
 			function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 			// --- PHASE 1 PUSH-TO-TALK VOICE (Web Speech API) ---
-			const micButton = document.getElementById("mic-button");
-			let recognition = null;
-			let isRecording = false;
+const micButton = document.getElementById("mic-button");
+let recognition = null;
+let isRecording = false;
 
-			if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
-				const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-				recognition = new SpeechRecognition();
-				recognition.continuous = false;
-				recognition.interimResults = true;
-				recognition.lang = "en-US";
-				recognition.maxAlternatives = 1;
+if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
 
-				recognition.onresult = (event) => {
-					let finalTranscript = "";
-					let interimTranscript = "";
-					for (let i = event.resultIndex; i < event.results.length; i++) {
-						if (event.results[i].isFinal) {
-							finalTranscript += event.results[i][0].transcript;
-						} else {
-							interimTranscript += event.results[i][0].transcript;
-						}
-					}
-					const transcript = finalTranscript || interimTranscript;
-					if (transcript && document.getElementById("user-input")) {
-						document.getElementById("user-input").value = transcript;
-					}
-					if (finalTranscript) {
-						micButton.style.backgroundColor = "#475569";
-						isRecording = false;
-					}
-				};
+    recognition.onresult = (event) => {
+        let finalTranscript = "";
+        let interimTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
+        }
+        const transcript = finalTranscript || interimTranscript;
+        if (transcript && document.getElementById("user-input")) {
+            document.getElementById("user-input").value = transcript;
+        }
+        if (finalTranscript) {
+            micButton.style.backgroundColor = "#475569";
+            isRecording = false;
+        }
+    };
 
-				recognition.onerror = (event) => {
-					console.error("Speech recognition error:", event.error);
-					isRecording = false;
-					micButton.style.backgroundColor = "#475569";
-				};
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        isRecording = false;
+        micButton.style.backgroundColor = "#475569";
+    };
 
-				recognition.onend = () => {
-					isRecording = false;
-					micButton.style.backgroundColor = "#475569";
-				};
-			} else {
-				console.warn("Web Speech API not supported in this browser");
-				if (micButton) micButton.style.display = "none";
-			}
+    recognition.onend = () => {
+        isRecording = false;
+        micButton.style.backgroundColor = "#475569";
+    };
+} else {
+    console.warn("Web Speech API not supported in this browser");
+    if (micButton) micButton.style.display = "none";
+}
 
-			micButton?.addEventListener("click", () => {
-				if (!recognition) return;
-				if (isRecording) {
-					recognition.stop();
-				} else {
-					try {
-						recognition.start();
-						isRecording = true;
-						micButton.style.backgroundColor = "#dc2626";
-					} catch (err) {
-						console.error("Failed to start recognition:", err);
-						isRecording = false;
-						micButton.style.backgroundColor = "#475569";
-					}
-				}
-			});
-
+micButton?.addEventListener("click", () => {
+    if (!recognition) return;
+    if (isRecording) {
+        recognition.stop();
+    } else {
+        try {
+            recognition.start();
+            isRecording = true;
+            micButton.style.backgroundColor = "#dc2626";
+        } catch (err) {
+            console.error("Failed to start recognition:", err);
+            isRecording = false;
+            micButton.style.backgroundColor = "#475569";
+        }
+    }
+});
+			
 			document.getElementById('send-button').onclick = () => sendMessage();
-			document.getElementById('user-input').onkeypress = (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
+			document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); sendMessage(); } };
 
 			// New Settings Dropdown event handlers
 			document.getElementById('settings-toggle-btn').onclick = () => {
@@ -1295,131 +920,130 @@
 
 			updateDashboard();
 			// === VISUAL TIMER WIDGET LOGIC ===
-			let activeTimerInterval = null;
-			let activeTimerEndTime = null;
+let activeTimerInterval = null;
+let activeTimerEndTime = null;
 
-			function showTimerWidget(endTime, zone, minutes) {
-				// Clear any existing timer first
-				if (activeTimerInterval) {
-					clearInterval(activeTimerInterval);
-					activeTimerInterval = null;
-				}
+function showTimerWidget(endTime, zone, minutes) {
+    // Clear any existing timer first
+    if (activeTimerInterval) {
+        clearInterval(activeTimerInterval);
+        activeTimerInterval = null;
+    }
+    
+    activeTimerEndTime = endTime;
+    const container = document.getElementById('timer-widget-container');
+    const widget = document.getElementById('timer-widget');
+    const label = document.getElementById('timer-zone-label');
+    const display = document.getElementById('timer-countdown');
+    
+    // Reset visual state
+    widget.classList.remove('timer-red-30', 'timer-red-10', 'timer-done');
+    
+    // Set zone label (capitalize first letter)
+    const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1).replace('_', ' ') + ' Timer';
+    label.innerText = zoneLabel;
+    
+    // Show the widget
+    container.style.display = 'block';
+    
+    // Start the countdown loop
+    function updateCountdown() {
+        const now = Date.now();
+        const remaining = activeTimerEndTime - now;
+        
+        if (remaining <= 0) {
+            // Timer done state
+            display.innerText = '0:00';
+            widget.classList.remove('timer-red-30', 'timer-red-10');
+            widget.classList.add('timer-done');
+            label.innerText = zoneLabel.replace('Timer', 'Done!');
+            clearInterval(activeTimerInterval);
+            activeTimerInterval = null;
+            return;
+        }
+        
+        const totalSeconds = Math.ceil(remaining / 1000);
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = totalSeconds % 60;
+        display.innerText = mins + ':' + String(secs).padStart(2, '0');
+        
+        // Apply glow states based on remaining seconds
+        if (totalSeconds <= 10) {
+            widget.classList.remove('timer-red-30');
+            widget.classList.add('timer-red-10');
+        } else if (totalSeconds <= 30) {
+            widget.classList.remove('timer-red-10');
+            widget.classList.add('timer-red-30');
+        } else {
+            widget.classList.remove('timer-red-30', 'timer-red-10');
+        }
+    }
+    
+    updateCountdown();
+    activeTimerInterval = setInterval(updateCountdown, 250);
+}
 
-				activeTimerEndTime = endTime;
-				const container = document.getElementById('timer-widget-container');
-				const widget = document.getElementById('timer-widget');
-				const label = document.getElementById('timer-zone-label');
-				const display = document.getElementById('timer-countdown');
+function dismissTimerWidget() {
+    if (activeTimerInterval) {
+        clearInterval(activeTimerInterval);
+        activeTimerInterval = null;
+    }
+    activeTimerEndTime = null;
+    const container = document.getElementById('timer-widget-container');
+    container.style.display = 'none';
+}
 
-				// Reset visual state
-				widget.classList.remove('timer-red-30', 'timer-red-10', 'timer-done');
+// Wire up the close button
+document.getElementById('timer-close-btn').onclick = dismissTimerWidget;
 
-				// Set zone label (capitalize first letter)
-				const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1).replace('_', ' ') + ' Timer';
-				label.innerText = zoneLabel;
+// Detect TIMER_META markers in assistant responses via MutationObserver
+const chatMessagesContainer = document.getElementById('chat-messages');
+const seenTimerEndTimes = new Set();
 
-				// Show the widget
-				container.style.display = 'block';
-
-				// Start the countdown loop
-				function updateCountdown() {
-					const now = Date.now();
-					const remaining = activeTimerEndTime - now;
-
-					if (remaining <= 0) {
-						// Timer done state
-						display.innerText = '0:00';
-						widget.classList.remove('timer-red-30', 'timer-red-10');
-						widget.classList.add('timer-done');
-						label.innerText = zoneLabel.replace('Timer', 'Done!');
-						clearInterval(activeTimerInterval);
-						activeTimerInterval = null;
-						return;
-					}
-
-					const totalSeconds = Math.ceil(remaining / 1000);
-					const mins = Math.floor(totalSeconds / 60);
-					const secs = totalSeconds % 60;
-					display.innerText = mins + ':' + String(secs).padStart(2, '0');
-
-					// Apply glow states based on remaining seconds
-					if (totalSeconds <= 10) {
-						widget.classList.remove('timer-red-30');
-						widget.classList.add('timer-red-10');
-					} else if (totalSeconds <= 30) {
-						widget.classList.remove('timer-red-10');
-						widget.classList.add('timer-red-30');
-					} else {
-						widget.classList.remove('timer-red-30', 'timer-red-10');
-					}
-				}
-
-				updateCountdown();
-				activeTimerInterval = setInterval(updateCountdown, 250);
-			}
-
-			function dismissTimerWidget() {
-				if (activeTimerInterval) {
-					clearInterval(activeTimerInterval);
-					activeTimerInterval = null;
-				}
-				activeTimerEndTime = null;
-				const container = document.getElementById('timer-widget-container');
-				container.style.display = 'none';
-			}
-
-			// Wire up the close button
-			document.getElementById('timer-close-btn').onclick = dismissTimerWidget;
-
-			// Detect TIMER_META markers in assistant responses via MutationObserver
-			const chatMessagesContainer = document.getElementById('chat-messages');
-			const seenTimerEndTimes = new Set();
-
-			function checkForTimerMeta(messageNode) {
-				const html = messageNode.innerHTML;
-				const metaMatch = html.match(/<!--\s*TIMER_META:\s*(\{[^}]+\})\s*-->/);
+function checkForTimerMeta(messageNode) {
+    const html = messageNode.innerHTML;
+    const metaMatch = html.match(/<!--\s*TIMER_META:\s*(\{[^}]+\})\s*-->/);
     if (metaMatch) {
-					try {
-						const payload = JSON.parse(metaMatch[1]);
-						if (payload.durationMs && payload.zone && payload.minutes) {
-							const computedEndTime = Date.now() + payload.durationMs;
-							if (!seenTimerEndTimes.has(computedEndTime)) {
-								seenTimerEndTimes.add(computedEndTime);
-								showTimerWidget(computedEndTime, payload.zone, payload.minutes);
-							}
-						}
-					} catch (e) {
-						console.warn('[TIMER WIDGET] Failed to parse TIMER_META:', e);
-					}
-				}
-			}
+        try {
+            const payload = JSON.parse(metaMatch[1]);
+            if (payload.durationMs && payload.zone && payload.minutes) {
+                const computedEndTime = Date.now() + payload.durationMs;
+                if (!seenTimerEndTimes.has(computedEndTime)) {
+                    seenTimerEndTimes.add(computedEndTime);
+                    showTimerWidget(computedEndTime, payload.zone, payload.minutes);
+                }
+            }
+        } catch (e) {
+            console.warn('[TIMER WIDGET] Failed to parse TIMER_META:', e);
+        }
+    }
+}
 
-			const timerMetaObserver = new MutationObserver((mutations) => {
-				for (const mutation of mutations) {
-					for (const node of mutation.addedNodes) {
-						if (node.nodeType === 1 && node.classList && node.classList.contains('assistant-message')) {
-							checkForTimerMeta(node);
-						}
-					}
-					if (mutation.type === 'childList' || mutation.type === 'characterData') {
-						// Only re-scan if the mutation target is INSIDE an assistant message
-						// (not when a new user message is being added)
-						const target = mutation.target;
-						const assistantParent = target.closest ? target.closest('.assistant-message') : null;
-						if (assistantParent) checkForTimerMeta(assistantParent);
-					}
-				}
-			});
+const timerMetaObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains('assistant-message')) {
+                checkForTimerMeta(node);
+            }
+        }
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+            // Only re-scan if the mutation target is INSIDE an assistant message
+            // (not when a new user message is being added)
+            const target = mutation.target;
+            const assistantParent = target.closest ? target.closest('.assistant-message') : null;
+            if (assistantParent) checkForTimerMeta(assistantParent);
+        }
+    }
+});
 
-			timerMetaObserver.observe(chatMessagesContainer, {
-				childList: true,
-				subtree: true,
-				characterData: true
-			});
+timerMetaObserver.observe(chatMessagesContainer, {
+    childList: true,
+    subtree: true,
+    characterData: true
+});
 
-			console.log('[TIMER WIDGET] Phase 3 logic loaded and observing chat for TIMER_META markers');
+console.log('[TIMER WIDGET] Phase 3 logic loaded and observing chat for TIMER_META markers');
 
-	</script>
-</body>
-
+		</script>
+	</body>
 </html>
