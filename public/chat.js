@@ -33,7 +33,7 @@ let sessionId = localStorage.getItem("chatSessionId") || crypto.randomUUID();
 localStorage.setItem("chatSessionId", sessionId);
 let chatHistory = [];
 let isProcessing = false;
-let voiceEnabled = false; 
+let voiceEnabled = false;
 
 // --- THE VOICE ENGINE ---
 const synth = window.speechSynthesis;
@@ -44,13 +44,13 @@ function speak(text) {
     const cleanText = text.replace(/[*#_~]/g, "").replace(/\[.*?\]\(.*?\)/g, "").replace(/!\[.*?\]\(.*?\)/g, "");
     const utterance = new SpeechSynthesisUtterance(cleanText);
     const voices = synth.getVoices();
-    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) || 
-                        voices.find(v => v.name.includes("Siri")) || 
-                        voices.find(v => v.lang === "en-US");
-    
+    const joleneVoice = voices.find(v => v.name.includes("Ava (Premium)")) ||
+        voices.find(v => v.name.includes("Siri")) ||
+        voices.find(v => v.lang === "en-US");
+
     if (joleneVoice) utterance.voice = joleneVoice;
-    utterance.pitch = 1.2; 
-    utterance.rate = 1.1;  
+    utterance.pitch = 1.2;
+    utterance.rate = 1.1;
     synth.speak(utterance);
 }
 
@@ -71,15 +71,15 @@ themeToggleBtn?.addEventListener("click", async () => {
     const currentTheme = isFancy ? "fancy" : "plain";
     localStorage.setItem("chatTheme", currentTheme);
     try {
-       await fetch("/api/save-theme", {
-           method: "POST",
-           headers: {
-               "Content-Type": "application/json",
-               "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
-               "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
-           },
-           body: JSON.stringify({ theme: currentTheme })
-       });
+        await fetch("/api/save-theme", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
+                "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
+            },
+            body: JSON.stringify({ theme: currentTheme })
+        });
     } catch (e) { console.error("KV Sync Failed", e); }
 });
 
@@ -96,14 +96,14 @@ modelSelector?.addEventListener("change", () => {
 async function updateSidebarContent() {
     try {
         const res = await fetch("/api/profile", {
-           headers: {
-               'x-session-id': sessionId,
-               'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
-               'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
-             }
-         });
+            headers: {
+                'x-session-id': sessionId,
+                'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+            }
+        });
         const data = await res.json();
-        
+
         // 1. Update Profile/Identity Info
         kvDisplay.innerHTML = `
             <div class="dash-card">
@@ -133,7 +133,7 @@ async function updateSidebarContent() {
         }
 
         // 3. Update Knowledge Assets (R2)
-        fileListDisplay.innerHTML = ""; 
+        fileListDisplay.innerHTML = "";
         if (data.knowledgeAssets && data.knowledgeAssets.length > 0) {
             data.knowledgeAssets.forEach(fileName => {
                 const li = document.createElement("li");
@@ -161,11 +161,11 @@ async function sendMessage() {
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
-             "Content-Type": "application/json",
-             "x-session-id": sessionId,
-             "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
-             "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
-        },
+                "Content-Type": "application/json",
+                "x-session-id": sessionId,
+                "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
+                "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
+            },
             body: JSON.stringify({ messages: chatHistory, model: modelSelector?.value })
         });
         typingIndicator?.classList.remove("visible");
@@ -187,7 +187,7 @@ async function sendMessage() {
                         const json = JSON.parse(dataString);
                         text += json.response || "";
                         contentEl.innerHTML = marked.parse(text);
-                    } catch (e) {}
+                    } catch (e) { }
                 }
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -196,11 +196,11 @@ async function sendMessage() {
         chatHistory.push({ role: "assistant", content: text });
         speak(text);
         updateSidebarContent();
-    } catch (err) { 
-        addMessageToChat("assistant", "Error: " + err.message); 
-    } finally { 
-        isProcessing = false; 
-        typingIndicator?.classList.remove("visible"); 
+    } catch (err) {
+        addMessageToChat("assistant", "Error: " + err.message);
+    } finally {
+        isProcessing = false;
+        typingIndicator?.classList.remove("visible");
     }
 }
 
@@ -226,7 +226,7 @@ function createMessageElement(role) {
 memorizeBtn?.addEventListener("click", async () => {
     let file = fileInput.files[0];
     if (!file) return alert("Pick a file first!");
-    
+
     if (file.size > 10 * 1024 * 1024) {
         return alert("File is too large! Please keep it under 10MB.");
     }
@@ -239,16 +239,16 @@ memorizeBtn?.addEventListener("click", async () => {
     formData.append("file", file);
 
     try {
-        const res = await fetch("/api/memorize", { 
-            method: "POST", 
-            headers: { 
-                 "x-session-id": sessionId,
-                 "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
-                 "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
-            }, 
-            body: formData 
+        const res = await fetch("/api/memorize", {
+            method: "POST",
+            headers: {
+                "x-session-id": sessionId,
+                "CF-Access-Client-Id": "778b06d8350584bc226fce14aff59e3c.access",
+                "CF-Access-Client-Secret": "660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b"
+            },
+            body: formData
         });
-        
+
         const data = await res.json();
 
         if (res.ok) {
@@ -260,11 +260,11 @@ memorizeBtn?.addEventListener("click", async () => {
         } else {
             throw new Error(data.error || "Server error");
         }
-    } catch (e) { 
+    } catch (e) {
         console.error("Memorize Error:", e);
         addMessageToChat("assistant", `Sorry, I hit a snag: ${e.message}`);
-    } finally { 
-        memorizeBtn.innerText = "Memorize File"; 
+    } finally {
+        memorizeBtn.innerText = "Memorize File";
         memorizeBtn.disabled = false;
         typingIndicator?.classList.remove("visible");
     }
@@ -324,12 +324,8 @@ sendButton?.addEventListener("click", sendMessage);
 userInput?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 toggleSidebarBtn?.addEventListener("click", () => { sidebar.classList.add("open"); updateSidebarContent(); });
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
-newChatBtn?.addEventListener("click", () => { 
-    const newSessionId = crypto.randomUUID();
-    localStorage.setItem("chatSessionId", newSessionId);
+newChatBtn?.addEventListener("click", () => {
     chatHistory = [];
-    chatMessages.innerHTML = '';
-    location.reload(); 
 });
 clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; addMessageToChat('assistant', "Screen cleared!"); });
 
@@ -340,16 +336,16 @@ async function init() {
     try {
         const res = await fetch('/api/history', {
             headers: {
-             'x-session-id': sessionId,
-             'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
-             'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
-         }
-    });
+                'x-session-id': sessionId,
+                'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+            }
+        });
         if (res.ok) {
             const data = await res.json();
             const messages = data.messages || [];
             if (messages.length > 0) {
-                chatMessages.innerHTML = ''; 
+                chatMessages.innerHTML = '';
                 chatHistory = messages;
                 chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
@@ -357,21 +353,21 @@ async function init() {
 
         const profileRes = await fetch('/api/profile', {
             headers: {
-            'x-session-id': sessionId,
-            'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
-            'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
-          }
-      });
+                'x-session-id': sessionId,
+                'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access',
+                'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
+            }
+        });
         if (profileRes.ok) {
             const data = await profileRes.json();
-           // Mobile guard - never apply fancy theme on mobile screens
-           if (window.innerWidth < 768) {
-               document.body.classList.remove("theme-fancy");
-           } else {
-               document.body.classList.toggle("theme-fancy", data.theme === "fancy");
-           }
+            // Mobile guard - never apply fancy theme on mobile screens
+            if (window.innerWidth < 768) {
+                document.body.classList.remove("theme-fancy");
+            } else {
+                document.body.classList.toggle("theme-fancy", data.theme === "fancy");
+            }
 
-            
+
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
                 chatMessages.innerHTML = '';
                 chatHistory = data.messages;
