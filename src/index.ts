@@ -938,7 +938,7 @@ export class ChatSession extends DurableObject<Env> {
 				// Proactive Nest token age check — fires on every chat turn
 				const nestTokenStatus = await this.checkNestTokenStatus();
 
-				await this.saveMsg(sessionId, 'user', userMsg);
+				await this.saveMsg(sessionId, 'user', userMsg, userId);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 50").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
@@ -1183,8 +1183,8 @@ export class ChatSession extends DurableObject<Env> {
 				let episodicContext = "";
 				try {
 					const recentEpisodicRows = await this.env.jolene_db.prepare(
-						"SELECT timestamp, fact_text, source_tag FROM episodic_memories ORDER BY id DESC LIMIT 25"
-					).all();
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE user_id = ? AND source_tag != 'canon_fact' ORDER BY id DESC LIMIT 25"
+					).bind(userId).all();
 					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
 						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
 						recentEpisodicRows.results.forEach((row: any) => {
@@ -1394,8 +1394,8 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								let existingId: number | null = null;
 								try {
 									const existingCheck = await this.env.jolene_db.prepare(
-										"SELECT id FROM episodic_memories WHERE fact_text = ? LIMIT 1"
-									).bind(rawFact).first<{ id: number }>();
+										"SELECT id FROM episodic_memories WHERE fact_text = ? AND user_id = ? LIMIT 1"
+									).bind(rawFact, userId).first<{ id: number }>();
 									if (existingCheck) {
 										isDuplicate = true;
 										existingId = existingCheck.id;
@@ -1418,8 +1418,8 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								} else {
 									try {
 										const insertResult = await this.env.jolene_db.prepare(
-											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag) VALUES (?, ?, ?)"
-										).bind(easternTimeStr, rawFact, "live_session_write").run();
+											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag, user_id) VALUES (?, ?, ?, ?)"
+										).bind(easternTimeStr, rawFact, "live_session_write", userId).run();
 
 										const insertedRowId = insertResult.meta?.last_row_id;
 										const changesApplied = insertResult.meta?.changes || 0;
