@@ -634,12 +634,11 @@
         padding: 0 !important;
         height: 100vh !important;
         height: 100dvh !important;
-        overflow: hidden !important;
     }
     
     .chat-container {
         position: fixed !important;
-        top: 0 !important;
+        top: 100px !important;
         left: 0 !important;
         right: 0 !important;
         bottom: 0 !important;
@@ -729,11 +728,6 @@
         font-size: 20px !important;
     }
     
-    /* Upload/Memorize row — hide on mobile to reduce clutter */
-    .input-row:first-child {
-        display: none !important;
-    }
-    
     /* Sidebar — full screen overlay on mobile */
     #memory-sidebar {
         width: 100% !important;
@@ -748,6 +742,38 @@
     /* Typing indicator — align left like assistant messages */
     #typing-indicator {
         padding: 0 12px 12px 12px !important;
+    }
+
+    /* Kill the double-box on message bubbles */
+    .assistant-message,
+    .user-message {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Show controls-row as a horizontal scrollable button bar */
+    .controls-row {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        gap: 8px !important;
+        padding: 8px 12px !important;
+        background: #ffffff !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        flex-shrink: 0 !important;
+    }
+    
+    /* Mobile-appropriate button sizing in controls-row */
+    .controls-row button {
+        flex-shrink: 0 !important;
+        font-size: 13px !important;
+        padding: 8px 12px !important;
+        min-height: 40px !important;
+        white-space: nowrap !important;
     }
 }
 </style>
