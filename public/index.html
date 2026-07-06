@@ -754,28 +754,34 @@
         padding: 0 !important;
     }
     
-    /* Show controls-row as a horizontal scrollable button bar */
+    /* Show controls-row as a horizontal button bar — all fit on one line */
     .controls-row {
         display: flex !important;
         flex-wrap: nowrap !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        gap: 8px !important;
-        padding: 8px 12px !important;
+        gap: 6px !important;
+        padding: 6px 8px !important;
         background: #ffffff !important;
         border-bottom: 1px solid #e2e8f0 !important;
         flex-shrink: 0 !important;
+        overflow: hidden !important;
     }
     
     /* Mobile-appropriate button sizing in controls-row */
     .controls-row button {
-        flex-shrink: 0 !important;
-        font-size: 13px !important;
-        padding: 8px 12px !important;
-        min-height: 40px !important;
+        flex: 1 !important;
+        flex-shrink: 1 !important;
+        font-size: 12px !important;
+        padding: 6px 8px !important;
+        min-height: 36px !important;
         white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+        overflow: hidden !important;
     }
-}
+    
+    /* Hide Memorize button on mobile */
+    #memorize-btn {
+        display: none !important;
+    }
 </style>
 
 <script>
