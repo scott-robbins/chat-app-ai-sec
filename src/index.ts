@@ -1335,7 +1335,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 				}
 
 				let realDispatchFired = false;
-				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}]THEATER_ACTION_TRIGGER:\s*\{/u;
+				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}]THEATER_ACTION_TRIGGER:\s*\{/u;
 
 				if (strictTriggerRegex.test(chatTxt)) {
 					try {
