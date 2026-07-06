@@ -956,7 +956,16 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const lowerMsg = userMsg.toLowerCase();
-				if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
+				
+				// Rock Show intercept — Callan and Josie's favorite = Engine No. 9 by Deftones
+				// Must fire BEFORE artist/track regex war to prevent misrouting
+				if (lowerMsg.includes("rock show")) {
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
+					if (zone === "bedroom") zone = "main_bedroom";
+					const trackName = "Engine No. 9 Deftones";
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play Rock Show for Callan and Josie. Rock Show is their nickname for Engine No. 9 by Deftones. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie 🤘"). Then emit the trigger payload at the very end. This is NOT optional.`;
+				} else if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
 					const minutes = minuteMatch ? parseInt(minuteMatch[1]) : 5;
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
