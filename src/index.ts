@@ -971,25 +971,6 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "theater";
 					if (zone === "bedroom") zone = "main_bedroom";
 
-					// Pre-dispatch: fire Sonos announcement BEFORE music starts (fail silently on error)
-					const artistTemplates = [
-						`Here's some ${artistName} for you in the ${zone}`,
-						`Coming up in the ${zone}, some ${artistName}`,
-						`Firing up ${artistName} in the ${zone} now`
-					];
-					const announcePhrase = artistTemplates[Math.floor(Math.random() * artistTemplates.length)];
-					try {
-						console.log(`[ANNOUNCE PRE-DISPATCH] Firing announcement for artist queue: "${announcePhrase}"`);
-						await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ tool: "announce_over_music", arguments: { zone, phrase: announcePhrase } })
-						});
-						console.log(`[ANNOUNCE PRE-DISPATCH] Announcement completed for zone: ${zone}`);
-					} catch (announceErr: any) {
-						console.error(`[ANNOUNCE PRE-DISPATCH] Failed silently for zone ${zone}:`, announceErr.message);
-					}
-
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a queue of tracks by an artist. You MUST execute the tool "spotify_artist" with arguments { "artist": "${artistName}", "zone": "${zone}" }. Respond naturally confirming the artist queue is starting (e.g., "Queueing up ${artistName} on the ${zone} Sonos — 10 tracks loaded"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (lowerMsg.match(/^(?:play|listen to|queue|put on)\s+/i)) {
 					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via|by)\s+.+)?$/i);
@@ -1002,30 +983,6 @@ export class ChatSession extends DurableObject<Env> {
 					// Rock Show alias — Callan and Josie's favorite = Engine No. 9 by Deftones
 					if (lowerMsg.includes("rock show")) {
 						trackName = "Engine No. 9 Deftones";
-					}
-
-					// Pre-dispatch: fire Sonos announcement BEFORE music starts (fail silently on error)
-					let announcePhrase: string;
-					if (lowerMsg.includes("rock show")) {
-						announcePhrase = `Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie`;
-					} else {
-						const trackTemplates = [
-							`Playing ${trackName} in the ${zone} now`,
-							`Here's ${trackName} coming up in the ${zone}`,
-							`Cueing up ${trackName} in the ${zone}`
-						];
-						announcePhrase = trackTemplates[Math.floor(Math.random() * trackTemplates.length)];
-					}
-					try {
-						console.log(`[ANNOUNCE PRE-DISPATCH] Firing announcement for single track: "${announcePhrase}"`);
-						await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ tool: "announce_over_music", arguments: { zone, phrase: announcePhrase } })
-						});
-						console.log(`[ANNOUNCE PRE-DISPATCH] Announcement completed for zone: ${zone}`);
-					} catch (announceErr: any) {
-						console.error(`[ANNOUNCE PRE-DISPATCH] Failed silently for zone ${zone}:`, announceErr.message);
 					}
 
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackName} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
