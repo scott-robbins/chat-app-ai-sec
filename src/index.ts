@@ -597,8 +597,8 @@ export class ChatSession extends DurableObject<Env> {
 				topicMode = "news";
 				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
 			}
-
-			const res = await fetch('https://api.tavily.com/search', {
+            if (deepQuery.length > 380) deepQuery = deepQuery.substring(0, 380);
+				const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
