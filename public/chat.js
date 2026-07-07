@@ -329,6 +329,8 @@ toggleSidebarBtn?.addEventListener("click", () => { sidebar.classList.add("open"
 closeSidebarBtn?.addEventListener("click", () => sidebar.classList.remove("open"));
 newChatBtn?.addEventListener("click", () => {
     chatHistory = [];
+    sessionId = crypto.randomUUID();
+    localStorage.setItem("chatSessionId", sessionId);
 });
 clearScreenBtn?.addEventListener("click", () => { chatMessages.innerHTML = ''; addMessageToChat('assistant', "Screen cleared!"); });
 
