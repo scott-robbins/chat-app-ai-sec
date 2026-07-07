@@ -637,6 +637,7 @@ export class ChatSession extends DurableObject<Env> {
 	}
 
 	detectSearchIntent(userMsg: string): boolean {
+		console.log("[DETECT SEARCH] Called with query:", userMsg);
 		const lower = (userMsg || "").toLowerCase();
 
 		if (/\b(search|look up|lookup|google|find out|what is|what's|who is|who's|when did|when is|where did|where is|how much|how many)\b/.test(lower)) {
@@ -667,6 +668,7 @@ export class ChatSession extends DurableObject<Env> {
 			return true;
 		}
 
+		console.log("[DETECT SEARCH] All regex checks failed — returning false for query:", userMsg);
 		return false;
 	}
 
