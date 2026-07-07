@@ -1048,8 +1048,6 @@ export class ChatSession extends DurableObject<Env> {
 
 				} else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.getLiveNBAScore(userMsg);
-				} else if (["stock", "shares", "ticker", "close", "price", "market", "net", "cloudflare"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = await this.fetchLiveTickerPrice("NET");
 				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				} else if (this.detectSearchIntent(userMsg)) {
