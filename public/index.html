@@ -301,7 +301,8 @@
 		cursor: pointer;
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		justify-content: center;
+		gap: 0;
 		transition: all 0.2s;
 		font-size: 0.85rem;
 		font-weight: 600;
@@ -313,15 +314,16 @@
 	}
 
 	.btn-primary {
-		padding: 8px 16px;
-		border-radius: 10px;
-		border: none;
-		background: var(--primary-color);
-		color: white;
+    	padding: 8px 16px;
+    	border-radius: 10px;
+    	border: none;
+    	background: var(--primary-color);
+    	color: white;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		justify-content: center;
+		gap: 0;
 		font-size: 0.85rem;
 		font-weight: 600;
 		box-shadow: 0 4px 12px rgba(246, 130, 31, 0.3);
@@ -865,11 +867,10 @@
 			<button id="toggle-sidebar-btn" class="btn-secondary" style="display: none;"><i class="ph ph-database"></i>
 				Memory</button>
 
-			<button id="new-chat-btn" class="btn-primary"><i class="ph ph-chat-circle-dots"></i> New Chat</button>
-			<button id="clear-screen-btn" class="btn-secondary"><i class="ph ph-trash"></i> Clear Screen</button>
-			<button id="voice-toggle-btn" class="btn-secondary"><i class="ph ph-speaker-slash" id="voice-icon"></i>
-				Voice</button>
-			<button id="settings-toggle-btn" class="btn-secondary"><i class="ph ph-gear"></i> Settings</button>
+			<button id="new-chat-btn" class="btn-primary" aria-label="New Chat" title="New Chat"><i class="ph ph-chat-circle-dots"></i></button>
+			<button id="clear-screen-btn" class="btn-secondary" aria-label="Clear Screen" title="Clear Screen"><i class="ph ph-trash"></i></button>
+			<button id="voice-toggle-btn" class="btn-secondary" aria-label="Voice" title="Voice"><i class="ph ph-speaker-slash" id="voice-icon"></i></button>
+			<button id="settings-toggle-btn" class="btn-secondary" aria-label="Settings" title="Settings"><i class="ph ph-gear"></i></button>
 		</div>
 		<ul id="settings-dropdown">
 			<li id="opt-model"><i class="ph ph-cpu"></i> Model</li>
