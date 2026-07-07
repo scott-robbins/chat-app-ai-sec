@@ -594,11 +594,11 @@ export class ChatSession extends DurableObject<Env> {
 			if (lowerQ.match(/mma|ufc|boxing|card|fight|schedule/)) {
 				deepQuery = `${query} full fight card matchups betting odds schedule ${dateStr}`;
 			} else if (lowerQ.match(/weather|forecast|temperature|outside/)) {
-				topicMode = "news";
-				deepQuery = `current outdoor temperature weather forecast condition report plymouth ma ${dateStr}`;
+				topicMode = "general";
+				deepQuery = `Plymouth MA current temperature humidity conditions weather.gov weather.com ${dateStr}`;
 			}
-            if (deepQuery.length > 380) deepQuery = deepQuery.substring(0, 380);
-				const res = await fetch('https://api.tavily.com/search', {
+			if (deepQuery.length > 380) deepQuery = deepQuery.substring(0, 380);
+			const res = await fetch('https://api.tavily.com/search', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -956,7 +956,7 @@ export class ChatSession extends DurableObject<Env> {
 				}
 
 				const lowerMsg = userMsg.toLowerCase();
-				
+
 				// Rock Show intercept — Callan and Josie's favorite = Engine No. 9 by Deftones
 				// Must fire BEFORE artist/track regex war to prevent misrouting
 				if (lowerMsg.includes("rock show")) {
