@@ -640,7 +640,7 @@ export class ChatSession extends DurableObject<Env> {
 		console.log("[DETECT SEARCH] Called with query:", userMsg);
 		const lower = (userMsg || "").toLowerCase();
 
-		if (/\b(search|look up|lookup|google|find out|what is|what's|who is|who's|when did|when is|where did|where is|how much|how many)\b/.test(lower)) {
+		if (/\b(search|look up|lookup|google|find out|what is|what's|who is|who's|when does|when did|when is|where does|where did|where is|how much|how many)\b/.test(lower)) {
 			return true;
 		}
 
@@ -656,8 +656,7 @@ export class ChatSession extends DurableObject<Env> {
 			return true;
 		}
 
-		if (/\b(on netflix|on hulu|on max|on prime|streaming|movie|movies|film|films|box office|tv show|series|weekend box|opening weekend)\b/.test(lower)) {
-
+		if (/\b(on netflix|on hulu|on max|on prime|streaming|movie|movies|film|films|box office|tv show|series|weekend box|opening weekend|new season|next season|season premiere|premiere date|season start|when does .* season|return|new episode)\b/.test(lower)) {
 			return true;
 		}
 
