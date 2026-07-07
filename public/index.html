@@ -1032,14 +1032,13 @@
 		};
 
 		document.getElementById('new-chat-btn').onclick = async () => {
-			sessionId = crypto.randomUUID();
-			localStorage.setItem('jolene_session_id', sessionId);
-			document.getElementById('chat-messages').innerHTML = '';
-			await updateDashboard();
-
-			const greeting = "Hey Scott! 👋 Ready when you are. Music, timers, lights, temperature, house control — all of it. What do you need? 🥊";
-			
-			appendMessage('assistant-message', greeting);
+		    sessionId = crypto.randomUUID();
+		    localStorage.setItem('jolene_session_id', sessionId);
+		    localStorage.setItem('chatSessionId', sessionId);
+		    await updateDashboard();
+		    document.getElementById('chat-messages').innerHTML = '';
+		    const greeting = "Hey Scott! 👋 Ready when you are. Music, timers, lights, temperature, house control — all of it. What do you need? 🥊";
+		    appendMessage('assistant-message', greeting);
 		};
 
 		const fileInput = document.getElementById('file-input');
