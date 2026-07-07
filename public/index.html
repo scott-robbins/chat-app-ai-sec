@@ -1022,13 +1022,13 @@
 		document.getElementById('clear-screen-btn').onclick = () => {
 			document.getElementById('chat-messages').innerHTML = '';
 			appendMessage('assistant-message', "Screen cleared. How else can I assist?", true);
-		};
-
 		document.getElementById('voice-toggle-btn').onclick = () => {
 			voiceEnabled = !voiceEnabled;
 			const icon = document.getElementById('voice-icon');
 			icon.className = voiceEnabled ? "ph ph-speaker-high" : "ph ph-speaker-slash";
 			appendMessage('system-indicator', voiceEnabled ? "System: Voice enabled." : "System: Voice disabled.");
+		};
+
 		document.getElementById('new-chat-btn').onclick = async () => {
 			sessionId = crypto.randomUUID();
 			localStorage.setItem('jolene_session_id', sessionId);
