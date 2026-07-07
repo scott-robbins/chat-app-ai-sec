@@ -644,7 +644,7 @@ export class ChatSession extends DurableObject<Env> {
 			return true;
 		}
 
-		if (/\b(today|yesterday|tonight|this week|current|latest|news|breaking|just happened|recently)\b/.test(lower)) {
+		if (/\b(today|yesterday|tonight|this weekend|last weekend|weekend|this week|current|latest|news|breaking|just happened|recently)\b/.test(lower)) {
 			return true;
 		}
 
@@ -656,7 +656,8 @@ export class ChatSession extends DurableObject<Env> {
 			return true;
 		}
 
-		if (/\b(on netflix|on hulu|on max|on prime|streaming|movie|tv show|series)\b/.test(lower)) {
+		if (/\b(on netflix|on hulu|on max|on prime|streaming|movie|movies|film|films|box office|tv show|series|weekend box|opening weekend)\b/.test(lower)) {
+
 			return true;
 		}
 
