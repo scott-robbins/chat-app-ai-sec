@@ -1037,12 +1037,8 @@
 			document.getElementById('chat-messages').innerHTML = '';
 			await updateDashboard();
 
-			let greeting = "";
-			if (activeMode === "uva") {
-				greeting = "### 🎓 UVA Mode Activated\nI am now focused on your University of Virginia materials and campus life.";
-			} else {
-				greeting = "### 🏠 Personal Mode Activated\nI have switched back to your general Personal Assistant mode.";
-			}
+			const greeting = "Hey Scott! 👋 Ready when you are. Music, timers, lights, temperature, house control — all of it. What do you need? 🥊";
+			
 			appendMessage('assistant-message', greeting);
 		};
 
