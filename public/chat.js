@@ -350,12 +350,9 @@ async function init() {
             const data = await res.json();
             const messages = data.messages || [];
             if (messages.length > 0) {
-                chatMessages.innerHTML = '';
                 chatHistory = messages;
-                chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
         }
-
         const profileRes = await fetch('/api/profile', {
             headers: {
                 'x-session-id': sessionId,
@@ -375,9 +372,7 @@ async function init() {
             }
 
             if (chatHistory.length === 0 && data.messages && data.messages.length > 0) {
-                chatMessages.innerHTML = '';
                 chatHistory = data.messages;
-                chatHistory.forEach(msg => addMessageToChat(msg.role, msg.content));
             }
             // Populate metrics immediately on load
             updateSidebarContent();
