@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jolene-v3';
+const CACHE_NAME = 'jolene-v4';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -30,6 +30,14 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') {
+    return;
+  }
+
+  const url = new URL(event.request.url);
+  
+  // NEVER cache API routes - always go to network
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
