@@ -1522,7 +1522,15 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										// Extract the actual spoken message from the user's request
 										// Strip everything except the content after the colon
 										const sonosMessageMatch = userMsg.match(/(?:say to|speak to|announce(?:\s+to\s+\S+)?|broadcast(?:\s+to\s+\S+)?|tell\s+\w+)[^:]*?(?::\s*|\s+that\s+|\s+that\s+)(.+)/i);
-										const sonosRawContent = sonosMessageMatch ? sonosMessageMatch[1].trim() : userMsg.replace(/^(?:broadcast|announce|say|speak|tell)\s+(?:to\s+)?(?:the\s+)?(?:theater|kitchen|bedroom|office|renee|scott)\s+(?:that\s+)?/i, "").trim();
+
+										// Second pattern — handles "Announce [message] in the [zone]" word order
+										const sonosMessageMatch2 = !sonosMessageMatch ? userMsg.match(/^(?:broadcast|announce|say|speak|tell)\s+(.+?)\s+(?:in|to|through|on)\s+(?:the\s+)?(?:theater|kitchen|bedroom|office)/i) : null;
+
+										const sonosRawContent = sonosMessageMatch
+											? sonosMessageMatch[1].trim()
+											: sonosMessageMatch2
+												? sonosMessageMatch2[1].trim()
+												: userMsg.replace(/^(?:broadcast|announce|say|speak|tell)\s+(?:to\s+)?(?:the\s+)?(?:theater|kitchen|bedroom|office|renee|scott)\s+(?:that\s+)?/i, "").trim();
 
 										// UNIFIED JOLENE: Use the same chatTxt that powers laptop voice — one brain, two speakers
 										const sonosSpokenContent = sonosRawContent;
