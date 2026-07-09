@@ -990,6 +990,10 @@ export class ChatSession extends DurableObject<Env> {
 
 					let trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
 
+					const artistMatch = userMsg.match(/\bby\s+([^,]+?)(?:\s+(?:in|on|through|via)\s+|$)/i);
+					const artistName = artistMatch ? artistMatch[1].trim() : "";
+					const trackNameWithArtist = artistName ? `${trackName} by ${artistName}` : trackName;
+
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
@@ -999,7 +1003,7 @@ export class ChatSession extends DurableObject<Env> {
 						trackName = "Engine No. 9 Deftones";
 					}
 
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackName} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackNameWithArtist}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackNameWithArtist} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (lowerMsg.match(/\b(?:skip|next track|next song|pause|resume|unpause|louder|quieter)\b/i) || lowerMsg.match(/(?:volume\s+to|set\s+volume\s+to)\s+\d+/i)) {
 
 
