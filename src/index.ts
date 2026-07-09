@@ -990,10 +990,10 @@ export class ChatSession extends DurableObject<Env> {
 
 					let trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
 
-					const artistMatch = userMsg.match(/\bby\s+([^,]+?)(?:\s+(?:in|on|through|via)\s+|$)/i);
+					const artistMatch = userMsg.match(/\bby\s+(.+?)(?:\s+(?:in|on|through|via)\s+(?:the\s+)?(?:kitchen|theater|main_bedroom|bedroom|office)|$)/i);
 					const artistName = artistMatch ? artistMatch[1].trim() : "";
 					const trackNameWithArtist = artistName ? `${trackName} by ${artistName}` : trackName;
-
+					
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
@@ -1468,7 +1468,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
 
 								let track = payload.arguments.track;
-								const zone = payload.arguments.zone || "kitchen";
+								const zone = payload.arguments.zone || "theater";
 
 								// Family nickname aliases — surgical mapping for known song nicknames
 								if (track && /rock\s*show/i.test(track)) {
