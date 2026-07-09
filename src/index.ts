@@ -1028,7 +1028,7 @@ export class ChatSession extends DurableObject<Env> {
 					}
 
 					// Direct dispatch — fire transport action immediately without waiting for LLM trigger
-					if (action) {
+					if (action && zoneMatch) {
 						try {
 							const transportController = new AbortController();
 							const transportTimeoutId = setTimeout(() => transportController.abort(), 10000);
