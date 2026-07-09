@@ -1513,13 +1513,11 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 								// === SONOS PRE-DISPATCH URL INJECTION ===
 								if (payload.tool === "control_sonos_audio") {
-										// Guard: don't fire for transport commands even if LLM misfires
-										if (/\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg)) {
-											console.warn("[SONOS PRE-DISPATCH] Blocked control_sonos_audio for transport-adjacent userMsg:", userMsg);
-											realDispatchFired = true;
-											continue;
-										}
-										console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
+									// Guard: don't fire for transport commands even if LLM misfires
+									if (/\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg)) {
+										console.warn("[SONOS PRE-DISPATCH] Blocked control_sonos_audio for transport-adjacent userMsg:", userMsg);
+										realDispatchFired = true;
+									} else {
 										console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
 										// Extract the actual spoken message from the user's request
 										// Strip everything except the content after the colon
@@ -1538,158 +1536,159 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 											console.warn("[SONOS PRE-DISPATCH] Audio generation returned empty URL — Pi dispatch will likely fail");
 										}
 									}
-									const controller = new AbortController();
-									const timeoutHandle = setTimeout(() => controller.abort(), 15000);
-									let mcpResultText = "";
-									let mcpOk = false;
-
-									try {
-										const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-											method: "POST",
-											headers: { "Content-Type": "application/json" },
-											body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
-											signal: controller.signal
-										});
-										clearTimeout(timeoutHandle);
-
-										if (mcpRes.ok) {
-											const mcpData: any = await mcpRes.json();
-											mcpResultText = typeof mcpData === "string" ? mcpData : JSON.stringify(mcpData, null, 2);
-											mcpOk = true;
-											console.log("[MCP DISPATCH] Pi gateway returned OK. Result length:", mcpResultText.length);
-										} else {
-											const errText = await mcpRes.text();
-											console.error("[MCP DISPATCH] Pi gateway returned status " + mcpRes.status + ":" + errText);
-										}
-									} catch (mcpErr: any) {
-										clearTimeout(timeoutHandle);
-										console.error("[MCP DISPATCH] Pi gateway fetch threw:", mcpErr.message);
-									}
-
-									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-
-									if (mcpOk) {
-										chatTxt += "\n\n" + "✅ *[Tool executed via Pi: " + payload.tool + "]*" + "\n\n```\n" + mcpResultText + "\n```";
-
-										// === SECOND-PASS SUMMARIZER ENGINE EXECUTION ===
-										try {
-											console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
-
-											const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
-
-											const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
-
-											const chatMessages: any[] = [];
-											const sanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
-											for (const msg of sanitizedHistory) {
-												if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
-												else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
-											}
-											if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-												chatMessages[chatMessages.length - 1].content = userMsg;
-											} else {
-												chatMessages.push({ role: "user", content: userMsg });
-											}
-
-											chatMessages.push({
-												role: "user",
-												content: `TOOL RESULT FROM PI GATEWAY for [${payload.tool}]: ${mcpResultText}. Summarize this for Scott in natural Jolene voice — snark intact, emojis welcome, conversational, concise. Answer his original question naturally based on the data. Do NOT dump raw JSON. Do NOT emit a trigger payload.`
-											});
-
-											const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-											const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-											const secondPassUrl = `${gatewayBase}/anthropic/v1/messages`;
-
-											const secondPassHeaders = {
-												"Content-Type": "application/json",
-												"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-												"anthropic-version": "2023-06-01",
-												"anthropic-beta": "prompt-caching-2024-07-31",
-												"x-second-pass": "true"
-											};
-
-											const secondPassBody = {
-												model: cleanModel,
-												system: [
-													{
-														type: "text",
-														text: secondPassStableText,
-														cache_control: { type: "ephemeral" }
-													},
-													{
-														type: "text",
-														text: secondPassVolatileText
-													}
-												],
-												messages: chatMessages,
-												max_tokens: 8192
-											};
-
-											console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
-											const secondPassRes = await fetch(secondPassUrl, {
-												method: "POST",
-												headers: secondPassHeaders,
-												body: JSON.stringify(secondPassBody)
-											});
-
-											if (secondPassRes.ok) {
-												const secondPassData: any = await secondPassRes.json();
-												const summaryText = secondPassData.content?.[0]?.text;
-												if (summaryText) {
-													console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
-													chatTxt = summaryText;
-
-													if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
-
-												} else {
-													throw new Error("Empty content block array returned from Anthropic gateway endpoint.");
-												}
-											} else {
-												throw new Error(`Anthropic gateway returned status flag identifier code: ${secondPassRes.status}`);
-											}
-										} catch (summaryPassErr: any) {
-											console.error(`[SECOND_PASS_FALLBACK] Second-pass summarization call exception caught: ${summaryPassErr.message}`);
-										}
-									} else {
-										chatTxt += "\n\n" + "⚠️ *[Hardware bridge unreachable — Pi tunnel may be down, tool call skipped]*";
-									}
-									realDispatchFired = true;
 								}
+								const controller = new AbortController();
+								const timeoutHandle = setTimeout(() => controller.abort(), 15000);
+								let mcpResultText = "";
+								let mcpOk = false;
+
+								try {
+									const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
+										signal: controller.signal
+									});
+									clearTimeout(timeoutHandle);
+
+									if (mcpRes.ok) {
+										const mcpData: any = await mcpRes.json();
+										mcpResultText = typeof mcpData === "string" ? mcpData : JSON.stringify(mcpData, null, 2);
+										mcpOk = true;
+										console.log("[MCP DISPATCH] Pi gateway returned OK. Result length:", mcpResultText.length);
+									} else {
+										const errText = await mcpRes.text();
+										console.error("[MCP DISPATCH] Pi gateway returned status " + mcpRes.status + ":" + errText);
+									}
+								} catch (mcpErr: any) {
+									clearTimeout(timeoutHandle);
+									console.error("[MCP DISPATCH] Pi gateway fetch threw:", mcpErr.message);
+								}
+
+								chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+
+								if (mcpOk) {
+									chatTxt += "\n\n" + "✅ *[Tool executed via Pi: " + payload.tool + "]*" + "\n\n```\n" + mcpResultText + "\n```";
+
+									// === SECOND-PASS SUMMARIZER ENGINE EXECUTION ===
+									try {
+										console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
+
+										const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
+
+										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
+
+										const chatMessages: any[] = [];
+										const sanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
+										for (const msg of sanitizedHistory) {
+											if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
+											else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
+										}
+										if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
+											chatMessages[chatMessages.length - 1].content = userMsg;
+										} else {
+											chatMessages.push({ role: "user", content: userMsg });
+										}
+
+										chatMessages.push({
+											role: "user",
+											content: `TOOL RESULT FROM PI GATEWAY for [${payload.tool}]: ${mcpResultText}. Summarize this for Scott in natural Jolene voice — snark intact, emojis welcome, conversational, concise. Answer his original question naturally based on the data. Do NOT dump raw JSON. Do NOT emit a trigger payload.`
+										});
+
+										const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+										const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+										const secondPassUrl = `${gatewayBase}/anthropic/v1/messages`;
+
+										const secondPassHeaders = {
+											"Content-Type": "application/json",
+											"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+											"anthropic-version": "2023-06-01",
+											"anthropic-beta": "prompt-caching-2024-07-31",
+											"x-second-pass": "true"
+										};
+
+										const secondPassBody = {
+											model: cleanModel,
+											system: [
+												{
+													type: "text",
+													text: secondPassStableText,
+													cache_control: { type: "ephemeral" }
+												},
+												{
+													type: "text",
+													text: secondPassVolatileText
+												}
+											],
+											messages: chatMessages,
+											max_tokens: 8192
+										};
+
+										console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
+										const secondPassRes = await fetch(secondPassUrl, {
+											method: "POST",
+											headers: secondPassHeaders,
+											body: JSON.stringify(secondPassBody)
+										});
+
+										if (secondPassRes.ok) {
+											const secondPassData: any = await secondPassRes.json();
+											const summaryText = secondPassData.content?.[0]?.text;
+											if (summaryText) {
+												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
+												chatTxt = summaryText;
+
+												if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
+
+											} else {
+												throw new Error("Empty content block array returned from Anthropic gateway endpoint.");
+											}
+										} else {
+											throw new Error(`Anthropic gateway returned status flag identifier code: ${secondPassRes.status}`);
+										}
+									} catch (summaryPassErr: any) {
+										console.error(`[SECOND_PASS_FALLBACK] Second-pass summarization call exception caught: ${summaryPassErr.message}`);
+									}
+								} else {
+									chatTxt += "\n\n" + "⚠️ *[Hardware bridge unreachable — Pi tunnel may be down, tool call skipped]*";
+								}
+								realDispatchFired = true;
 							}
-						} catch (parseErr: any) {
-							console.error("[TRIGGER PARSE GRACEFUL] Handled parsing exception without breaking chat response flow layout:", parseErr.message);
 						}
+					} catch (parseErr: any) {
+						console.error("[TRIGGER PARSE GRACEFUL] Handled parsing exception without breaking chat response flow layout:", parseErr.message);
 					}
+				}
 
 				if (realDispatchFired === false) {
-						const fakeFooterPatterns = [
-							/✅\s*\*\[Tool executed via Pi:\s*[^\]]*\]\*/g,
-							/⚠️\s*\*\[Hardware bridge unreachable\s*[^\]]*\]\*/g,
-							/✅\s*\*\[Long-term memory verified\s*[^\]]*\]\*/g,
-							/⚠️\s*\*\[MEMORY WRITE FAILED\s*[^\]]*\]\*/g,
-							/ℹ️\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
-						];
-						let fakeFooterDetected = false;
-						for (const pattern of fakeFooterPatterns) {
-							if (pattern.test(chatTxt)) {
-								fakeFooterDetected = true;
-								chatTxt = chatTxt.replace(pattern, "");
-							}
-						}
-						if (fakeFooterDetected) {
-							chatTxt = chatTxt.replace(/```[\s\S]*?```/g, "");
-							chatTxt = chatTxt.trim();
-							chatTxt += "\n\n" + "⚠️ *[Worker guardrail: model produced fake success theater. Real MCP dispatch did NOT fire.]*";
-							console.error("[GUARDRAIL] Stripped hallucinated tool execution footer from response. No real dispatch occurred this turn.");
+					const fakeFooterPatterns = [
+						/✅\s*\*\[Tool executed via Pi:\s*[^\]]*\]\*/g,
+						/⚠️\s*\*\[Hardware bridge unreachable\s*[^\]]*\]\*/g,
+						/✅\s*\*\[Long-term memory verified\s*[^\]]*\]\*/g,
+						/⚠️\s*\*\[MEMORY WRITE FAILED\s*[^\]]*\]\*/g,
+						/ℹ️\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
+					];
+					let fakeFooterDetected = false;
+					for (const pattern of fakeFooterPatterns) {
+						if (pattern.test(chatTxt)) {
+							fakeFooterDetected = true;
+							chatTxt = chatTxt.replace(pattern, "");
 						}
 					}
+					if (fakeFooterDetected) {
+						chatTxt = chatTxt.replace(/```[\s\S]*?```/g, "");
+						chatTxt = chatTxt.trim();
+						chatTxt += "\n\n" + "⚠️ *[Worker guardrail: model produced fake success theater. Real MCP dispatch did NOT fire.]*";
+						console.error("[GUARDRAIL] Stripped hallucinated tool execution footer from response. No real dispatch occurred this turn.");
+					}
+				}
 
-					// === SERVER-SIDE VOICE SUMMARY ARCHITECTURE PASS ===
-					let voiceSummaryText = "";
-					if ((body.voiceEnabled === true || this.detectSonosZoneIntent(userMsg)) && this.env.ELEVEN_LABS_API_KEY) {
-						try {
-							console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
-							const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott.
+				// === SERVER-SIDE VOICE SUMMARY ARCHITECTURE PASS ===
+				let voiceSummaryText = "";
+				if ((body.voiceEnabled === true || this.detectSonosZoneIntent(userMsg)) && this.env.ELEVEN_LABS_API_KEY) {
+					try {
+						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
+						const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott.
 Do NOT summarize or narrate. Do NOT say "according to the response" or "the response indicates" or any third-person description of a response.
 Instead speak AS Jolene directly to Scott in first person exactly as if you are saying this yourself out loud right now.
 
@@ -1719,91 +1718,91 @@ PRONUNCIATION RULES — apply these spellings so the text-to-speech engine prono
 
 Content to speak as Jolene: ${chatTxt}`;
 
-							const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
-							const summaryHeaders = {
-								"Content-Type": "application/json",
-								"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-								"anthropic-version": "2023-06-01"
-							};
-							const summaryBody = {
-								model: "claude-haiku-4-5",
-								messages: [{ role: "user", content: summaryPrompt }],
-								max_tokens: 225
-							};
+						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
+						const summaryHeaders = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const summaryBody = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: summaryPrompt }],
+							max_tokens: 225
+						};
 
-							const summaryRes = await fetch(summaryUrl, {
+						const summaryRes = await fetch(summaryUrl, {
+							method: "POST",
+							headers: summaryHeaders,
+							body: JSON.stringify(summaryBody)
+						});
+
+						if (summaryRes.ok) {
+							const summaryData: any = await summaryRes.json();
+							voiceSummaryText = summaryData.content?.[0]?.text || "";
+							console.log("[VOICE SUMMARY] Generation complete. Length:", voiceSummaryText.length);
+						} else {
+							console.error("[VOICE SUMMARY] Haiku gateway call failed with status:", summaryRes.status);
+						}
+					} catch (summaryErr: any) {
+						console.error("[VOICE SUMMARY] Fallback triggered. Haiku call threw an exception:", summaryErr.message);
+					}
+				}
+
+				// Detect Sonos zone routing intent from user prompt
+				const userPromptLower = (userMsg || "").toLowerCase();
+				let sonosZone: string | null = null;
+				if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+
+				console.log("[SONOS ZONE] Detected:", sonosZone || "none");
+
+				let voiceUrl: string | null = null;
+				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
+				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
+
+				const shouldGenerateAudio = (body.voiceEnabled === true || sonosZone !== null)
+					&& sentenceCount >= 1 && sentenceCount <= 2
+					&& this.env.ELEVEN_LABS_API_KEY
+					&& voiceSummaryText;
+
+				if (shouldGenerateAudio) {
+					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
+					voiceUrl = generatedAudio || null;
+					console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
+
+					if (sonosZone && voiceUrl) {
+						try {
+							await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: summaryHeaders,
-								body: JSON.stringify(summaryBody)
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									tool: "control_sonos_audio",
+									arguments: { zone: sonosZone, audioUrl: voiceUrl }
+								})
 							});
-
-							if (summaryRes.ok) {
-								const summaryData: any = await summaryRes.json();
-								voiceSummaryText = summaryData.content?.[0]?.text || "";
-								console.log("[VOICE SUMMARY] Generation complete. Length:", voiceSummaryText.length);
-							} else {
-								console.error("[VOICE SUMMARY] Haiku gateway call failed with status:", summaryRes.status);
-							}
-						} catch (summaryErr: any) {
-							console.error("[VOICE SUMMARY] Fallback triggered. Haiku call threw an exception:", summaryErr.message);
+							console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
+						} catch (sonosErr) {
+							console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
 						}
 					}
 
-					// Detect Sonos zone routing intent from user prompt
-					const userPromptLower = (userMsg || "").toLowerCase();
-					let sonosZone: string | null = null;
-					if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+					if (body.voiceEnabled !== true) voiceUrl = null;
+				} else {
+					voiceUrl = null;
+					console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
+				}
 
-					console.log("[SONOS ZONE] Detected:", sonosZone || "none");
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatTxt).run();
+				return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
 
-					let voiceUrl: string | null = null;
-					const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
-					const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
-
-					const shouldGenerateAudio = (body.voiceEnabled === true || sonosZone !== null)
-						&& sentenceCount >= 1 && sentenceCount <= 2
-						&& this.env.ELEVEN_LABS_API_KEY
-						&& voiceSummaryText;
-
-					if (shouldGenerateAudio) {
-						const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
-						voiceUrl = generatedAudio || null;
-						console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
-
-						if (sonosZone && voiceUrl) {
-							try {
-								await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-									method: "POST",
-									headers: { "Content-Type": "application/json" },
-									body: JSON.stringify({
-										tool: "control_sonos_audio",
-										arguments: { zone: sonosZone, audioUrl: voiceUrl }
-									})
-								});
-								console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
-							} catch (sonosErr) {
-								console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
-							}
-						}
-
-						if (body.voiceEnabled !== true) voiceUrl = null;
-					} else {
-						voiceUrl = null;
-						console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
-					}
-
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", chatTxt).run();
-					return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
-
-				} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
-			}
-		return new Response("OK");
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
 		}
+		return new Response("OK");
 	}
+}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
