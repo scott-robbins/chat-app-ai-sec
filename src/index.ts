@@ -986,7 +986,8 @@ export class ChatSession extends DurableObject<Env> {
 
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a queue of tracks by an artist. You MUST execute the tool "spotify_artist" with arguments { "artist": "${artistName}", "zone": "${zone}" }. Respond naturally confirming the artist queue is starting (e.g., "Queueing up ${artistName} on the ${zone} Sonos — 10 tracks loaded"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (lowerMsg.match(/^(?:play|listen to|queue|put on)\s+/i)) {
-					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via|by)\s+.+)?$/i);
+					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via)\s+(?:the\s+)?(?:kitchen|theater|main_bedroom|bedroom|office))?$/i);
+
 					let trackName = trackMatch ? trackMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
 
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
