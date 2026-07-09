@@ -1762,7 +1762,7 @@ Content to speak as Jolene: ${chatTxt}`;
 				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
 				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
 
-				const shouldGenerateAudio = (body.voiceEnabled === true || sonosZone !== null)
+				const shouldGenerateAudio = body.voiceEnabled === true
 					&& sentenceCount >= 1 && sentenceCount <= 2
 					&& this.env.ELEVEN_LABS_API_KEY
 					&& voiceSummaryText;
