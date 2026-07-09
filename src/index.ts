@@ -1351,8 +1351,8 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 				}
 
 				let realDispatchFired = false;
+				let sonosAnnouncementFired = false;
 				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}]THEATER_ACTION_TRIGGER:\s*\{/u;
-
 				if (strictTriggerRegex.test(chatTxt)) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => strictTriggerRegex.test(line));
@@ -1518,6 +1518,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										console.warn("[SONOS PRE-DISPATCH] Blocked control_sonos_audio for transport-adjacent userMsg:", userMsg);
 										realDispatchFired = true;
 									} else {
+										sonosAnnouncementFired = true;
 										console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
 										// Extract the actual spoken message from the user's request
 										// Strip everything except the content after the colon
@@ -1770,11 +1771,17 @@ Content to speak as Jolene: ${chatTxt}`;
 				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
 				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
 
-				const shouldGenerateAudio = body.voiceEnabled === true
+				// Check if LLM already fired a control_sonos_audio tool (announcement path handles its own voice)
+				const sonosAudioAlreadyHandled = sonosAnnouncementFired;
+
+				// Don't fire Sonos voice for transport commands even if zone is named
+				const isTransportCommand = /\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg);
+
+				// Voice fires if: toggle ON (laptop), OR zone explicitly named AND no announcement already fired AND not a transport command
+				const shouldGenerateAudio = (body.voiceEnabled === true || (sonosZone !== null && !sonosAudioAlreadyHandled && !isTransportCommand))
 					&& sentenceCount >= 1 && sentenceCount <= 2
 					&& this.env.ELEVEN_LABS_API_KEY
 					&& voiceSummaryText;
-
 				if (shouldGenerateAudio) {
 					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
 					voiceUrl = generatedAudio || null;
