@@ -991,7 +991,8 @@ export class ChatSession extends DurableObject<Env> {
 						? `the Crime Junkie episode about "${episodeQuery}"`
 						: `the latest Crime Junkie podcast episode`;
 
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play ${episodeDescription} for Renee. Crime Junkie is Renee's favorite podcast — hosted by Ashley Flowers and Brit. You MUST execute the tool "play_crime_junkie" with arguments ${argsJson}. Respond with ONE short confirmation sentence only (e.g., "Pulling ${episodeDescription} for Renee — playing in the ${zone} 🎙️"). Then emit the raw trigger payload JSON on its own line at the very end. CRITICAL: Do NOT write any bracketed footer text like [Playing...] or [Crime Junkie episode...] — the system appends the real result after dispatch. Do NOT fabricate episode names or outcomes. Only the raw trigger JSON.`;
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play ${episodeDescription} for Renee. Crime Junkie is Renee's favorite podcast — hosted by Ashley Flowers and Brit. You MUST execute the tool "play_crime_junkie" with arguments ${argsJson}. Respond with ONE short confirmation sentence only (e.g., "Pulling ${episodeDescription} for Renee — playing in the ${zone} 🎙️"). Then emit the raw trigger payload JSON on its own line at the very end, prefixed with the red siren emoji 🚨 followed immediately by THEATER_ACTION_TRIGGER: — that exact emoji, not microphone, not any other emoji. Do NOT use any other emoji prefix. CRITICAL: Do NOT write any bracketed footer text like [Playing...] yourself — the system appends the real result after dispatch. Do NOT fabricate episode names or outcomes. Only emit the siren-prefixed trigger payload JSON.
+. CRITICAL: Do NOT write any bracketed footer text like [Playing...] or [Crime Junkie episode...] — the system appends the real result after dispatch. Do NOT fabricate episode names or outcomes. Only the raw trigger JSON.`;
 				} else if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
@@ -1376,7 +1377,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 				let realDispatchFired = false;
 				let sonosAnnouncementFired = false;
-				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}]THEATER_ACTION_TRIGGER:\s*\{/u;
+				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}\u{1F399}\u{1F3A7}]THEATER_ACTION_TRIGGER:\s*\{/u;
 				if (strictTriggerRegex.test(chatTxt)) {
 					try {
 						const triggerLine = chatTxt.split("\n").find(line => strictTriggerRegex.test(line));
