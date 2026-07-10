@@ -973,7 +973,25 @@ export class ChatSession extends DurableObject<Env> {
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "main_bedroom";
 					if (zone === "bedroom") zone = "main_bedroom";
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play the latest Crime Junkie podcast episode for Renee. Crime Junkie is Renee's favorite podcast — hosted by Ashley Flowers and Brit. You MUST execute the tool "play_crime_junkie" with arguments { "zone": "${zone}" }. Respond naturally confirming (e.g., "Pulling the latest Crime Junkie episode for Renee — playing in the ${zone} 🎙️"). Then emit the trigger payload at the very end. This is NOT optional.`;
+
+					let episodeQuery: string | null = null;
+					const queryMatch = userMsg.match(/(?:episode\s+about|about|on|regarding)\s+(.+?)(?:\s+(?:in|to|through|on)\s+(?:the\s+)?(?:kitchen|theater|main[_\s]?bedroom|bedroom|office)|$)/i);
+					if (queryMatch && queryMatch[1]) {
+						episodeQuery = queryMatch[1].trim().replace(/[.?!]+$/, '');
+						if (/^(the\s+)?(kitchen|theater|main[_\s]?bedroom|bedroom|office)$/i.test(episodeQuery)) {
+							episodeQuery = null;
+						}
+					}
+
+					const argsJson = episodeQuery
+						? `{ "zone": "${zone}", "episode_query": "${episodeQuery.replace(/"/g, '\\"')}" }`
+						: `{ "zone": "${zone}" }`;
+
+					const episodeDescription = episodeQuery
+						? `the Crime Junkie episode about "${episodeQuery}"`
+						: `the latest Crime Junkie podcast episode`;
+
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play ${episodeDescription} for Renee. Crime Junkie is Renee's favorite podcast — hosted by Ashley Flowers and Brit. You MUST execute the tool "play_crime_junkie" with arguments ${argsJson}. Respond naturally confirming (e.g., "Pulling ${episodeDescription} for Renee — playing in the ${zone} 🎙️"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
@@ -1515,8 +1533,9 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 								}
 								realDispatchFired = true;
 							} else if (payload.tool === "play_crime_junkie") {
-								console.log("[CRIME JUNKIE DISPATCH] Playing latest episode on zone:", payload.arguments.zone);
 								const zone = payload.arguments.zone || "main_bedroom";
+								const episode_query = payload.arguments.episode_query || null;
+								console.log("[CRIME JUNKIE DISPATCH] zone:", zone, "episode_query:", episode_query || "latest");
 								try {
 									const controller = new AbortController();
 									const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -1526,7 +1545,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 										headers: { "Content-Type": "application/json" },
 										body: JSON.stringify({
 											tool: "play_crime_junkie",
-											arguments: { zone }
+											arguments: { zone, ...(episode_query && { episode_query }) }
 										}),
 										signal: controller.signal
 									});
