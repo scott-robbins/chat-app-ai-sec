@@ -969,7 +969,13 @@ export class ChatSession extends DurableObject<Env> {
 					if (zone === "bedroom") zone = "main_bedroom";
 					const trackName = "Engine No. 9 Deftones";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play Rock Show for Callan and Josie. Rock Show is their nickname for Engine No. 9 by Deftones. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie 🤘"). Then emit the trigger payload at the very end. This is NOT optional.`;
+				} else if (lowerMsg.includes("crime junkie") || lowerMsg.includes("crime junkies") || (lowerMsg.includes("play") && lowerMsg.includes("renee") && lowerMsg.includes("podcast"))) {
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "main_bedroom";
+					if (zone === "bedroom") zone = "main_bedroom";
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play the latest Crime Junkie podcast episode for Renee. Crime Junkie is Renee's favorite podcast — hosted by Ashley Flowers and Brit. You MUST execute the tool "play_crime_junkie" with arguments { "zone": "${zone}" }. Respond naturally confirming (e.g., "Pulling the latest Crime Junkie episode for Renee — playing in the ${zone} 🎙️"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				} else if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
+
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
 					const minutes = minuteMatch ? parseInt(minuteMatch[1]) : 5;
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
@@ -1506,6 +1512,41 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 									console.error("[SPOTIFY DISPATCH] Error:", spotifyErr.message);
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 									chatTxt += `\n\n⚠️ *[Spotify error: ${spotifyErr.message}]*`;
+								}
+								realDispatchFired = true;
+							} else if (payload.tool === "play_crime_junkie") {
+								console.log("[CRIME JUNKIE DISPATCH] Playing latest episode on zone:", payload.arguments.zone);
+								const zone = payload.arguments.zone || "main_bedroom";
+								try {
+									const controller = new AbortController();
+									const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+									const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({
+											tool: "play_crime_junkie",
+											arguments: { zone }
+										}),
+										signal: controller.signal
+									});
+
+									clearTimeout(timeoutId);
+									const piResult: any = await piResponse.json();
+
+									if (piResponse.ok && piResult.status === "Success") {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n🎙️ *[${piResult.message}]*`;
+										console.log("[CRIME JUNKIE DISPATCH] Playback initiated successfully");
+									} else {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n⚠️ *[Crime Junkie playback failed: ${piResult.error || 'Unknown error'}]*`;
+										console.error("[CRIME JUNKIE DISPATCH] Pi returned error:", piResult.error);
+									}
+								} catch (crimeJunkieErr: any) {
+									console.error("[CRIME JUNKIE DISPATCH] Error:", crimeJunkieErr.message);
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n⚠️ *[Crime Junkie error: ${crimeJunkieErr.message}]*`;
 								}
 								realDispatchFired = true;
 							} else {
