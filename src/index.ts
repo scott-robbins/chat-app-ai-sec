@@ -1377,6 +1377,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 				let realDispatchFired = false;
 				let sonosAnnouncementFired = false;
+				console.log("[LLM RAW OUTPUT]", JSON.stringify(chatTxt).substring(0, 500));
 				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}\u{1F399}\u{1F3A7}]THEATER_ACTION_TRIGGER:\s*\{/u;
 				if (strictTriggerRegex.test(chatTxt)) {
 					try {
