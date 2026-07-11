@@ -969,6 +969,24 @@ export class ChatSession extends DurableObject<Env> {
 					if (zone === "bedroom") zone = "main_bedroom";
 					const trackName = "Engine No. 9 Deftones";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play Rock Show for Callan and Josie. Rock Show is their nickname for Engine No. 9 by Deftones. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie 🤘"). Then emit the trigger payload at the very end. This is NOT optional.`;
+				} else if (lowerMsg.includes("renee") && (lowerMsg.includes("playlist") || lowerMsg.includes("favorites") || lowerMsg.includes("music for renee") || lowerMsg.includes("renee's music") || lowerMsg.includes("play music for renee"))) {
+					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
+					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "main_bedroom";
+					if (zone === "bedroom") zone = "main_bedroom";
+
+					const reneePlaylist = [
+						"spotify:track:1pr9TZGOXeJUggIal1Wq3R", // Blind - Korn
+						"spotify:track:0LAcM6I7ijW4VVW0aytl1t", // One - Metallica
+						"spotify:track:5UWwZ5lm5PKu6eKsHAGxOk", // Everlong - Foo Fighters
+						"spotify:track:1k2pQc5i348DCHwbn5KTdc", // Pink Pony Club - Chappell Roan
+						"spotify:track:1vYXt7VSjH9JIM5oRRo7vA", // Dance the Night - Dua Lipa
+						"spotify:track:6mFkJmJqdDVQ1REhVfGgd1", // Wish You Were Here - Pink Floyd
+						"spotify:track:72TFWvU3wUYdUuxejTTIzt"  // Work - Rihanna
+					];
+
+					const randomTrack = reneePlaylist[Math.floor(Math.random() * reneePlaylist.length)];
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play music for Renee. You MUST execute the tool "play_spotify" with arguments { "track": "${randomTrack}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing some Renee favorites in the ${zone} 🎵"). Then emit the trigger payload at the very end. This is NOT optional.`;
+
 				} else if (lowerMsg.includes("crime junkie") || lowerMsg.includes("crime junkies") || (lowerMsg.includes("play") && lowerMsg.includes("renee") && lowerMsg.includes("podcast"))) {
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "main_bedroom";
