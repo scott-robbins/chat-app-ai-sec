@@ -1009,7 +1009,26 @@ export class ChatSession extends DurableObject<Env> {
 						? `the Crime Junkie episode about "${episodeQuery}"`
 						: `the latest Crime Junkie podcast episode`;
 
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play ${episodeDescription} for Renee. Crime Junkie is Renee's favorite podcast — hosted by Ashley Flowers and Brit. You MUST execute the tool "play_crime_junkie" with arguments ${argsJson}. Respond with ONE short confirmation sentence only (e.g., "Pulling ${episodeDescription} for Renee — playing in the ${zone} 🎙️"). Then emit the raw trigger payload JSON on its own line at the very end, prefixed with the red siren emoji 🚨 followed immediately by THEATER_ACTION_TRIGGER: — that exact prefix. CRITICAL RULES: (1) You MUST emit the trigger JSON. Failure to emit means the podcast does NOT play. (2) Do NOT write any bracketed footer text like [Playing...] yourself — the system appends the real result after dispatch. (3) Do NOT fabricate episode names, outcomes, or Sonos speaker confirmations. (4) The trigger emission is the ONLY way the podcast plays — no exceptions.`;
+					try {
+						const cjController = new AbortController();
+						const cjTimeoutId = setTimeout(() => cjController.abort(), 20000);
+						await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								tool: "play_crime_junkie",
+								arguments: { zone, ...(episodeQuery && { episode_query: episodeQuery }) }
+							}),
+							signal: cjController.signal
+						});
+						clearTimeout(cjTimeoutId);
+						console.log("[CRIME JUNKIE DIRECT DISPATCH] Pi dispatch complete");
+					} catch (cjErr: any) {
+						console.error("[CRIME JUNKIE DIRECT DISPATCH] Failed:", cjErr.message);
+					}
+
+					liveContext = "Playing " + episodeDescription + " for Renee in the " + zone.replace("_", " ") + ". Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger.";
+
 				} else if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 
 					const minuteMatch = userMsg.match(/(\d+)\s*(?:minute|min|m)\b/i);
@@ -1018,6 +1037,7 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
+
 				} else if (lowerMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some)\s+/i) || (lowerMsg.match(/^play\s+/i) && !lowerMsg.match(/\s+by\s+/i) && !lowerMsg.match(/^play\s+(?:the\s+)?(?:song|track)\s+/i))) {
 					const artistMatch = userMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some|play)\s+(.+?)(?:\s+(?:in|on|through|via)\s+.+)?$/i);
 					const artistName = artistMatch ? artistMatch[1].trim().replace(/^['"]|['"]$/g, '') : "";
@@ -1114,7 +1134,7 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
-				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue","red","purple","teal","green","orange","warm","crisp"].some(c => lowerMsg.includes(c)))) {
+				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue", "red", "purple", "teal", "green", "orange", "warm", "crisp"].some(c => lowerMsg.includes(c)))) {
 					let color = "warm_white";
 					if (lowerMsg.includes("blue")) color = "blue";
 					else if (lowerMsg.includes("red")) color = "red";
