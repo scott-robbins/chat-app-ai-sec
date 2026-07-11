@@ -1112,175 +1112,177 @@ export class ChatSession extends DurableObject<Env> {
 
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
-					if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp"))) {
-						let color = "warm_white";
-						if (lowerMsg.includes("blue")) color = "blue";
-						else if (lowerMsg.includes("red")) color = "red";
-						else if (lowerMsg.includes("purple")) color = "purple";
-						else if (lowerMsg.includes("teal")) color = "teal";
-						else if (lowerMsg.includes("green")) color = "green";
-						else if (lowerMsg.includes("orange")) color = "orange";
-						else if (lowerMsg.includes("crisp white") || lowerMsg.includes("cool white")) color = "crisp_white";
-						else if (lowerMsg.includes("warm white") || lowerMsg.includes("warm")) color = "warm_white";
+				}
 
-						const lightAction = (lowerMsg.includes(" off") || lowerMsg.includes("turn off") || lowerMsg.includes("shut off") || lowerMsg.includes("kill")) ? "off" : "on";
+				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp"))) {
+					let color = "warm_white";
+					if (lowerMsg.includes("blue")) color = "blue";
+					else if (lowerMsg.includes("red")) color = "red";
+					else if (lowerMsg.includes("purple")) color = "purple";
+					else if (lowerMsg.includes("teal")) color = "teal";
+					else if (lowerMsg.includes("green")) color = "green";
+					else if (lowerMsg.includes("orange")) color = "orange";
+					else if (lowerMsg.includes("crisp white") || lowerMsg.includes("cool white")) color = "crisp_white";
+					else if (lowerMsg.includes("warm white") || lowerMsg.includes("warm")) color = "warm_white";
 
-						const mbArgs: any = lightAction === "off"
-							? { zone: "master_bedroom", action: "off" }
-							: { zone: "master_bedroom", action: "on", color: color };
+					const lightAction = (lowerMsg.includes(" off") || lowerMsg.includes("turn off") || lowerMsg.includes("shut off") || lowerMsg.includes("kill")) ? "off" : "on";
 
-						console.log("[MASTER BEDROOM DIRECT DISPATCH] color:", color, "action:", lightAction);
+					const mbArgs: any = lightAction === "off"
+						? { zone: "master_bedroom", action: "off" }
+						: { zone: "master_bedroom", action: "on", color: color };
 
-						try {
-							const mbController = new AbortController();
-							const mbTimeoutId = setTimeout(() => mbController.abort(), 10000);
-							await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-								method: "POST",
-								headers: { "Content-Type": "application/json" },
-								body: JSON.stringify({ tool: "control_house_lights", arguments: mbArgs }),
-								signal: mbController.signal
-							});
-							clearTimeout(mbTimeoutId);
-							console.log("[MASTER BEDROOM DIRECT DISPATCH] Pi dispatch complete");
-						} catch (mbErr: any) {
-							console.error("[MASTER BEDROOM DIRECT DISPATCH] Failed:", mbErr.message);
-						}
+					console.log("[MASTER BEDROOM DIRECT DISPATCH] color:", color, "action:", lightAction);
 
-						liveContext = "The master bedroom lights " + (lightAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
-					}
-
-					let sonosTargetZone = "";
-					if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.startsWith(kw) || lowerMsg.match(/^(jolene[,.]?\s+)?(say|speak|broadcast|announce|tell)/i))) {
-						if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
-						else if (lowerMsg.includes("theater") || lowerMsg.includes("game")) sonosTargetZone = "theater";
-						else if (lowerMsg.includes("kitchen")) sonosTargetZone = "kitchen";
-						else sonosTargetZone = "office";
-
-						liveContext = liveContext + `\n\n[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user explicitly used "say to" or "speak to" or "announce" which is a HARD COMMAND to fire the control_sonos_audio tool. You MUST emit the trigger payload at the very end of your response. This is NOT optional. Even if the question has a clear answer, you must answer it AND emit the trigger payload to broadcast that answer to the "${sonosTargetZone}" zone. Construct your response as the actual spoken content you want broadcast through Sonos. Do not mention URL strings.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
-					}
-
-					// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
-					let searchTerms = new Set<string>([userMsg]);
-					const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
-					const targetSynonyms: Record<string, string[]> = {
-						"bry": ["bryana", "daughter", "stand-up", "comedy", "boyfriend", "loves", "hobbies"],
-						"bryana": ["bry", "daughter", "stand-up", "comedy", "boyfriend", "loves", "hobbies"],
-						"jason": ["brother", "sibling", "beth", "family tree"],
-						"brother": ["jason", "sibling", "beth", "family tree"],
-						"parents": ["mother", "father", "folks", "reside", "easton"],
-						"mother": ["parents", "father", "folks", "reside", "easton"],
-						"father": ["parents", "mother", "folks", "reside", "easton"],
-						"house": ["mansion", "tiverton", "rhode island", "foot footprint"],
-						"mansion": ["house", "tiverton", "rhode island", "foot footprint"],
-						"renee": ["wife", "online", "thredup", "etsy", "crime", "junkies"],
-						"callan": ["grandkids", "josie", "heavy metal", "deftones", "music", "song", "engine"],
-						"josie": ["grandkids", "callan", "heavy metal", "deftones", "music", "song", "engine"]
-					};
-
-					for (const word of words) {
-						// 🛡️ SECURITY FIX PASS 2: Two-layer safety guard preventing prototype property traversal injection crashes
-						if (Object.prototype.hasOwnProperty.call(targetSynonyms, word) && Array.isArray(targetSynonyms[word])) {
-							targetSynonyms[word].forEach(term => searchTerms.add(term));
-							searchTerms.add(word.toUpperCase());
-						}
-					}
-
-					// === TIER 3 FIXED UNIFIED VECTOR RETRIEVAL LEG ===
-					let rawMatchedChunks: any[] = [];
-					for (const term of searchTerms) {
-						const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
-						console.log(`[VECTORIZE RETRIEVAL DIAL] Querying index namespace via token: "${term}"`);
-
-						const matchesCanon = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "canon" });
-						const matchesEpisodic = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "episodic" });
-						const matchesWork = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "work" });
-
-						if (matchesCanon.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesCanon.matches);
-						if (matchesEpisodic.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesEpisodic.matches);
-						if (matchesWork.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesWork.matches);
-					}
-
-					const uniqueMatchesMap = new Map<string, any>();
-					for (const match of rawMatchedChunks) {
-						if (match.id && !uniqueMatchesMap.has(match.id)) {
-							uniqueMatchesMap.set(match.id, match);
-						}
-					}
-
-					const docContextChunks = Array.from(uniqueMatchesMap.values())
-						.filter(m => m.metadata && m.score)
-						.map(m => {
-							const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
-							let provenance = m.metadata.source || m.metadata.fileName || "unknown_origin";
-
-							if (!m.metadata.source && !m.metadata.fileName) {
-								if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
-								else if (text.includes("Saved on")) provenance = "live_session_write";
-							}
-
-							return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
-						})
-						.filter(chunk => chunk.length > 25);
-
-					// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
-					const docContext = docContextChunks
-						.join("\n---\n");
-
-					console.log(`[PROMPT INJECTION] Assembled docContext payload text size: ${docContext.length} chars.`);
-
-					// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
-					let episodicContext = "";
 					try {
-						const recentEpisodicRows = await this.env.jolene_db.prepare(
-							"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE user_id = ? AND source_tag != 'canon_fact' ORDER BY id DESC LIMIT 25"
-						).bind(userId).all();
-						if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
-							episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
-							recentEpisodicRows.results.forEach((row: any) => {
-								episodicContext += `• [Event Logger - ${row.timestamp}] (Source: ${row.source_tag}): ${row.fact_text}\n`;
-							});
-						}
-					} catch (dbErr) {
-						console.error("Episodic ledger lookup failure bypassed safely:", dbErr);
+						const mbController = new AbortController();
+						const mbTimeoutId = setTimeout(() => mbController.abort(), 10000);
+						await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ tool: "control_house_lights", arguments: mbArgs }),
+							signal: mbController.signal
+						});
+						clearTimeout(mbTimeoutId);
+						console.log("[MASTER BEDROOM DIRECT DISPATCH] Pi dispatch complete");
+					} catch (mbErr: any) {
+						console.error("[MASTER BEDROOM DIRECT DISPATCH] Failed:", mbErr.message);
 					}
 
-					let canonContext = "";
-					try {
-						const canonRows = await this.env.jolene_db.prepare(
-							"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE source_tag = 'canon_fact' ORDER BY id ASC"
-						).all();
-						console.log('[CANON QUERY] canon_fact rows loaded:', canonRows.results?.length || 0);
-						if (canonRows.results && canonRows.results.length > 0) {
-							canonContext = "\n=== PERMANENT CANON FACTS (ALWAYS ACTIVE) ===\n";
-							canonRows.results.forEach((row: any) => {
-								canonContext += `• [Canon - ${row.timestamp}]: ${row.fact_text}\n`;
-							});
-						}
-					} catch (canonErr) {
-						console.error("Canon facts lookup failure bypassed safely:", canonErr);
+					liveContext = "The master bedroom lights " + (lightAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
+				}
+
+				let sonosTargetZone = "";
+				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.startsWith(kw) || lowerMsg.match(/^(jolene[,.]?\s+)?(say|speak|broadcast|announce|tell)/i))) {
+					if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
+					else if (lowerMsg.includes("theater") || lowerMsg.includes("game")) sonosTargetZone = "theater";
+					else if (lowerMsg.includes("kitchen")) sonosTargetZone = "kitchen";
+					else sonosTargetZone = "office";
+
+					liveContext = liveContext + `\n\n[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user explicitly used "say to" or "speak to" or "announce" which is a HARD COMMAND to fire the control_sonos_audio tool. You MUST emit the trigger payload at the very end of your response. This is NOT optional. Even if the question has a clear answer, you must answer it AND emit the trigger payload to broadcast that answer to the "${sonosTargetZone}" zone. Construct your response as the actual spoken content you want broadcast through Sonos. Do not mention URL strings.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+				}
+
+				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
+				let searchTerms = new Set<string>([userMsg]);
+				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
+				const targetSynonyms: Record<string, string[]> = {
+					"bry": ["bryana", "daughter", "stand-up", "comedy", "boyfriend", "loves", "hobbies"],
+					"bryana": ["bry", "daughter", "stand-up", "comedy", "boyfriend", "loves", "hobbies"],
+					"jason": ["brother", "sibling", "beth", "family tree"],
+					"brother": ["jason", "sibling", "beth", "family tree"],
+					"parents": ["mother", "father", "folks", "reside", "easton"],
+					"mother": ["parents", "father", "folks", "reside", "easton"],
+					"father": ["parents", "mother", "folks", "reside", "easton"],
+					"house": ["mansion", "tiverton", "rhode island", "foot footprint"],
+					"mansion": ["house", "tiverton", "rhode island", "foot footprint"],
+					"renee": ["wife", "online", "thredup", "etsy", "crime", "junkies"],
+					"callan": ["grandkids", "josie", "heavy metal", "deftones", "music", "song", "engine"],
+					"josie": ["grandkids", "callan", "heavy metal", "deftones", "music", "song", "engine"]
+				};
+
+				for (const word of words) {
+					// 🛡️ SECURITY FIX PASS 2: Two-layer safety guard preventing prototype property traversal injection crashes
+					if (Object.prototype.hasOwnProperty.call(targetSynonyms, word) && Array.isArray(targetSynonyms[word])) {
+						targetSynonyms[word].forEach(term => searchTerms.add(term));
+						searchTerms.add(word.toUpperCase());
 					}
+				}
 
-					const globalHistoryFetch = await this.env.jolene_db.prepare(
-						"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 50"
-					).bind(sessionId).all();
+				// === TIER 3 FIXED UNIFIED VECTOR RETRIEVAL LEG ===
+				let rawMatchedChunks: any[] = [];
+				for (const term of searchTerms) {
+					const queryVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [term] });
+					console.log(`[VECTORIZE RETRIEVAL DIAL] Querying index namespace via token: "${term}"`);
 
-					const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
-						? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
-						: "No out-of-band dialogue lines archived in production dialogue databases yet.";
+					const matchesCanon = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "canon" });
+					const matchesEpisodic = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "episodic" });
+					const matchesWork = await this.env.VECTORIZE.query(queryVector.data[0], { topK: 3, returnMetadata: "all", namespace: "work" });
 
-					// TIER 1 WORKING MEMORY SCOPE LOOKUP
-					let localScratchpadContext = "";
-					const DOInstance = this as any;
-					if (DOInstance.threadWorkingMemory && Object.keys(DOInstance.threadWorkingMemory).length > 0) {
-						localScratchpadContext = "\n=== TIER 1 ACTIVE THREAD WORKING SCRATCHPAD ===\n";
-						for (const [key, value] of Object.entries(DOInstance.threadWorkingMemory)) {
-							localScratchpadContext += `• [Scratchpad Anchor - Key: ${key}]: ${value}\n`;
-						}
+					if (matchesCanon.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesCanon.matches);
+					if (matchesEpisodic.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesEpisodic.matches);
+					if (matchesWork.matches) rawMatchedChunks = rawMatchedChunks.concat(matchesWork.matches);
+				}
+
+				const uniqueMatchesMap = new Map<string, any>();
+				for (const match of rawMatchedChunks) {
+					if (match.id && !uniqueMatchesMap.has(match.id)) {
+						uniqueMatchesMap.set(match.id, match);
 					}
+				}
 
-					const stableSystemText = STABLE_SYSTEM_BLOCK(currentPersonality as keyof typeof PERSONALITIES);
+				const docContextChunks = Array.from(uniqueMatchesMap.values())
+					.filter(m => m.metadata && m.score)
+					.map(m => {
+						const text = m.metadata.text || m.metadata.content || m.metadata.chunk || m.metadata.raw_text || "";
+						let provenance = m.metadata.source || m.metadata.fileName || "unknown_origin";
 
-					const volatileSystemText = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+						if (!m.metadata.source && !m.metadata.fileName) {
+							if (text.includes("%PDF-") || text.includes("obj")) provenance = "PDF_chunk";
+							else if (text.includes("Saved on")) provenance = "live_session_write";
+						}
+
+						return `[Confidence: ${Math.round(m.score * 100)}%]: ${text}`;
+					})
+					.filter(chunk => chunk.length > 25);
+
+				// REPAIRED ASSEMBLY PASS: Wiped out the broken filtering template statement bug completely
+				const docContext = docContextChunks
+					.join("\n---\n");
+
+				console.log(`[PROMPT INJECTION] Assembled docContext payload text size: ${docContext.length} chars.`);
+
+				// === TIER 2: EPISODIC TIMELINE BUDGETED RETRIEVAL LAYER ===
+				let episodicContext = "";
+				try {
+					const recentEpisodicRows = await this.env.jolene_db.prepare(
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE user_id = ? AND source_tag != 'canon_fact' ORDER BY id DESC LIMIT 25"
+					).bind(userId).all();
+					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
+						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
+						recentEpisodicRows.results.forEach((row: any) => {
+							episodicContext += `• [Event Logger - ${row.timestamp}] (Source: ${row.source_tag}): ${row.fact_text}\n`;
+						});
+					}
+				} catch (dbErr) {
+					console.error("Episodic ledger lookup failure bypassed safely:", dbErr);
+				}
+
+				let canonContext = "";
+				try {
+					const canonRows = await this.env.jolene_db.prepare(
+						"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE source_tag = 'canon_fact' ORDER BY id ASC"
+					).all();
+					console.log('[CANON QUERY] canon_fact rows loaded:', canonRows.results?.length || 0);
+					if (canonRows.results && canonRows.results.length > 0) {
+						canonContext = "\n=== PERMANENT CANON FACTS (ALWAYS ACTIVE) ===\n";
+						canonRows.results.forEach((row: any) => {
+							canonContext += `• [Canon - ${row.timestamp}]: ${row.fact_text}\n`;
+						});
+					}
+				} catch (canonErr) {
+					console.error("Canon facts lookup failure bypassed safely:", canonErr);
+				}
+
+				const globalHistoryFetch = await this.env.jolene_db.prepare(
+					"SELECT role, content FROM messages WHERE session_id != ? ORDER BY id DESC LIMIT 50"
+				).bind(sessionId).all();
+
+				const crossSessionMemory = globalHistoryFetch.results && globalHistoryFetch.results.length > 0
+					? globalHistoryFetch.results.reverse().map((m: any) => `[Prior Session Memory - ${m.role.toUpperCase()}]: ${m.content}`).join("\n")
+					: "No out-of-band dialogue lines archived in production dialogue databases yet.";
+
+				// TIER 1 WORKING MEMORY SCOPE LOOKUP
+				let localScratchpadContext = "";
+				const DOInstance = this as any;
+				if (DOInstance.threadWorkingMemory && Object.keys(DOInstance.threadWorkingMemory).length > 0) {
+					localScratchpadContext = "\n=== TIER 1 ACTIVE THREAD WORKING SCRATCHPAD ===\n";
+					for (const [key, value] of Object.entries(DOInstance.threadWorkingMemory)) {
+						localScratchpadContext += `• [Scratchpad Anchor - Key: ${key}]: ${value}\n`;
+					}
+				}
+
+				const stableSystemText = STABLE_SYSTEM_BLOCK(currentPersonality as keyof typeof PERSONALITIES);
+
+				const volatileSystemText = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
 ### CONTEXT: LIVE: ${liveContext} | SEMORY:
@@ -1288,97 +1290,97 @@ ${docContext}
 ${canonContext}${episodicContext}${localScratchpadContext}| CROSS_SESSION_HISTORY:
 ${crossSessionMemory}`;
 
-					const userMessageText = body.messages[body.messages.length - 1].content;
+				const userMessageText = body.messages[body.messages.length - 1].content;
 
-					// ==================== TIMER INTERCEPT ====================
-					// Bypass LLM for timer requests — pattern match user message
-					// and schedule DO alarm directly. Solves trigger reliability issue.
-					const timerRegex = /(?:set\s+(?:a\s+)?)?(?:(\d+)\s*[- ]?\s*(?:minute|min|m)\b)|timer\s+(?:for\s+)?(\d+)/i;
-					const timerMatch = userMessageText.match(timerRegex);
-					const hasTimerKeyword = /\btimer\b/i.test(userMessageText);
+				// ==================== TIMER INTERCEPT ====================
+				// Bypass LLM for timer requests — pattern match user message
+				// and schedule DO alarm directly. Solves trigger reliability issue.
+				const timerRegex = /(?:set\s+(?:a\s+)?)?(?:(\d+)\s*[- ]?\s*(?:minute|min|m)\b)|timer\s+(?:for\s+)?(\d+)/i;
+				const timerMatch = userMessageText.match(timerRegex);
+				const hasTimerKeyword = /\btimer\b/i.test(userMessageText);
 
-					if (timerMatch && hasTimerKeyword) {
-						const minutesRaw = parseInt(timerMatch[1] || timerMatch[2], 10);
-						let minutes = isNaN(minutesRaw) ? 1 : minutesRaw;
-						if (minutes < 1) minutes = 1;
+				if (timerMatch && hasTimerKeyword) {
+					const minutesRaw = parseInt(timerMatch[1] || timerMatch[2], 10);
+					let minutes = isNaN(minutesRaw) ? 1 : minutesRaw;
+					if (minutes < 1) minutes = 1;
 
-						const zoneRegex = /\b(kitchen|theater|master[\s_-]?bedroom|main[\s_-]?bedroom|bedroom|office)\b/i;
-						const zoneMatch = userMessageText.match(zoneRegex);
-						let zone = "kitchen";
-						if (zoneMatch) {
-							const z = zoneMatch[1].toLowerCase().replace(/[\s_-]/g, "");
-							if (z.includes("bedroom")) zone = "main_bedroom";
-							else if (z === "theater") zone = "theater";
-							else if (z === "office") zone = "office";
-							else zone = "kitchen";
-						}
-
-						console.log("[TIMER INTERCEPT] Bypassing LLM. minutes:", minutes, "zone:", zone);
-
-						const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
-
-						try {
-							await this.doCtx.storage.put("timerZone", zone);
-							await this.doCtx.storage.put("timerExpireTime", alarmTime);
-							await this.doCtx.storage.setAlarm(alarmTime);
-
-							const verifyAlarm = await this.doCtx.storage.getAlarm();
-							console.log("[TIMER INTERCEPT] Verification - alarm:", verifyAlarm, "match:", verifyAlarm === alarmTime);
-
-							const displayTime = new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
-							const durationMs = minutes * 60 * 1000;
-							const responseText = `Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} in the ${zone.replace('_', ' ')} — Jolene's voice will fire when done. 🎯\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
-
-							return new Response(
-								`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`,
-								{ headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } }
-							);
-						} catch (timerErr: any) {
-							console.error("[TIMER INTERCEPT] Failed to schedule alarm:", timerErr.message);
-							// Fall through to LLM as fallback
-						}
-					}
-					// ==================== END TIMER INTERCEPT ====================
-
-					const classifiedIntent = classifyIntent(userMessageText);
-					const routedModel = selectModel(classifiedIntent);
-
-					const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-					const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-					const firstPassUrl = `${gatewayBase}/anthropic/v1/messages`;
-
-					const firstPassHeaders = {
-						"Content-Type": "application/json",
-						"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-						"anthropic-version": "2023-06-01",
-						"anthropic-beta": "prompt-caching-2024-07-31"
-					};
-
-					const cleanModel = (routedModel).replace("anthropic/", "").replace("4.7", "4-7");
-
-					const firstPassMessages: any[] = [];
-					const firstPassSanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
-					for (const msg of firstPassSanitizedHistory) {
-						if (firstPassMessages.length === 0) { if (msg.role === 'user') firstPassMessages.push(msg); }
-						else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
-					}
-					if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
-						firstPassMessages[firstPassMessages.length - 1].content = userMsg;
-					} else {
-						firstPassMessages.push({ role: "user", content: userMsg });
+					const zoneRegex = /\b(kitchen|theater|master[\s_-]?bedroom|main[\s_-]?bedroom|bedroom|office)\b/i;
+					const zoneMatch = userMessageText.match(zoneRegex);
+					let zone = "kitchen";
+					if (zoneMatch) {
+						const z = zoneMatch[1].toLowerCase().replace(/[\s_-]/g, "");
+						if (z.includes("bedroom")) zone = "main_bedroom";
+						else if (z === "theater") zone = "theater";
+						else if (z === "office") zone = "office";
+						else zone = "kitchen";
 					}
 
-					const systemBlocks: any[] = [];
+					console.log("[TIMER INTERCEPT] Bypassing LLM. minutes:", minutes, "zone:", zone);
 
-					if (sonosTargetZone) {
-						const triggerExample = "🚨" + "THEATER_ACTION_TRIGGER:" + JSON.stringify({
-							tool: "control_sonos_audio",
-							arguments: { zone: sonosTargetZone, audioUrl: "https://jolene-audio.jolenesego.com/sample.mp3" }
-						});
+					const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
 
-						systemBlocks.push({
-							type: "text",
-							text: `### ABSOLUTE TOP PRIORITY DIRECTIVE — SONOS TOOL EMISSION MANDATORY
+					try {
+						await this.doCtx.storage.put("timerZone", zone);
+						await this.doCtx.storage.put("timerExpireTime", alarmTime);
+						await this.doCtx.storage.setAlarm(alarmTime);
+
+						const verifyAlarm = await this.doCtx.storage.getAlarm();
+						console.log("[TIMER INTERCEPT] Verification - alarm:", verifyAlarm, "match:", verifyAlarm === alarmTime);
+
+						const displayTime = new Date(alarmTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
+						const durationMs = minutes * 60 * 1000;
+						const responseText = `Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} in the ${zone.replace('_', ' ')} — Jolene's voice will fire when done. 🎯\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
+
+						return new Response(
+							`data: ${JSON.stringify({ response: responseText })}\n\ndata: [DONE]\n\n`,
+							{ headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } }
+						);
+					} catch (timerErr: any) {
+						console.error("[TIMER INTERCEPT] Failed to schedule alarm:", timerErr.message);
+						// Fall through to LLM as fallback
+					}
+				}
+				// ==================== END TIMER INTERCEPT ====================
+
+				const classifiedIntent = classifyIntent(userMessageText);
+				const routedModel = selectModel(classifiedIntent);
+
+				const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+				const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+				const firstPassUrl = `${gatewayBase}/anthropic/v1/messages`;
+
+				const firstPassHeaders = {
+					"Content-Type": "application/json",
+					"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+					"anthropic-version": "2023-06-01",
+					"anthropic-beta": "prompt-caching-2024-07-31"
+				};
+
+				const cleanModel = (routedModel).replace("anthropic/", "").replace("4.7", "4-7");
+
+				const firstPassMessages: any[] = [];
+				const firstPassSanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
+				for (const msg of firstPassSanitizedHistory) {
+					if (firstPassMessages.length === 0) { if (msg.role === 'user') firstPassMessages.push(msg); }
+					else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
+				}
+				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
+					firstPassMessages[firstPassMessages.length - 1].content = userMsg;
+				} else {
+					firstPassMessages.push({ role: "user", content: userMsg });
+				}
+
+				const systemBlocks: any[] = [];
+
+				if (sonosTargetZone) {
+					const triggerExample = "🚨" + "THEATER_ACTION_TRIGGER:" + JSON.stringify({
+						tool: "control_sonos_audio",
+						arguments: { zone: sonosTargetZone, audioUrl: "https://jolene-audio.jolenesego.com/sample.mp3" }
+					});
+
+					systemBlocks.push({
+						type: "text",
+						text: `### ABSOLUTE TOP PRIORITY DIRECTIVE — SONOS TOOL EMISSION MANDATORY
 
 The user's message contains a Sonos broadcast keyword (say to, speak to, announce, tell, broadcast). You MUST end your response with this exact trigger payload format on its own line:
 
@@ -1389,428 +1391,428 @@ This is NON-NEGOTIABLE. Even if the user asks a question with rich context data 
 2. Emit the trigger payload as the final line of your response
 
 The Worker layer will inject the real audioUrl after generation. Your job is ONLY to emit the trigger structure with the correct zone. Do NOT skip this. Do NOT explain why you are not emitting it. Do NOT replace it with narration. EMIT THE TRIGGER.`
-						});
+					});
+				}
+
+				systemBlocks.push({
+					type: "text",
+					text: stableSystemText,
+					cache_control: { type: "ephemeral" }
+				});
+
+				systemBlocks.push({
+					type: "text",
+					text: volatileSystemText
+				});
+
+				const firstPassBody = {
+					model: cleanModel,
+					system: systemBlocks,
+					messages: firstPassMessages,
+					max_tokens: 8192
+				};
+				let chatTxt = "Brain blip. Try again.";
+				try {
+					console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
+					const firstPassRes = await fetch(firstPassUrl, {
+						method: "POST",
+						headers: firstPassHeaders,
+						body: JSON.stringify(firstPassBody)
+					});
+					const firstPassData: any = await firstPassRes.json();
+					chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
+					if (firstPassData.usage) {
+						console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
 					}
+				} catch (firstPassErr: any) {
+					console.error("[FIRST PASS] Anthropic gateway fetch threw:", firstPassErr.message);
+				}
 
-					systemBlocks.push({
-						type: "text",
-						text: stableSystemText,
-						cache_control: { type: "ephemeral" }
-					});
-
-					systemBlocks.push({
-						type: "text",
-						text: volatileSystemText
-					});
-
-					const firstPassBody = {
-						model: cleanModel,
-						system: systemBlocks,
-						messages: firstPassMessages,
-						max_tokens: 8192
-					};
-					let chatTxt = "Brain blip. Try again.";
+				let realDispatchFired = false;
+				let sonosAnnouncementFired = false;
+				console.log("[LLM RAW OUTPUT]", JSON.stringify(chatTxt).substring(0, 500));
+				const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}\u{1F399}\u{1F3A7}]THEATER_ACTION_TRIGGER:\s*\{/u;
+				if (strictTriggerRegex.test(chatTxt)) {
 					try {
-						console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
-						const firstPassRes = await fetch(firstPassUrl, {
-							method: "POST",
-							headers: firstPassHeaders,
-							body: JSON.stringify(firstPassBody)
-						});
-						const firstPassData: any = await firstPassRes.json();
-						chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
-						if (firstPassData.usage) {
-							console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
-						}
-					} catch (firstPassErr: any) {
-						console.error("[FIRST PASS] Anthropic gateway fetch threw:", firstPassErr.message);
-					}
+						const triggerLine = chatTxt.split("\n").find(line => strictTriggerRegex.test(line));
+						if (triggerLine) {
+							const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
+							const payload = JSON.parse(jsonString);
 
-					let realDispatchFired = false;
-					let sonosAnnouncementFired = false;
-					console.log("[LLM RAW OUTPUT]", JSON.stringify(chatTxt).substring(0, 500));
-					const strictTriggerRegex = /[\u{1F6A8}\u{1F3B5}\u{1F3AF}\u{1F399}\u{1F3A7}]THEATER_ACTION_TRIGGER:\s*\{/u;
-					if (strictTriggerRegex.test(chatTxt)) {
-						try {
-							const triggerLine = chatTxt.split("\n").find(line => strictTriggerRegex.test(line));
-							if (triggerLine) {
-								const jsonString = triggerLine.substring(triggerLine.indexOf("{")).trim();
-								const payload = JSON.parse(jsonString);
+							if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
+								const rawFact = payload.arguments.factToRemember;
 
-								if (payload.tool === "remember_factual_event" && payload.arguments?.factToRemember) {
-									const rawFact = payload.arguments.factToRemember;
-
-									let isDuplicate = false;
-									let existingId: number | null = null;
-									try {
-										const existingCheck = await this.env.jolene_db.prepare(
-											"SELECT id FROM episodic_memories WHERE fact_text = ? AND user_id = ? LIMIT 1"
-										).bind(rawFact, userId).first<{ id: number }>();
-										if (existingCheck) {
-											isDuplicate = true;
-											existingId = existingCheck.id;
-										}
-									} catch (e) { }
-
-									const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
-
-									if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
-									const ephemeralKey = `fact_${Date.now()}`;
-									DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
-
-									let writeOk = false;
-									let newRowId: number | null = null;
-
-									if (isDuplicate) {
-										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-										chatTxt += `\n\nℹ️ *[Fact already in memory — row #${existingId}, no new write needed]*`;
-										console.log(`[MEMORIZE DIAGNOSTIC] Duplicate factual match detected. beforeCount: N/A, afterCount: N/A, writeOk: ${writeOk}`);
-									} else {
-										try {
-											const insertResult = await this.env.jolene_db.prepare(
-												"INSERT INTO episodic_memories (timestamp, fact_text, source_tag, user_id) VALUES (?, ?, ?, ?)"
-											).bind(easternTimeStr, rawFact, "live_session_write", userId).run();
-
-											const insertedRowId = insertResult.meta?.last_row_id;
-											const changesApplied = insertResult.meta?.changes || 0;
-
-											if (insertResult.success === true && typeof insertedRowId === 'number' && insertedRowId > 0 && changesApplied > 0) {
-												writeOk = true;
-												newRowId = insertedRowId;
-											}
-											console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata. success: ${insertResult.success}, last_row_id: ${insertedRowId}, changes: ${changesApplied}, writeOk: ${writeOk}`);
-										} catch (sqlErr) {
-											console.error("Episodic D1 write block caught an exception:", sqlErr);
-											console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata caught error execution. writeOk: ${writeOk}`);
-										}
-
-										if (writeOk && newRowId !== null) {
-											const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
-											const uniqueMemoryId = `mem-${Date.now()}`;
-
-											await this.env.VECTORIZE.upsert([{
-												id: uniqueMemoryId,
-												values: factVector.data[0],
-												namespace: "episodic",
-												metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write", fileName: "live_session_write" }
-											}]);
-											console.log("Dynamic memory written successfully");
-
-											chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-											chatTxt += `\n\n` + `✅ *[Long-term memory verified — row #${newRowId} persisted]*`;
-										} else {
-											chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-											chatTxt += `\n\n` + `⚠️ *[MEMORY WRITE FAILED — save this fact externally: "${rawFact}"]*`;
-										}
+								let isDuplicate = false;
+								let existingId: number | null = null;
+								try {
+									const existingCheck = await this.env.jolene_db.prepare(
+										"SELECT id FROM episodic_memories WHERE fact_text = ? AND user_id = ? LIMIT 1"
+									).bind(rawFact, userId).first<{ id: number }>();
+									if (existingCheck) {
+										isDuplicate = true;
+										existingId = existingCheck.id;
 									}
-									realDispatchFired = true;
-								} else if (payload.tool === "set_timer") {
-									console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
+								} catch (e) { }
 
-									let minutes = payload.arguments.minutes || 5;
-									const zone = payload.arguments.zone || "kitchen";
+								const stampedFact = `[Saved on ${easternTimeStr}]: ${rawFact}`;
 
-									// Enforce 1-minute minimum — Cloudflare DO alarms have platform floor
-									if (minutes < 1) {
-										console.log("[TIMER DISPATCH] Sub-1-minute timer requested:", minutes, "minutes. Rounding up to 1 minute (platform minimum)");
-										minutes = 1;
-									}
+								if (!DOInstance.threadWorkingMemory) DOInstance.threadWorkingMemory = {};
+								const ephemeralKey = `fact_${Date.now()}`;
+								DOInstance.threadWorkingMemory[ephemeralKey] = rawFact;
 
-									const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
+								let writeOk = false;
+								let newRowId: number | null = null;
 
-									try {
-										await this.doCtx.storage.put("timerZone", zone);
-										await this.doCtx.storage.put("timerExpireTime", alarmTime);
-										await this.doCtx.storage.setAlarm(alarmTime);
-
-										const verifyAlarm = await this.doCtx.storage.getAlarm();
-										const verifyZone = await this.doCtx.storage.get<string>("timerZone");
-										console.log("[TIMER DISPATCH] Verification readback - alarm:", verifyAlarm, "expected:", alarmTime, "match:", verifyAlarm === alarmTime, "zone:", verifyZone);
-
-										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-										const displayTime = new Date(Date.now() + (minutes * 60 * 1000) + 5000).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
-										chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*`;
-
-										const durationMs = minutes * 60 * 1000;
-										chatTxt += `\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
-
-										console.log("[TIMER DISPATCH] Alarm scheduled for", new Date(alarmTime).toISOString());
-									} catch (timerErr: any) {
-										console.error("[TIMER DISPATCH] Failed to schedule alarm:", timerErr.message);
-										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-										chatTxt += `\n\n⚠️ *[Timer scheduling failed: ${timerErr.message}]*`;
-									}
-									realDispatchFired = true;
-								} else if (payload.tool === "play_spotify") {
-									console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
-
-									let track = payload.arguments.track;
-									const zone = payload.arguments.zone || "theater";
-
-									// Family nickname aliases — surgical mapping for known song nicknames
-									if (track && /rock\s*show/i.test(track)) {
-										console.log("[SPOTIFY ALIAS] 'Rock Show' detected — remapping to 'Engine No. 9' by Deftones (Callan & Josie family canon)");
-										track = "Engine No. 9";
-									}
-
-									try {
-										const controller = new AbortController();
-										const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-										const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-											method: "POST",
-											headers: { "Content-Type": "application/json" },
-											body: JSON.stringify({
-												tool: "play_spotify",
-												arguments: { track, zone }
-											}),
-											signal: controller.signal
-										});
-
-										clearTimeout(timeoutId);
-										const piResult: any = await piResponse.json();
-
-										if (piResponse.ok && piResult.status === "Success") {
-											chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-											chatTxt += `\n\n🎵 *[${piResult.message}]*`;
-											console.log("[SPOTIFY DISPATCH] Playback initiated successfully");
-										} else {
-											chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-											chatTxt += `\n\n⚠️ *[Spotify playback failed: ${piResult.error || 'Unknown error'}]*`;
-											console.error("[SPOTIFY DISPATCH] Pi returned error:", piResult.error);
-										}
-									} catch (spotifyErr: any) {
-										console.error("[SPOTIFY DISPATCH] Error:", spotifyErr.message);
-										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-										chatTxt += `\n\n⚠️ *[Spotify error: ${spotifyErr.message}]*`;
-									}
-									realDispatchFired = true;
-								} else if (payload.tool === "play_crime_junkie") {
-									const zone = payload.arguments.zone || "main_bedroom";
-									const episode_query = payload.arguments.episode_query || null;
-									console.log("[CRIME JUNKIE DISPATCH] zone:", zone, "episode_query:", episode_query || "latest");
-									try {
-										const controller = new AbortController();
-										const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-										const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-											method: "POST",
-											headers: { "Content-Type": "application/json" },
-											body: JSON.stringify({
-												tool: "play_crime_junkie",
-												arguments: { zone, ...(episode_query && { episode_query }) }
-											}),
-											signal: controller.signal
-										});
-
-										clearTimeout(timeoutId);
-										const piResult: any = await piResponse.json();
-
-										if (piResponse.ok && piResult.status === "Success") {
-											chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-											chatTxt += `\n\n🎙️ *[${piResult.message}]*`;
-											console.log("[CRIME JUNKIE DISPATCH] Playback initiated successfully");
-										} else {
-											chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-											chatTxt += `\n\n⚠️ *[Crime Junkie playback failed: ${piResult.error || 'Unknown error'}]*`;
-											console.error("[CRIME JUNKIE DISPATCH] Pi returned error:", piResult.error);
-										}
-									} catch (crimeJunkieErr: any) {
-										console.error("[CRIME JUNKIE DISPATCH] Error:", crimeJunkieErr.message);
-										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
-										chatTxt += `\n\n⚠️ *[Crime Junkie error: ${crimeJunkieErr.message}]*`;
-									}
-									realDispatchFired = true;
+								if (isDuplicate) {
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\nℹ️ *[Fact already in memory — row #${existingId}, no new write needed]*`;
+									console.log(`[MEMORIZE DIAGNOSTIC] Duplicate factual match detected. beforeCount: N/A, afterCount: N/A, writeOk: ${writeOk}`);
 								} else {
-									console.log("[MCP DISPATCH] Hardware execution routing to Pi gateway. Tool targeted:", payload.tool);
-
-									// === SONOS PRE-DISPATCH URL INJECTION ===
-									if (payload.tool === "control_sonos_audio") {
-										// Guard: don't fire for transport commands even if LLM misfires
-										if (/\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg)) {
-											console.warn("[SONOS PRE-DISPATCH] Blocked control_sonos_audio for transport-adjacent userMsg:", userMsg);
-											realDispatchFired = true;
-										} else {
-											sonosAnnouncementFired = true;
-											console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
-											// Extract the actual spoken message from the user's request
-											// Strip everything except the content after the colon
-											const sonosMessageMatch = userMsg.match(/(?:say to|speak to|announce(?:\s+to\s+\S+)?|broadcast(?:\s+to\s+\S+)?|tell\s+\w+)[^:]*?(?::\s*|\s+that\s+|\s+that\s+)(.+)/i);
-
-											// Second pattern — handles "Announce [message] in the [zone]" word order
-											const sonosMessageMatch2 = !sonosMessageMatch ? userMsg.match(/^(?:broadcast|announce|say|speak|tell)\s+(.+?)\s+(?:in|to|through|on)\s+(?:the\s+)?(?:theater|kitchen|bedroom|office)/i) : null;
-
-											const sonosRawContent = sonosMessageMatch
-												? sonosMessageMatch[1].trim()
-												: sonosMessageMatch2
-													? sonosMessageMatch2[1].trim()
-													: userMsg.replace(/^(?:broadcast|announce|say|speak|tell)\s+(?:to\s+)?(?:the\s+)?(?:theater|kitchen|bedroom|office|renee|scott)\s+(?:that\s+)?/i, "").trim();
-
-											// UNIFIED JOLENE: Use the same chatTxt that powers laptop voice — one brain, two speakers
-											const sonosSpokenContent = sonosRawContent;
-
-											const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
-
-											if (sonosRealUrl && sonosRealUrl.length > 0) {
-												payload.arguments.audioUrl = sonosRealUrl;
-												console.log("[SONOS PRE-DISPATCH] Injected real audioUrl into payload:", sonosRealUrl);
-											} else {
-												console.warn("[SONOS PRE-DISPATCH] Audio generation returned empty URL — Pi dispatch will likely fail");
-											}
-										}
-									}
-									const controller = new AbortController();
-									const timeoutHandle = setTimeout(() => controller.abort(), 15000);
-									let mcpResultText = "";
-									let mcpOk = false;
-
 									try {
-										const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-											method: "POST",
-											headers: { "Content-Type": "application/json" },
-											body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
-											signal: controller.signal
-										});
-										clearTimeout(timeoutHandle);
+										const insertResult = await this.env.jolene_db.prepare(
+											"INSERT INTO episodic_memories (timestamp, fact_text, source_tag, user_id) VALUES (?, ?, ?, ?)"
+										).bind(easternTimeStr, rawFact, "live_session_write", userId).run();
 
-										if (mcpRes.ok) {
-											const mcpData: any = await mcpRes.json();
-											mcpResultText = typeof mcpData === "string" ? mcpData : JSON.stringify(mcpData, null, 2);
-											mcpOk = true;
-											console.log("[MCP DISPATCH] Pi gateway returned OK. Result length:", mcpResultText.length);
-										} else {
-											const errText = await mcpRes.text();
-											console.error("[MCP DISPATCH] Pi gateway returned status " + mcpRes.status + ":" + errText);
+										const insertedRowId = insertResult.meta?.last_row_id;
+										const changesApplied = insertResult.meta?.changes || 0;
+
+										if (insertResult.success === true && typeof insertedRowId === 'number' && insertedRowId > 0 && changesApplied > 0) {
+											writeOk = true;
+											newRowId = insertedRowId;
 										}
-									} catch (mcpErr: any) {
-										clearTimeout(timeoutHandle);
-										console.error("[MCP DISPATCH] Pi gateway fetch threw:", mcpErr.message);
+										console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata. success: ${insertResult.success}, last_row_id: ${insertedRowId}, changes: ${changesApplied}, writeOk: ${writeOk}`);
+									} catch (sqlErr) {
+										console.error("Episodic D1 write block caught an exception:", sqlErr);
+										console.log(`[MEMORIZE DIAGNOSTIC] write verification via INSERT metadata caught error execution. writeOk: ${writeOk}`);
 									}
+
+									if (writeOk && newRowId !== null) {
+										const factVector = await this.env.AI.run(EMBEDDING_MODEL, { text: [stampedFact] });
+										const uniqueMemoryId = `mem-${Date.now()}`;
+
+										await this.env.VECTORIZE.upsert([{
+											id: uniqueMemoryId,
+											values: factVector.data[0],
+											namespace: "episodic",
+											metadata: { text: stampedFact, contentType: "plaintext", source: "live_session_write", fileName: "live_session_write" }
+										}]);
+										console.log("Dynamic memory written successfully");
+
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n` + `✅ *[Long-term memory verified — row #${newRowId} persisted]*`;
+									} else {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n` + `⚠️ *[MEMORY WRITE FAILED — save this fact externally: "${rawFact}"]*`;
+									}
+								}
+								realDispatchFired = true;
+							} else if (payload.tool === "set_timer") {
+								console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
+
+								let minutes = payload.arguments.minutes || 5;
+								const zone = payload.arguments.zone || "kitchen";
+
+								// Enforce 1-minute minimum — Cloudflare DO alarms have platform floor
+								if (minutes < 1) {
+									console.log("[TIMER DISPATCH] Sub-1-minute timer requested:", minutes, "minutes. Rounding up to 1 minute (platform minimum)");
+									minutes = 1;
+								}
+
+								const alarmTime = Date.now() + (minutes * 60 * 1000) + 5000;
+
+								try {
+									await this.doCtx.storage.put("timerZone", zone);
+									await this.doCtx.storage.put("timerExpireTime", alarmTime);
+									await this.doCtx.storage.setAlarm(alarmTime);
+
+									const verifyAlarm = await this.doCtx.storage.getAlarm();
+									const verifyZone = await this.doCtx.storage.get<string>("timerZone");
+									console.log("[TIMER DISPATCH] Verification readback - alarm:", verifyAlarm, "expected:", alarmTime, "match:", verifyAlarm === alarmTime, "zone:", verifyZone);
 
 									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									const displayTime = new Date(Date.now() + (minutes * 60 * 1000) + 5000).toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
+									chatTxt += `\n\n✅ *[Timer set for ${minutes} minute${minutes !== 1 ? 's' : ''} — ${zone} speaker will beep when done at ${displayTime}]*`;
 
-									if (mcpOk) {
-										chatTxt += "\n\n" + "✅ *[Tool executed via Pi: " + payload.tool + "]*" + "\n\n```\n" + mcpResultText + "\n```";
+									const durationMs = minutes * 60 * 1000;
+									chatTxt += `\n<!--TIMER_META:{"durationMs":${durationMs},"zone":"${zone}","minutes":${minutes}}-->`;
 
-										// === SECOND-PASS SUMMARIZER ENGINE EXECUTION ===
-										try {
-											console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
-
-											const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
-
-											const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
-
-											const chatMessages: any[] = [];
-											const sanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
-											for (const msg of sanitizedHistory) {
-												if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
-												else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
-											}
-											if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-												chatMessages[chatMessages.length - 1].content = userMsg;
-											} else {
-												chatMessages.push({ role: "user", content: userMsg });
-											}
-
-											chatMessages.push({
-												role: "user",
-												content: `TOOL RESULT FROM PI GATEWAY for [${payload.tool}]: ${mcpResultText}. Summarize this for Scott in natural Jolene voice — snark intact, emojis welcome, conversational, concise. Answer his original question naturally based on the data. Do NOT dump raw JSON. Do NOT emit a trigger payload.`
-											});
-
-											const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
-											const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
-											const secondPassUrl = `${gatewayBase}/anthropic/v1/messages`;
-
-											const secondPassHeaders = {
-												"Content-Type": "application/json",
-												"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-												"anthropic-version": "2023-06-01",
-												"anthropic-beta": "prompt-caching-2024-07-31",
-												"x-second-pass": "true"
-											};
-
-											const secondPassBody = {
-												model: cleanModel,
-												system: [
-													{
-														type: "text",
-														text: secondPassStableText,
-														cache_control: { type: "ephemeral" }
-													},
-													{
-														type: "text",
-														text: secondPassVolatileText
-													}
-												],
-												messages: chatMessages,
-												max_tokens: 8192
-											};
-
-											console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
-											const secondPassRes = await fetch(secondPassUrl, {
-												method: "POST",
-												headers: secondPassHeaders,
-												body: JSON.stringify(secondPassBody)
-											});
-
-											if (secondPassRes.ok) {
-												const secondPassData: any = await secondPassRes.json();
-												const summaryText = secondPassData.content?.[0]?.text;
-												if (summaryText) {
-													console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
-													chatTxt = summaryText;
-
-													if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
-
-												} else {
-													throw new Error("Empty content block array returned from Anthropic gateway endpoint.");
-												}
-											} else {
-												throw new Error(`Anthropic gateway returned status flag identifier code: ${secondPassRes.status}`);
-											}
-										} catch (summaryPassErr: any) {
-											console.error(`[SECOND_PASS_FALLBACK] Second-pass summarization call exception caught: ${summaryPassErr.message}`);
-										}
-									} else {
-										chatTxt += "\n\n" + "⚠️ *[Hardware bridge unreachable — Pi tunnel may be down, tool call skipped]*";
-									}
-									realDispatchFired = true;
+									console.log("[TIMER DISPATCH] Alarm scheduled for", new Date(alarmTime).toISOString());
+								} catch (timerErr: any) {
+									console.error("[TIMER DISPATCH] Failed to schedule alarm:", timerErr.message);
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n⚠️ *[Timer scheduling failed: ${timerErr.message}]*`;
 								}
+								realDispatchFired = true;
+							} else if (payload.tool === "play_spotify") {
+								console.log("[SPOTIFY DISPATCH] Playing track:", payload.arguments.track, "on zone:", payload.arguments.zone);
+
+								let track = payload.arguments.track;
+								const zone = payload.arguments.zone || "theater";
+
+								// Family nickname aliases — surgical mapping for known song nicknames
+								if (track && /rock\s*show/i.test(track)) {
+									console.log("[SPOTIFY ALIAS] 'Rock Show' detected — remapping to 'Engine No. 9' by Deftones (Callan & Josie family canon)");
+									track = "Engine No. 9";
+								}
+
+								try {
+									const controller = new AbortController();
+									const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+									const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({
+											tool: "play_spotify",
+											arguments: { track, zone }
+										}),
+										signal: controller.signal
+									});
+
+									clearTimeout(timeoutId);
+									const piResult: any = await piResponse.json();
+
+									if (piResponse.ok && piResult.status === "Success") {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n🎵 *[${piResult.message}]*`;
+										console.log("[SPOTIFY DISPATCH] Playback initiated successfully");
+									} else {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n⚠️ *[Spotify playback failed: ${piResult.error || 'Unknown error'}]*`;
+										console.error("[SPOTIFY DISPATCH] Pi returned error:", piResult.error);
+									}
+								} catch (spotifyErr: any) {
+									console.error("[SPOTIFY DISPATCH] Error:", spotifyErr.message);
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n⚠️ *[Spotify error: ${spotifyErr.message}]*`;
+								}
+								realDispatchFired = true;
+							} else if (payload.tool === "play_crime_junkie") {
+								const zone = payload.arguments.zone || "main_bedroom";
+								const episode_query = payload.arguments.episode_query || null;
+								console.log("[CRIME JUNKIE DISPATCH] zone:", zone, "episode_query:", episode_query || "latest");
+								try {
+									const controller = new AbortController();
+									const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+									const piResponse = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({
+											tool: "play_crime_junkie",
+											arguments: { zone, ...(episode_query && { episode_query }) }
+										}),
+										signal: controller.signal
+									});
+
+									clearTimeout(timeoutId);
+									const piResult: any = await piResponse.json();
+
+									if (piResponse.ok && piResult.status === "Success") {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n🎙️ *[${piResult.message}]*`;
+										console.log("[CRIME JUNKIE DISPATCH] Playback initiated successfully");
+									} else {
+										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+										chatTxt += `\n\n⚠️ *[Crime Junkie playback failed: ${piResult.error || 'Unknown error'}]*`;
+										console.error("[CRIME JUNKIE DISPATCH] Pi returned error:", piResult.error);
+									}
+								} catch (crimeJunkieErr: any) {
+									console.error("[CRIME JUNKIE DISPATCH] Error:", crimeJunkieErr.message);
+									chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+									chatTxt += `\n\n⚠️ *[Crime Junkie error: ${crimeJunkieErr.message}]*`;
+								}
+								realDispatchFired = true;
+							} else {
+								console.log("[MCP DISPATCH] Hardware execution routing to Pi gateway. Tool targeted:", payload.tool);
+
+								// === SONOS PRE-DISPATCH URL INJECTION ===
+								if (payload.tool === "control_sonos_audio") {
+									// Guard: don't fire for transport commands even if LLM misfires
+									if (/\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg)) {
+										console.warn("[SONOS PRE-DISPATCH] Blocked control_sonos_audio for transport-adjacent userMsg:", userMsg);
+										realDispatchFired = true;
+									} else {
+										sonosAnnouncementFired = true;
+										console.log("[SONOS PRE-DISPATCH] Generating fresh voice MP3 URL for Sonos broadcast");
+										// Extract the actual spoken message from the user's request
+										// Strip everything except the content after the colon
+										const sonosMessageMatch = userMsg.match(/(?:say to|speak to|announce(?:\s+to\s+\S+)?|broadcast(?:\s+to\s+\S+)?|tell\s+\w+)[^:]*?(?::\s*|\s+that\s+|\s+that\s+)(.+)/i);
+
+										// Second pattern — handles "Announce [message] in the [zone]" word order
+										const sonosMessageMatch2 = !sonosMessageMatch ? userMsg.match(/^(?:broadcast|announce|say|speak|tell)\s+(.+?)\s+(?:in|to|through|on)\s+(?:the\s+)?(?:theater|kitchen|bedroom|office)/i) : null;
+
+										const sonosRawContent = sonosMessageMatch
+											? sonosMessageMatch[1].trim()
+											: sonosMessageMatch2
+												? sonosMessageMatch2[1].trim()
+												: userMsg.replace(/^(?:broadcast|announce|say|speak|tell)\s+(?:to\s+)?(?:the\s+)?(?:theater|kitchen|bedroom|office|renee|scott)\s+(?:that\s+)?/i, "").trim();
+
+										// UNIFIED JOLENE: Use the same chatTxt that powers laptop voice — one brain, two speakers
+										const sonosSpokenContent = sonosRawContent;
+
+										const sonosRealUrl = await this.generateHerAudioStream(sonosSpokenContent);
+
+										if (sonosRealUrl && sonosRealUrl.length > 0) {
+											payload.arguments.audioUrl = sonosRealUrl;
+											console.log("[SONOS PRE-DISPATCH] Injected real audioUrl into payload:", sonosRealUrl);
+										} else {
+											console.warn("[SONOS PRE-DISPATCH] Audio generation returned empty URL — Pi dispatch will likely fail");
+										}
+									}
+								}
+								const controller = new AbortController();
+								const timeoutHandle = setTimeout(() => controller.abort(), 15000);
+								let mcpResultText = "";
+								let mcpOk = false;
+
+								try {
+									const mcpRes = await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+										method: "POST",
+										headers: { "Content-Type": "application/json" },
+										body: JSON.stringify({ tool: payload.tool, arguments: payload.arguments }),
+										signal: controller.signal
+									});
+									clearTimeout(timeoutHandle);
+
+									if (mcpRes.ok) {
+										const mcpData: any = await mcpRes.json();
+										mcpResultText = typeof mcpData === "string" ? mcpData : JSON.stringify(mcpData, null, 2);
+										mcpOk = true;
+										console.log("[MCP DISPATCH] Pi gateway returned OK. Result length:", mcpResultText.length);
+									} else {
+										const errText = await mcpRes.text();
+										console.error("[MCP DISPATCH] Pi gateway returned status " + mcpRes.status + ":" + errText);
+									}
+								} catch (mcpErr: any) {
+									clearTimeout(timeoutHandle);
+									console.error("[MCP DISPATCH] Pi gateway fetch threw:", mcpErr.message);
+								}
+
+								chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
+
+								if (mcpOk) {
+									chatTxt += "\n\n" + "✅ *[Tool executed via Pi: " + payload.tool + "]*" + "\n\n```\n" + mcpResultText + "\n```";
+
+									// === SECOND-PASS SUMMARIZER ENGINE EXECUTION ===
+									try {
+										console.log(`[SECOND PASS] Initiating synthesis summarized pass for tool execution: ${payload.tool}`);
+
+										const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
+
+										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
+
+										const chatMessages: any[] = [];
+										const sanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
+										for (const msg of sanitizedHistory) {
+											if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
+											else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
+										}
+										if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
+											chatMessages[chatMessages.length - 1].content = userMsg;
+										} else {
+											chatMessages.push({ role: "user", content: userMsg });
+										}
+
+										chatMessages.push({
+											role: "user",
+											content: `TOOL RESULT FROM PI GATEWAY for [${payload.tool}]: ${mcpResultText}. Summarize this for Scott in natural Jolene voice — snark intact, emojis welcome, conversational, concise. Answer his original question naturally based on the data. Do NOT dump raw JSON. Do NOT emit a trigger payload.`
+										});
+
+										const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+										const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+										const secondPassUrl = `${gatewayBase}/anthropic/v1/messages`;
+
+										const secondPassHeaders = {
+											"Content-Type": "application/json",
+											"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+											"anthropic-version": "2023-06-01",
+											"anthropic-beta": "prompt-caching-2024-07-31",
+											"x-second-pass": "true"
+										};
+
+										const secondPassBody = {
+											model: cleanModel,
+											system: [
+												{
+													type: "text",
+													text: secondPassStableText,
+													cache_control: { type: "ephemeral" }
+												},
+												{
+													type: "text",
+													text: secondPassVolatileText
+												}
+											],
+											messages: chatMessages,
+											max_tokens: 8192
+										};
+
+										console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
+										const secondPassRes = await fetch(secondPassUrl, {
+											method: "POST",
+											headers: secondPassHeaders,
+											body: JSON.stringify(secondPassBody)
+										});
+
+										if (secondPassRes.ok) {
+											const secondPassData: any = await secondPassRes.json();
+											const summaryText = secondPassData.content?.[0]?.text;
+											if (summaryText) {
+												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
+												chatTxt = summaryText;
+
+												if (secondPassData.usage) { console.log(`[CACHE METRICS SECOND PASS] cache_creation_input_tokens: ${secondPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${secondPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${secondPassData.usage.input_tokens || 0}, output_tokens: ${secondPassData.usage.output_tokens || 0}`); }
+
+											} else {
+												throw new Error("Empty content block array returned from Anthropic gateway endpoint.");
+											}
+										} else {
+											throw new Error(`Anthropic gateway returned status flag identifier code: ${secondPassRes.status}`);
+										}
+									} catch (summaryPassErr: any) {
+										console.error(`[SECOND_PASS_FALLBACK] Second-pass summarization call exception caught: ${summaryPassErr.message}`);
+									}
+								} else {
+									chatTxt += "\n\n" + "⚠️ *[Hardware bridge unreachable — Pi tunnel may be down, tool call skipped]*";
+								}
+								realDispatchFired = true;
 							}
-						} catch (parseErr: any) {
-							console.error("[TRIGGER PARSE GRACEFUL] Handled parsing exception without breaking chat response flow layout:", parseErr.message);
+						}
+					} catch (parseErr: any) {
+						console.error("[TRIGGER PARSE GRACEFUL] Handled parsing exception without breaking chat response flow layout:", parseErr.message);
+					}
+				}
+
+				if (realDispatchFired === false) {
+					const fakeFooterPatterns = [
+						/✅\s*\*\[Tool executed via Pi:\s*[^\]]*\]\*/g,
+						/⚠️\s*\*\[Hardware bridge unreachable\s*[^\]]*\]\*/g,
+						/✅\s*\*\[Long-term memory verified\s*[^\]]*\]\*/g,
+						/⚠️\s*\*\[MEMORY WRITE FAILED\s*[^\]]*\]\*/g,
+						/ℹ️\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
+					];
+					let fakeFooterDetected = false;
+					for (const pattern of fakeFooterPatterns) {
+						if (pattern.test(chatTxt)) {
+							fakeFooterDetected = true;
+							chatTxt = chatTxt.replace(pattern, "");
 						}
 					}
-
-					if (realDispatchFired === false) {
-						const fakeFooterPatterns = [
-							/✅\s*\*\[Tool executed via Pi:\s*[^\]]*\]\*/g,
-							/⚠️\s*\*\[Hardware bridge unreachable\s*[^\]]*\]\*/g,
-							/✅\s*\*\[Long-term memory verified\s*[^\]]*\]\*/g,
-							/⚠️\s*\*\[MEMORY WRITE FAILED\s*[^\]]*\]\*/g,
-							/ℹ️\s*\*\[Fact already in memory\s*[^\]]*\]\*/g
-						];
-						let fakeFooterDetected = false;
-						for (const pattern of fakeFooterPatterns) {
-							if (pattern.test(chatTxt)) {
-								fakeFooterDetected = true;
-								chatTxt = chatTxt.replace(pattern, "");
-							}
-						}
-						if (fakeFooterDetected) {
-							chatTxt = chatTxt.replace(/```[\s\S]*?```/g, "");
-							chatTxt = chatTxt.trim();
-							chatTxt += "\n\n" + "⚠️ *[Worker guardrail: model produced fake success theater. Real MCP dispatch did NOT fire.]*";
-							console.error("[GUARDRAIL] Stripped hallucinated tool execution footer from response. No real dispatch occurred this turn.");
-						}
+					if (fakeFooterDetected) {
+						chatTxt = chatTxt.replace(/```[\s\S]*?```/g, "");
+						chatTxt = chatTxt.trim();
+						chatTxt += "\n\n" + "⚠️ *[Worker guardrail: model produced fake success theater. Real MCP dispatch did NOT fire.]*";
+						console.error("[GUARDRAIL] Stripped hallucinated tool execution footer from response. No real dispatch occurred this turn.");
 					}
+				}
 
-					// === SERVER-SIDE VOICE SUMMARY ARCHITECTURE PASS ===
-					let voiceSummaryText = "";
-					if ((body.voiceEnabled === true || this.detectSonosZoneIntent(userMsg)) && this.env.ELEVEN_LABS_API_KEY) {
-						try {
-							console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
-							const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott.
+				// === SERVER-SIDE VOICE SUMMARY ARCHITECTURE PASS ===
+				let voiceSummaryText = "";
+				if ((body.voiceEnabled === true || this.detectSonosZoneIntent(userMsg)) && this.env.ELEVEN_LABS_API_KEY) {
+					try {
+						console.log("[VOICE SUMMARY] Generating lightweight summary via claude-haiku-4-5");
+						const summaryPrompt = `You are Jolene, a witty snarky AI assistant speaking directly to Scott.
 Do NOT summarize or narrate. Do NOT say "according to the response" or "the response indicates" or any third-person description of a response.
 Instead speak AS Jolene directly to Scott in first person exactly as if you are saying this yourself out loud right now.
 
@@ -1840,97 +1842,97 @@ PRONUNCIATION RULES — apply these spellings so the text-to-speech engine prono
 
 Content to speak as Jolene: ${chatTxt}`;
 
-							const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
-							const summaryHeaders = {
-								"Content-Type": "application/json",
-								"x-api-key": this.env.ANTHROPIC_API_KEY || "",
-								"anthropic-version": "2023-06-01"
-							};
-							const summaryBody = {
-								model: "claude-haiku-4-5",
-								messages: [{ role: "user", content: summaryPrompt }],
-								max_tokens: 225
-							};
+						const summaryUrl = `${gatewayBase}/anthropic/v1/messages`;
+						const summaryHeaders = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const summaryBody = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: summaryPrompt }],
+							max_tokens: 225
+						};
 
-							const summaryRes = await fetch(summaryUrl, {
+						const summaryRes = await fetch(summaryUrl, {
+							method: "POST",
+							headers: summaryHeaders,
+							body: JSON.stringify(summaryBody)
+						});
+
+						if (summaryRes.ok) {
+							const summaryData: any = await summaryRes.json();
+							voiceSummaryText = summaryData.content?.[0]?.text || "";
+							console.log("[VOICE SUMMARY] Generation complete. Length:", voiceSummaryText.length);
+						} else {
+							console.error("[VOICE SUMMARY] Haiku gateway call failed with status:", summaryRes.status);
+						}
+					} catch (summaryErr: any) {
+						console.error("[VOICE SUMMARY] Fallback triggered. Haiku call threw an exception:", summaryErr.message);
+					}
+				}
+
+				// Detect Sonos zone routing intent from user prompt
+				const userPromptLower = (userMsg || "").toLowerCase();
+				let sonosZone: string | null = null;
+				if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
+				else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+
+				console.log("[SONOS ZONE] Detected:", sonosZone || "none");
+
+				let voiceUrl: string | null = null;
+				const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
+				const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
+
+				// Check if LLM already fired a control_sonos_audio tool (announcement path handles its own voice)
+				const sonosAudioAlreadyHandled = sonosAnnouncementFired;
+
+				// Don't fire Sonos voice for transport commands even if zone is named
+				const isTransportCommand = /\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg);
+
+				// Voice fires if: toggle ON (laptop), OR zone explicitly named AND no announcement already fired AND not a transport command
+				const shouldGenerateAudio = (body.voiceEnabled === true || (sonosZone !== null && !sonosAudioAlreadyHandled && !isTransportCommand))
+					&& sentenceCount >= 1 && sentenceCount <= 2
+					&& this.env.ELEVEN_LABS_API_KEY
+					&& voiceSummaryText;
+				if (shouldGenerateAudio) {
+					const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
+					voiceUrl = generatedAudio || null;
+					console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
+
+					if (sonosZone && voiceUrl) {
+						try {
+							await fetch("https://mcp.jolenesego.com/api/tools/execute", {
 								method: "POST",
-								headers: summaryHeaders,
-								body: JSON.stringify(summaryBody)
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									tool: "control_sonos_audio",
+									arguments: { zone: sonosZone, audioUrl: voiceUrl }
+								})
 							});
-
-							if (summaryRes.ok) {
-								const summaryData: any = await summaryRes.json();
-								voiceSummaryText = summaryData.content?.[0]?.text || "";
-								console.log("[VOICE SUMMARY] Generation complete. Length:", voiceSummaryText.length);
-							} else {
-								console.error("[VOICE SUMMARY] Haiku gateway call failed with status:", summaryRes.status);
-							}
-						} catch (summaryErr: any) {
-							console.error("[VOICE SUMMARY] Fallback triggered. Haiku call threw an exception:", summaryErr.message);
+							console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
+						} catch (sonosErr) {
+							console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
 						}
 					}
 
-					// Detect Sonos zone routing intent from user prompt
-					const userPromptLower = (userMsg || "").toLowerCase();
-					let sonosZone: string | null = null;
-					if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
-					else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+					if (body.voiceEnabled !== true) voiceUrl = null;
+				} else {
+					voiceUrl = null;
+					console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
+				}
 
-					console.log("[SONOS ZONE] Detected:", sonosZone || "none");
+				await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+					.bind(sessionId, "assistant", chatTxt).run();
+				return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
 
-					let voiceUrl: string | null = null;
-					const sentenceMatch = voiceSummaryText.match(/[^.!?]+[.!?]+/g);
-					const sentenceCount = sentenceMatch ? sentenceMatch.length : 0;
-
-					// Check if LLM already fired a control_sonos_audio tool (announcement path handles its own voice)
-					const sonosAudioAlreadyHandled = sonosAnnouncementFired;
-
-					// Don't fire Sonos voice for transport commands even if zone is named
-					const isTransportCommand = /\b(pause|resume|unpause|skip|next|stop|volume)\b/i.test(userMsg);
-
-					// Voice fires if: toggle ON (laptop), OR zone explicitly named AND no announcement already fired AND not a transport command
-					const shouldGenerateAudio = (body.voiceEnabled === true || (sonosZone !== null && !sonosAudioAlreadyHandled && !isTransportCommand))
-						&& sentenceCount >= 1 && sentenceCount <= 2
-						&& this.env.ELEVEN_LABS_API_KEY
-						&& voiceSummaryText;
-					if (shouldGenerateAudio) {
-						const generatedAudio = await this.generateHerAudioStream(voiceSummaryText);
-						voiceUrl = generatedAudio || null;
-						console.log("[VOICE CHAT] Audio generated. URL:", voiceUrl, "Zone:", sonosZone, "Toggle:", body.voiceEnabled);
-
-						if (sonosZone && voiceUrl) {
-							try {
-								await fetch("https://mcp.jolenesego.com/api/tools/execute", {
-									method: "POST",
-									headers: { "Content-Type": "application/json" },
-									body: JSON.stringify({
-										tool: "control_sonos_audio",
-										arguments: { zone: sonosZone, audioUrl: voiceUrl }
-									})
-								});
-								console.log("[SONOS ZONE] Dispatched to zone:", sonosZone);
-							} catch (sonosErr) {
-								console.error("[SONOS ZONE] Dispatch failed:", sonosErr);
-							}
-						}
-
-						if (body.voiceEnabled !== true) voiceUrl = null;
-					} else {
-						voiceUrl = null;
-						console.log("[VOICE CHAT] skipped - voiceEnabled:", body.voiceEnabled, "sentenceCount:", sentenceCount, "zone:", sonosZone);
-					}
-
-					await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-						.bind(sessionId, "assistant", chatTxt).run();
-					return new Response(`data: ${JSON.stringify({ response: chatTxt, audioUrl: voiceUrl })}\n\ndata: [DONE]\n\n`);
-
-				} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
-			}
-		return new Response("OK");
+			} catch (e: any) { return new Response(`data: ${JSON.stringify({ response: "Error: " + e.message, audioUrl: null })}\n\ndata: [DONE]\n\n`); }
 		}
+		return new Response("OK");
 	}
+}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
