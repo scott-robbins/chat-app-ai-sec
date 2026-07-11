@@ -1106,13 +1106,32 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
 				}
 
-
 				if (["temp", "temperature", "thermostat", "degrees", "cool ", "warm ", " heat", " ac ", "climate", "set at"].some(kw => lowerMsg.includes(kw)) && !lowerMsg.includes("say to") && !lowerMsg.includes("speak to") && !lowerMsg.includes("announce")) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+				}
+
+				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp"))) {
+					let color = "warm_white";
+					if (lowerMsg.includes("blue")) color = "blue";
+					else if (lowerMsg.includes("red")) color = "red";
+					else if (lowerMsg.includes("purple")) color = "purple";
+					else if (lowerMsg.includes("teal")) color = "teal";
+					else if (lowerMsg.includes("green")) color = "green";
+					else if (lowerMsg.includes("orange")) color = "orange";
+					else if (lowerMsg.includes("crisp white") || lowerMsg.includes("cool white")) color = "crisp_white";
+					else if (lowerMsg.includes("warm white") || lowerMsg.includes("warm")) color = "warm_white";
+
+					const lightAction = (lowerMsg.includes(" off") || lowerMsg.includes("turn off") || lowerMsg.includes("shut off") || lowerMsg.includes("kill")) ? "off" : "on";
+
+					const argsJson = lightAction === "off"
+						? `{ "zone": "master_bedroom", "action": "off" }`
+						: `{ "zone": "master_bedroom", "action": "on", "color": "${color}" }`;
+
+					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to control the master bedroom lights. You MUST execute the tool "control_house_lights" with arguments ${argsJson}. Respond naturally confirming (e.g., "Master bedroom lights ${lightAction === "off" ? "off" : "set to " + color} 🌙"). Then emit the trigger payload at the very end. This is NOT optional.`;
 				}
 
 				let sonosTargetZone = "";
