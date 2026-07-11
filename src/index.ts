@@ -1027,7 +1027,7 @@ export class ChatSession extends DurableObject<Env> {
 						console.error("[CRIME JUNKIE DIRECT DISPATCH] Failed:", cjErr.message);
 					}
 
-					liveContext = "Playing " + episodeDescription + " for Renee in the " + zone.replace("_", " ") + ". Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger.";
+					"Playing " + episodeDescription + " for Renee in the " + zone.replace("_", " ") + ". Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT say 'Based on the live context' or any similar filler phrase.";
 
 				} else if (["set a timer", "set timer", "timer for", "start a timer", "start timer"].some(kw => lowerMsg.includes(kw))) {
 
