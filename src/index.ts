@@ -1114,7 +1114,7 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
 
-				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp"))) {
+				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue","red","purple","teal","green","orange","warm","crisp"].some(c => lowerMsg.includes(c)))) {
 					let color = "warm_white";
 					if (lowerMsg.includes("blue")) color = "blue";
 					else if (lowerMsg.includes("red")) color = "red";
