@@ -1132,6 +1132,8 @@ export class ChatSession extends DurableObject<Env> {
 						: `{ "zone": "master_bedroom", "action": "on", "color": "${color}" }`;
 
 					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to control the master bedroom lights. You MUST execute the tool "control_house_lights" with arguments ${argsJson}. Respond naturally confirming (e.g., "Master bedroom lights ${lightAction === "off" ? "off" : "set to " + color} 🌙"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					console.log(`[MASTER BEDROOM INTERCEPT FIRED] color: ${color} action: ${lightAction} argsJson: ${argsJson}`);
+
 				}
 
 				let sonosTargetZone = "";
