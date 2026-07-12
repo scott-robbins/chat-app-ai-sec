@@ -1377,6 +1377,8 @@ ${crossSessionMemory}`;
 
 				if (isCalendarQuery && userMsg.length < 500) {
 					console.log("[OPENCODE CALENDAR DISPATCH] Detected calendar query:", userMsg);
+					console.log("[OPENCODE SECRETS DEBUG] Client ID length:", this.env.OPENCODE_CLIENT_ID?.length, "Secret length:", this.env.OPENCODE_CLIENT_SECRET?.length);
+					console.log("[OPENCODE SECRETS DEBUG] Client ID value:", this.env.OPENCODE_CLIENT_ID);
 
 					try {
 						const controller = new AbortController();
