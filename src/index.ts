@@ -1365,15 +1365,23 @@ ${crossSessionMemory}`;
 
 				// ==================== OPENCODE CALENDAR DISPATCH ====================
 				// Direct dispatch for calendar/schedule queries via OpenCode MCP bridge
-				const calendarKeywords = [
-					"calendar", "schedule", "meetings", "what do i have",
-					"what's tomorrow", "what is tomorrow", "what's today",
-					"what do i have tomorrow", "what's on my calendar",
-					"what meetings", "my day", "my week", "what's next week",
-					"appointments", "what time is my", "when is my"
+				const calendarPatterns = [
+					/what('s| is) (on )?my (calendar|schedule)/i,
+					/what do i have (today|tomorrow|this week|next week|on monday|on tuesday|on wednesday|on thursday|on friday|on saturday|on sunday)/i,
+					/what meetings (do i have|are|today|tomorrow)/i,
+					/my (day|week) (today|tomorrow|look like|looking like)/i,
+					/what does my (day|week) look like/i,
+					/what('s| is) (today|tomorrow|next week) look like/i,
+					/when is my (next |first |last )?(meeting|appointment|call)/i,
+					/what time is my/i,
+					/appointments (today|tomorrow|this week|next week)/i,
+					/show me my (calendar|schedule|meetings|appointments)/i,
+					/pull up my (calendar|schedule)/i,
+					/read (out |me )?my (calendar|schedule)/i,
+					/check my (calendar|schedule)/i
 				];
 
-				const isCalendarQuery = calendarKeywords.some(kw => lowerMsg.includes(kw));
+				const isCalendarQuery = calendarPatterns.some(p => p.test(userMsg));
 
 				if (isCalendarQuery && userMsg.length < 500) {
 					console.log("[OPENCODE CALENDAR DISPATCH] Detected calendar query:", userMsg);
