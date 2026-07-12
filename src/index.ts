@@ -1510,6 +1510,145 @@ User's original question: ${userMsg}`;
 				}
 				// ==================== END OPENCODE CALENDAR DISPATCH ====================
 
+				// ==================== OPENCODE CLOUDFLARE DOCS DISPATCH ====================
+				// Direct dispatch for Cloudflare documentation queries via OpenCode MCP bridge
+				const docsPatterns = [
+					/search (the )?cloudflare docs? for/i,
+					/cloudflare docs? (on|about|for|regarding)/i,
+					/how do i (configure|set up|enable|deploy|implement|use)/i,
+					/how to (configure|set up|enable|deploy|implement|use)/i,
+					/cloudflare (documentation|docs?) (search|for|on|about)/i,
+					/find (in |on )?(cloudflare )?docs? (about|for|on)/i,
+					/documentation (about|for|on|regarding)/i,
+					/what('s| is) the (cloudflare )?docs? (for|on|about)/i,
+					/cf docs? (for|on|about|regarding)/i,
+					/developers\.cloudflare\.com/i,
+					/show me.*cloudflare.*docs/i,
+					/help with (cloudflare |cf )?implementation/i,
+					/reference (for|on) (cloudflare |cf )?/i
+				];
+
+				const isDocsQuery = docsPatterns.some(p => p.test(userMsg));
+
+				if (isDocsQuery && userMsg.length < 500) {
+					console.log("[OPENCODE DOCS DISPATCH] Detected docs query:", userMsg);
+
+					try {
+						const controller = new AbortController();
+						const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+						// Step 1 — Create fresh OpenCode session
+						const debugHeaders = {
+							"Content-Type": "application/json",
+							"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+							"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+						};
+
+						const sessionRes = await fetch("https://opencode.jolenesego.com/session", {
+							method: "POST",
+							headers: debugHeaders,
+							body: JSON.stringify({}),
+							signal: controller.signal
+						});
+
+						if (!sessionRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode session creation failed: ${sessionRes.status}`);
+						}
+
+						const session = await sessionRes.json() as any;
+						const sessionId = session.id;
+
+						// Step 2 — Send the docs query with explicit MCP directive
+						const docsPrompt = `Use the cf-portal_cloudflare-docs MCP tool to search the Cloudflare documentation. Answer this question comprehensively with relevant doc links and code examples where applicable. Question: ${userMsg}`;
+
+						const msgRes = await fetch(`https://opencode.jolenesego.com/session/${sessionId}/message`, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+							},
+							body: JSON.stringify({
+								parts: [{ type: "text", text: docsPrompt }]
+							}),
+							signal: controller.signal
+						});
+
+						if (!msgRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode message failed: ${msgRes.status}`);
+						}
+
+						const msgData = await msgRes.json() as any;
+						clearTimeout(timeoutId);
+
+						// Step 3 — Extract text response
+						const parts = msgData.parts || [];
+						const textPart = parts.find((p: any) => p.type === "text");
+						const rawDocsData = textPart?.text || "OpenCode returned no response.";
+
+						console.log("[OPENCODE DOCS DISPATCH] Docs data retrieved, length:", rawDocsData.length);
+
+						// Step 4 — Format through Claude Haiku for native Jolene voice
+						const formattingPrompt = `You are Jolene. The following is documentation search results retrieved from Cloudflare docs via OpenCode. 
+Format this as a native Jolene response — use your voice, emoji, snark where appropriate, and structure it cleanly for easy reading. 
+Do NOT mention OpenCode, API calls, or technical plumbing. Just present the documentation naturally as if you'd looked it up yourself.
+Include the documentation links but present them conversationally, not as a formal reference list.
+
+Raw docs data:
+${rawDocsData}
+
+User's original question: ${userMsg}`;
+
+						const haiku_accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+						const haiku_gatewayBase = `https://gateway.ai.cloudflare.com/v1/${haiku_accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+						const haiku_url = `${haiku_gatewayBase}/anthropic/v1/messages`;
+						const haiku_headers = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const haiku_body = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: formattingPrompt }],
+							max_tokens: 1024
+						};
+
+						const haikuRes = await fetch(haiku_url, {
+							method: "POST",
+							headers: haiku_headers,
+							body: JSON.stringify(haiku_body)
+						});
+
+						if (!haikuRes.ok) {
+							console.error("[OPENCODE DOCS] Haiku formatting failed, returning raw docs data");
+							const finalResponse = `📚 Here's what I found in the Cloudflare docs:\n\n${rawDocsData}`;
+							await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+								.bind(sessionId, "assistant", finalResponse).run();
+							return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+						}
+
+						const haikuData: any = await haikuRes.json();
+						const finalResponse = haikuData.content?.[0]?.text || rawDocsData;
+
+						console.log("[OPENCODE DOCS DISPATCH] Formatted response generated, length:", finalResponse.length);
+
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", finalResponse).run();
+
+						return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+
+					} catch (err: any) {
+						console.error("[OPENCODE DOCS] Exception:", err.message);
+						const errorResponse = `I tried to search the Cloudflare docs but hit a snag — make sure OpenCode is running on your MacBook and the tunnel is up. 📚`;
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", errorResponse).run();
+						return new Response(`data: ${JSON.stringify({ response: errorResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+				// ==================== END OPENCODE DOCS DISPATCH ====================
+
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
 
