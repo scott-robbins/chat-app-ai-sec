@@ -1385,18 +1385,25 @@ ${crossSessionMemory}`;
 						const timeoutId = setTimeout(() => controller.abort(), 40000);
 
 						// Step 1 — Create fresh OpenCode session
+						const debugHeaders = {
+							"Content-Type": "application/json",
+							"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+							"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+						};
+						console.log("[OPENCODE HEADERS DEBUG] ID prefix:", this.env.OPENCODE_CLIENT_ID?.substring(0, 10), "Secret prefix:", this.env.OPENCODE_CLIENT_SECRET?.substring(0, 10));
+
 						const sessionRes = await fetch("https://opencode.jolenesego.com/session", {
 							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
-								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
-							},
+							headers: debugHeaders,
 							body: JSON.stringify({}),
 							signal: controller.signal
 						});
 
+						console.log("[OPENCODE RESPONSE DEBUG] Status:", sessionRes.status, "Response headers:", JSON.stringify([...sessionRes.headers.entries()]));
+
 						if (!sessionRes.ok) {
+							const errorBody = await sessionRes.text();
+							console.log("[OPENCODE ERROR BODY]", errorBody);
 							clearTimeout(timeoutId);
 							throw new Error(`OpenCode session creation failed: ${sessionRes.status}`);
 						}
