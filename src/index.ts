@@ -61,6 +61,7 @@ const PERSONALITIES = {
 	cyber: 'You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence.'
 };
 
+
 const PERSONAL_GROUND_TRUTH = `
 SCOTT ROBBINS IDENTITY & CAREER:
 - IDENTITY: You are an AI named Jolene. 
