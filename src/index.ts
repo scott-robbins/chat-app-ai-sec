@@ -1376,9 +1376,13 @@ ${crossSessionMemory}`;
 					/what time is my/i,
 					/appointments (today|tomorrow|this week|next week)/i,
 					/show me my (calendar|schedule|meetings|appointments)/i,
-					/pull up my (calendar|schedule)/i,
+					/pull (up )?my (calendar|schedule)/i,
+					/pull my (calendar|schedule)/i,
+					/can you pull (up )?my (calendar|schedule)/i,
 					/read (out |me )?my (calendar|schedule)/i,
-					/check my (calendar|schedule)/i
+					/check my (calendar|schedule)/i,
+					/(get|grab|fetch) my (calendar|schedule)/i,
+					/my (calendar|schedule) for (today|tomorrow|this week|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
 				];
 
 				const isCalendarQuery = calendarPatterns.some(p => p.test(userMsg));
