@@ -1372,7 +1372,6 @@ ${crossSessionMemory}`;
 					"appointments", "what time is my", "when is my"
 				];
 
-				const lowerMsg = userMsg.toLowerCase();
 				const isCalendarQuery = calendarKeywords.some(kw => lowerMsg.includes(kw));
 
 				if (isCalendarQuery && userMsg.length < 500) {
