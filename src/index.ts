@@ -1362,6 +1362,133 @@ ${crossSessionMemory}`;
 				}
 				// ==================== END TIMER INTERCEPT ====================
 
+				// ==================== OPENCODE CALENDAR DISPATCH ====================
+				// Direct dispatch for calendar/schedule queries via OpenCode MCP bridge
+				const calendarKeywords = [
+					"calendar", "schedule", "meetings", "what do i have",
+					"what's tomorrow", "what is tomorrow", "what's today",
+					"what do i have tomorrow", "what's on my calendar",
+					"what meetings", "my day", "my week", "what's next week",
+					"appointments", "what time is my", "when is my"
+				];
+
+				const lowerMsg = userMsg.toLowerCase();
+				const isCalendarQuery = calendarKeywords.some(kw => lowerMsg.includes(kw));
+
+				if (isCalendarQuery && userMsg.length < 500) {
+					console.log("[OPENCODE CALENDAR DISPATCH] Detected calendar query:", userMsg);
+
+					try {
+						const controller = new AbortController();
+						const timeoutId = setTimeout(() => controller.abort(), 40000);
+
+						// Step 1 — Create fresh OpenCode session
+						const sessionRes = await fetch("https://opencode.jolenesego.com/session", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+							},
+							body: JSON.stringify({}),
+							signal: controller.signal
+						});
+
+						if (!sessionRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode session creation failed: ${sessionRes.status}`);
+						}
+
+						const session = await sessionRes.json() as any;
+						const sessionId = session.id;
+
+						// Step 2 — Send the calendar query
+						const msgRes = await fetch(`https://opencode.jolenesego.com/session/${sessionId}/message`, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+							},
+							body: JSON.stringify({
+								parts: [{ type: "text", text: userMsg }]
+							}),
+							signal: controller.signal
+						});
+
+						if (!msgRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode message failed: ${msgRes.status}`);
+						}
+
+						const msgData = await msgRes.json() as any;
+						clearTimeout(timeoutId);
+
+						// Step 3 — Extract text response
+						const parts = msgData.parts || [];
+						const textPart = parts.find((p: any) => p.type === "text");
+						const rawCalendarData = textPart?.text || "OpenCode returned no response.";
+
+						console.log("[OPENCODE CALENDAR DISPATCH] Calendar data retrieved, length:", rawCalendarData.length);
+
+						// Step 4 — Format through Claude Haiku for native Jolene voice
+						const formattingPrompt = `You are Jolene. The following is raw calendar data retrieved from the user's Google Calendar via OpenCode. 
+Format this as a native Jolene response — use your voice, emoji, snark where appropriate, and structure it cleanly. 
+Do NOT mention OpenCode, Google Calendar API, or any technical plumbing. Just present the schedule naturally as if you knew it all along.
+
+Raw calendar data:
+${rawCalendarData}
+
+User's original question: ${userMsg}`;
+
+						const haiku_accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+						const haiku_gatewayBase = `https://gateway.ai.cloudflare.com/v1/${haiku_accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+						const haiku_url = `${haiku_gatewayBase}/anthropic/v1/messages`;
+						const haiku_headers = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const haiku_body = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: formattingPrompt }],
+							max_tokens: 1024
+						};
+
+						const haikuRes = await fetch(haiku_url, {
+							method: "POST",
+							headers: haiku_headers,
+							body: JSON.stringify(haiku_body)
+						});
+
+						if (!haikuRes.ok) {
+							console.error("[OPENCODE CALENDAR] Haiku formatting failed, returning raw calendar data");
+							const finalResponse = `📅 Here's your calendar:\n\n${rawCalendarData}`;
+							await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+								.bind(sessionId, "assistant", finalResponse).run();
+							return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+						}
+
+						const haikuData: any = await haikuRes.json();
+						const finalResponse = haikuData.content?.[0]?.text || rawCalendarData;
+
+						console.log("[OPENCODE CALENDAR DISPATCH] Formatted response generated, length:", finalResponse.length);
+
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", finalResponse).run();
+
+						return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+
+					} catch (err: any) {
+						console.error("[OPENCODE CALENDAR] Exception:", err.message);
+						const errorResponse = `I tried to pull your calendar but hit a snag — make sure OpenCode is running on your MacBook and the tunnel is up. 📅`;
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", errorResponse).run();
+						return new Response(`data: ${JSON.stringify({ response: errorResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+				// ==================== END OPENCODE CALENDAR DISPATCH ====================
+
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
 
