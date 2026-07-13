@@ -1394,7 +1394,7 @@ ${crossSessionMemory}`;
 
 					try {
 						const controller = new AbortController();
-						const timeoutId = setTimeout(() => controller.abort(), 90000);
+						const timeoutId = setTimeout(() => controller.abort(), 180000);
 
 						// Step 1 — Create fresh OpenCode session
 						const debugHeaders = {
