@@ -1368,6 +1368,7 @@ ${crossSessionMemory}`;
 				const calendarPatterns = [
 					/what('s| is) (on )?my (calendar|schedule)/i,
 					/what do i have (today|tomorrow|this week|next week|on monday|on tuesday|on wednesday|on thursday|on friday|on saturday|on sunday)/i,
+					/what do i have on my (calendar|schedule)/i,
 					/what meetings (do i have|are|today|tomorrow)/i,
 					/my (day|week) (today|tomorrow|look like|looking like)/i,
 					/what does my (day|week) look like/i,
