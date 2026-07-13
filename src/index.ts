@@ -1649,6 +1649,148 @@ User's original question: ${userMsg}`;
 				}
 				// ==================== END OPENCODE DOCS DISPATCH ====================
 
+				// ==================== OPENCODE WIKI DISPATCH ====================
+				// Direct dispatch for Cloudflare internal wiki queries via OpenCode MCP bridge
+				const wikiPatterns = [
+					/search (the )?(internal |cloudflare )?wiki for/i,
+					/(internal |cloudflare )?wiki (search|entry|page|article) (for|on|about)/i,
+					/find (in |on )?(the )?(internal |cloudflare )?wiki/i,
+					/look up (in |on )?(the )?(internal |cloudflare )?wiki/i,
+					/what does (the )?(internal |cloudflare )?wiki say (about|on)/i,
+					/(internal |cloudflare )?wiki (entry|article|page) (about|on|for)/i,
+					/reference architecture (for|on) /i,
+					/ref arch (for|on) /i,
+					/find (me )?(a )?reference (architecture|arch|design) (for|on)/i,
+					/pull (up |me )?(a )?reference (architecture|arch|design)/i,
+					/internal docs? (for|on|about)/i,
+					/employee wiki/i,
+					/(cf|cloudflare) internal (docs?|documentation|wiki)/i,
+					/(higher ed|higher education|public sector|state government|federal) reference/i,
+					/similar (customer |account |implementation )?(deployments?|references?)/i
+				];
+
+				const isWikiQuery = wikiPatterns.some(p => p.test(userMsg));
+
+				if (isWikiQuery && userMsg.length < 500) {
+					console.log("[OPENCODE WIKI DISPATCH] Detected wiki query:", userMsg);
+
+					try {
+						const controller = new AbortController();
+						const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+						const debugHeaders = {
+							"Content-Type": "application/json",
+							"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+							"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+						};
+
+						// Step 1 — Create fresh OpenCode session
+						const sessionRes = await fetch("https://opencode.jolenesego.com/session", {
+							method: "POST",
+							headers: debugHeaders,
+							body: JSON.stringify({}),
+							signal: controller.signal
+						});
+
+						if (!sessionRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode session creation failed: ${sessionRes.status}`);
+						}
+
+						const session = await sessionRes.json() as any;
+						const sessionId = session.id;
+
+						// Step 2 — Send wiki query with explicit MCP directive
+						const wikiPrompt = `Use the cf-portal_wiki-mcp-server MCP tool to search the Cloudflare internal wiki. Answer this question comprehensively with relevant wiki links, page titles, and key details. If the query is about reference architectures, prioritize customer implementation examples and similar deployments. Question: ${userMsg}`;
+
+						const msgRes = await fetch(`https://opencode.jolenesego.com/session/${sessionId}/message`, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+							},
+							body: JSON.stringify({
+								parts: [{ type: "text", text: wikiPrompt }]
+							}),
+							signal: controller.signal
+						});
+
+						if (!msgRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode message failed: ${msgRes.status}`);
+						}
+
+						const msgData = await msgRes.json() as any;
+						clearTimeout(timeoutId);
+
+						// Step 3 — Extract text response
+						const parts = msgData.parts || [];
+						const textPart = parts.find((p: any) => p.type === "text");
+						const rawWikiData = textPart?.text || "OpenCode returned no response.";
+
+						console.log("[OPENCODE WIKI DISPATCH] Wiki data retrieved, length:", rawWikiData.length);
+
+						// Step 4 — Format through Claude Haiku for native Jolene voice
+						const formattingPrompt = `You are Jolene. The following is Cloudflare internal wiki search results retrieved via OpenCode. 
+Format this as a native Jolene response — use your voice, emoji, snark where appropriate, and structure it cleanly.
+Do NOT mention OpenCode, MCP, or technical plumbing. Just present the wiki findings naturally as if you'd looked them up yourself.
+Include the wiki links but present them conversationally.
+If the query is about reference architectures, prioritize actionable customer implementation details Scott can use in his sales work.
+
+Raw wiki data:
+${rawWikiData}
+
+User's original question: ${userMsg}`;
+
+						const haiku_accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+						const haiku_gatewayBase = `https://gateway.ai.cloudflare.com/v1/${haiku_accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+						const haiku_url = `${haiku_gatewayBase}/anthropic/v1/messages`;
+						const haiku_headers = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const haiku_body = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: formattingPrompt }],
+							max_tokens: 2048
+						};
+
+						const haikuRes = await fetch(haiku_url, {
+							method: "POST",
+							headers: haiku_headers,
+							body: JSON.stringify(haiku_body)
+						});
+
+						if (!haikuRes.ok) {
+							console.error("[OPENCODE WIKI] Haiku formatting failed, returning raw wiki data");
+							const finalResponse = `📖 Here's what I found in the Cloudflare wiki:\n\n${rawWikiData}`;
+							await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+								.bind(sessionId, "assistant", finalResponse).run();
+							return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+						}
+
+						const haikuData: any = await haikuRes.json();
+						const finalResponse = haikuData.content?.[0]?.text || rawWikiData;
+
+						console.log("[OPENCODE WIKI DISPATCH] Formatted response generated, length:", finalResponse.length);
+
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", finalResponse).run();
+
+						return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+
+					} catch (err: any) {
+						console.error("[OPENCODE WIKI] Exception:", err.message);
+						const errorResponse = `I tried to search the Cloudflare wiki but hit a snag — make sure OpenCode is running on your MacBook and the tunnel is up. 📖`;
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", errorResponse).run();
+						return new Response(`data: ${JSON.stringify({ response: errorResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+				// ==================== END OPENCODE WIKI DISPATCH ====================
+
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
 
