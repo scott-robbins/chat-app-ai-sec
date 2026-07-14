@@ -1638,12 +1638,25 @@ User's original question: ${userMsg}`;
 						const finalResponse = haikuData.content?.[0]?.text || rawSalesforceData;
 
 						console.log("[OPENCODE SALESFORCE DISPATCH] Formatted response generated, length:", finalResponse.length);
+						console.log("[OPENCODE SALESFORCE DISPATCH] Final response preview:", finalResponse.substring(0, 200));
 
-						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
-							.bind(sessionId, "assistant", finalResponse).run();
+						try {
+							await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+								.bind(sessionId, "assistant", finalResponse).run();
+						} catch (dbErr: any) {
+							console.error("[OPENCODE SALESFORCE DISPATCH] DB insert failed:", dbErr.message);
+						}
 
-						return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
-
+						return new Response(
+							`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`,
+							{
+								headers: {
+									"Content-Type": "text/event-stream",
+									"Cache-Control": "no-cache",
+									"Access-Control-Allow-Origin": "*"
+								}
+							}
+						);
 					} catch (err: any) {
 						console.error("[OPENCODE SALESFORCE] Exception:", err.message);
 						const errorResponse = `I tried to pull Salesforce data but hit a snag — make sure OpenCode is running on your MacBook and the tunnel is up. 💼`;
