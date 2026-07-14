@@ -1595,6 +1595,7 @@ User's original question: ${userMsg}`;
 						const rawSalesforceData = textPart?.text || "OpenCode returned no response.";
 
 						console.log("[OPENCODE SALESFORCE DISPATCH] Salesforce data retrieved, length:", rawSalesforceData.length);
+						console.log("[OPENCODE SALESFORCE DISPATCH] Raw data preview:", rawSalesforceData.substring(0, 500));
 
 						// Step 4 — Format through Claude Haiku for native Jolene voice
 						const formattingPrompt = `You are Jolene. The following is raw Salesforce data retrieved from Cloudflare's Salesforce instance via OpenCode. 
