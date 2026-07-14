@@ -1388,6 +1388,27 @@ ${crossSessionMemory}`;
 
 				const isCalendarQuery = calendarPatterns.some(p => p.test(userMsg));
 
+				// Direct dispatch for Salesforce queries via OpenCode MCP bridge
+				const salesforcePatterns = [
+					/what('s| is) the (status|stage|amount|close date) (of|on|for)/i,
+					/show me (the )?salesforce/i,
+					/salesforce.*opportunity/i,
+					/search salesforce for/i,
+					/what.*opportunities.*(at|for|with)/i,
+					/opportunity.*(status|stage|close|amount|renewal)/i,
+					/pipeline.*(status|salesforce|for)/i,
+					/account.*(salesforce|family|history)/i,
+					/what did we (win|lose|sell|close).*at/i,
+					/salesforce.*account/i,
+					/upsell.*opportunity/i,
+					/(active|open|closed) opportunities/i,
+					/renewal (status|amount|date) for/i,
+					/what.*(salesforce|sfdc)/i,
+					/(sfdc|salesforce) (query|lookup|search)/i
+				];
+
+				const isSalesforceQuery = salesforcePatterns.some(p => p.test(userMsg));
+
 				if (isCalendarQuery && userMsg.length < 500) {
 					console.log("[OPENCODE CALENDAR DISPATCH] Detected calendar query:", userMsg);
 					console.log("[OPENCODE SECRETS DEBUG] Client ID length:", this.env.OPENCODE_CLIENT_ID?.length, "Secret length:", this.env.OPENCODE_CLIENT_SECRET?.length);
@@ -1510,6 +1531,121 @@ User's original question: ${userMsg}`;
 					}
 				}
 				// ==================== END OPENCODE CALENDAR DISPATCH ====================
+
+				// ==================== SALESFORCE DISPATCH ====================
+				if (isSalesforceQuery && userMsg.length < 500) {
+					console.log("[OPENCODE SALESFORCE DISPATCH] Detected Salesforce query:", userMsg);
+
+					try {
+						const controller = new AbortController();
+						const timeoutId = setTimeout(() => controller.abort(), 180000);
+
+						// Step 1 — Create fresh OpenCode session
+						const sessionRes = await fetch("https://opencode.jolenesego.com/session", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+							},
+							body: JSON.stringify({}),
+							signal: controller.signal
+						});
+
+						if (!sessionRes.ok) {
+							const errorBody = await sessionRes.text();
+							console.log("[OPENCODE SALESFORCE ERROR BODY]", errorBody);
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode session creation failed: ${sessionRes.status}`);
+						}
+
+						const session = await sessionRes.json() as any;
+						const sessionId = session.id;
+
+						// Step 2 — Send the Salesforce query
+						const msgRes = await fetch(`https://opencode.jolenesego.com/session/${sessionId}/message`, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"CF-Access-Client-Id": this.env.OPENCODE_CLIENT_ID,
+								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
+							},
+							body: JSON.stringify({
+								parts: [{ type: "text", text: userMsg }]
+							}),
+							signal: controller.signal
+						});
+
+						if (!msgRes.ok) {
+							clearTimeout(timeoutId);
+							throw new Error(`OpenCode message failed: ${msgRes.status}`);
+						}
+
+						const msgData = await msgRes.json() as any;
+						clearTimeout(timeoutId);
+
+						// Step 3 — Extract text response
+						const parts = msgData.parts || [];
+						const textPart = parts.find((p: any) => p.type === "text");
+						const rawSalesforceData = textPart?.text || "OpenCode returned no response.";
+
+						console.log("[OPENCODE SALESFORCE DISPATCH] Salesforce data retrieved, length:", rawSalesforceData.length);
+
+						// Step 4 — Format through Claude Haiku for native Jolene voice
+						const formattingPrompt = `You are Jolene. The following is raw Salesforce data retrieved from Cloudflare's Salesforce instance via OpenCode. 
+Format this as a native Jolene response — use your voice, emoji, snark where appropriate, and structure it cleanly with opportunity names, stages, amounts, and dates preserved exactly. 
+Lead with the most important deal or finding. Do NOT mention OpenCode, Salesforce MCP, or any technical plumbing. Just present the data naturally as if you knew it all along.
+
+Raw Salesforce data:
+${rawSalesforceData}
+
+User's original question: ${userMsg}`;
+
+						const haiku_accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
+						const haiku_gatewayBase = `https://gateway.ai.cloudflare.com/v1/${haiku_accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+						const haiku_url = `${haiku_gatewayBase}/anthropic/v1/messages`;
+						const haiku_headers = {
+							"Content-Type": "application/json",
+							"x-api-key": this.env.ANTHROPIC_API_KEY || "",
+							"anthropic-version": "2023-06-01"
+						};
+						const haiku_body = {
+							model: "claude-haiku-4-5",
+							messages: [{ role: "user", content: formattingPrompt }],
+							max_tokens: 2048
+						};
+
+						const haikuRes = await fetch(haiku_url, {
+							method: "POST",
+							headers: haiku_headers,
+							body: JSON.stringify(haiku_body)
+						});
+
+						if (!haikuRes.ok) {
+							console.error("[OPENCODE SALESFORCE] Haiku formatting failed, returning raw Salesforce data");
+							const finalResponse = `💼 Here's your Salesforce data:\n\n${rawSalesforceData}`;
+							await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+								.bind(sessionId, "assistant", finalResponse).run();
+							return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+						}
+
+						const haikuData: any = await haikuRes.json();
+						const finalResponse = haikuData.content?.[0]?.text || rawSalesforceData;
+
+						console.log("[OPENCODE SALESFORCE DISPATCH] Formatted response generated, length:", finalResponse.length);
+
+						await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
+							.bind(sessionId, "assistant", finalResponse).run();
+
+						return new Response(`data: ${JSON.stringify({ response: finalResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+
+					} catch (err: any) {
+						console.error("[OPENCODE SALESFORCE] Exception:", err.message);
+						const errorResponse = `I tried to pull Salesforce data but hit a snag — make sure OpenCode is running on your MacBook and the tunnel is up. 💼`;
+						return new Response(`data: ${JSON.stringify({ response: errorResponse, audioUrl: null })}\n\ndata: [DONE]\n\n`);
+					}
+				}
+				// ==================== END SALESFORCE DISPATCH ====================
 
 				// ==================== OPENCODE CLOUDFLARE DOCS DISPATCH ====================
 				// Direct dispatch for Cloudflare documentation queries via OpenCode MCP bridge
