@@ -1576,7 +1576,7 @@ User's original question: ${userMsg}`;
 								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
 							},
 							body: JSON.stringify({
-								parts: [{ type: "text", text: userMsg }]
+    								parts: [{ type: "text", text: `Use the salesforce-prod-mcp server to query Salesforce and answer this question. ${userMsg}` }]
 							}),
 							signal: controller.signal
 						});
