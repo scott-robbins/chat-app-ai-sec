@@ -1177,6 +1177,43 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = "The master bedroom lights " + (lightAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
 				}
 
+				if (lowerMsg.includes("kitchen") && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue", "red", "purple", "teal", "green", "orange", "warm", "crisp"].some(c => lowerMsg.includes(c)))) {
+	let color = "warm_white";
+	if (lowerMsg.includes("blue")) color = "blue";
+	else if (lowerMsg.includes("red")) color = "red";
+	else if (lowerMsg.includes("purple")) color = "purple";
+	else if (lowerMsg.includes("teal")) color = "teal";
+	else if (lowerMsg.includes("green")) color = "green";
+	else if (lowerMsg.includes("orange")) color = "orange";
+	else if (lowerMsg.includes("crisp white") || lowerMsg.includes("cool white")) color = "crisp_white";
+	else if (lowerMsg.includes("warm white") || lowerMsg.includes("warm")) color = "warm_white";
+
+	const kitchenAction = (lowerMsg.includes(" off") || lowerMsg.includes("turn off") || lowerMsg.includes("shut off") || lowerMsg.includes("kill")) ? "off" : "on";
+
+	const kitchenArgs: any = kitchenAction === "off"
+		? { zone: "kitchen", action: "off" }
+		: { zone: "kitchen", action: "on", color: color };
+
+	console.log("[KITCHEN DIRECT DISPATCH] color:", color, "action:", kitchenAction);
+
+	try {
+		const kitchenController = new AbortController();
+		const kitchenTimeoutId = setTimeout(() => kitchenController.abort(), 10000);
+		await fetch("https://mcp.jolenesego.com/api/tools/execute", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ tool: "control_house_lights", arguments: kitchenArgs }),
+			signal: kitchenController.signal
+		});
+		clearTimeout(kitchenTimeoutId);
+		console.log("[KITCHEN DIRECT DISPATCH] Pi dispatch complete");
+	} catch (kitchenErr: any) {
+		console.error("[KITCHEN DIRECT DISPATCH] Failed:", kitchenErr.message);
+	}
+
+	liveContext = "The kitchen lights " + (kitchenAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
+}
+
 				let sonosTargetZone = "";
 				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.startsWith(kw) || lowerMsg.match(/^(jolene[,.]?\s+)?(say|speak|broadcast|announce|tell)/i))) {
 					if (lowerMsg.includes("bedroom") || lowerMsg.includes("renee")) sonosTargetZone = "main_bedroom";
