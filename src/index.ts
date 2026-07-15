@@ -1446,7 +1446,10 @@ ${crossSessionMemory}`;
 					/(active|open|closed) opportunities/i,
 					/renewal (status|amount|date) for/i,
 					/what.*(salesforce|sfdc)/i,
-					/(sfdc|salesforce) (query|lookup|search)/i
+					/(sfdc|salesforce) (query|lookup|search)/i,
+					/pull (up )?(my )?(salesforce )?opportunit(y|ies)/i,
+					/(get|grab|fetch) (my )?(salesforce )?opportunit(y|ies)/i,
+					/salesforce.*opportunit(y|ies)/i
 				];
 
 				const isSalesforceQuery = salesforcePatterns.some(p => p.test(userMsg));
