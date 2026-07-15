@@ -965,6 +965,42 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = `[SYSTEM CONTEXT - NEST TOKEN YELLOW ZONE] Your Nest token has 3-4 days remaining (expires ${nestTokenStatus.expires_at_iso}). No action required yet, but you may proactively mention this if it naturally fits the conversation flow (e.g., if Scott asks about planning something for next week, you could say "By the way, Nest reauth window coming up next week"). Not mandatory, but optional awareness.`;
 				}
 
+				// === TIER 8 PROACTIVE TEMPORAL TRIGGER INJECTION ===
+				try {
+					const today = new Date().toISOString().split("T")[0];
+					const triggerResult = await this.env.jolene_db.prepare(`
+						SELECT id, trigger_label, payload, lead_days, target_date
+						FROM proactive_triggers
+						WHERE is_active = 1
+						  AND (
+						    (lead_days < 0 AND date(target_date, lead_days || ' days') <= ? AND (last_fired_date IS NULL OR last_fired_date != ?))
+						    OR
+						    (lead_days >= 0 AND trigger_type = 'training_gap' AND (last_fired_date IS NULL OR date(last_fired_date, lead_days || ' days') <= ?))
+						  )
+						ORDER BY target_date ASC
+						LIMIT 3
+					`).bind(today, today, today).all();
+
+					if (triggerResult.results && triggerResult.results.length > 0) {
+						const triggered = triggerResult.results as any[];
+						let tier8Injection = "[SYSTEM DIRECTIVE - TIER 8 PROACTIVE TEMPORAL TRIGGERS] You have active proactive alerts that MUST be surfaced naturally in this response BEFORE answering Scott's actual message. Weave them in conversationally — do NOT dump them as a robotic list. Examples of natural surface: 'Real quick before I answer that — [alert content]. Now, on your actual question...' OR 'Heads up first — [alert content]. Anyway, to your question...'. Active alerts:";
+						for (const t of triggered) {
+							tier8Injection += ` [${t.trigger_label}]: ${t.payload}`;
+						}
+						tier8Injection += " This is NOT optional — surface these naturally, then answer Scott's actual message.";
+						
+						// Append to existing liveContext (don't overwrite Nest reminder if present)
+						liveContext = liveContext ? liveContext + " " + tier8Injection : tier8Injection;
+
+						// Mark fired today to prevent same-day repeat
+						for (const t of triggered) {
+							await this.env.jolene_db.prepare(`UPDATE proactive_triggers SET last_fired_date = ? WHERE id = ?`).bind(today, t.id).run();
+						}
+					}
+				} catch (e: any) {
+					console.error("[TIER 8 TRIGGER] Query failed:", e.message);
+				}
+
 				const lowerMsg = userMsg.toLowerCase();
 
 				// Rock Show intercept — Callan and Josie's favorite = Engine No. 9 by Deftones
