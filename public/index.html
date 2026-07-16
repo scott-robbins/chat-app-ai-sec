@@ -41,6 +41,22 @@
 		--text-light: #cbd5e1;
 		--assistant-msg-bg: rgba(255, 255, 255, 0.05);
 		--body-bg: #0f172a;
+		--link-color: #f6821f;
+		--link-hover: #FFB84D;
+	}
+
+	.assistant-message a,
+	.message-content a {
+		color: var(--link-color, #0369a1) !important;
+		text-decoration: underline !important;
+		text-underline-offset: 3px !important;
+		font-weight: 500 !important;
+	}
+
+	.assistant-message a:hover,
+	.message-content a:hover {
+		color: var(--link-hover, #0ea5e9) !important;
+		text-decoration: none !important;
 	}
 
 	body.theme-fancy .chat-container,
@@ -314,11 +330,11 @@
 	}
 
 	.btn-primary {
-    	padding: 8px 16px;
-    	border-radius: 10px;
-    	border: none;
-    	background: var(--primary-color);
-    	color: white;
+		padding: 8px 16px;
+		border-radius: 10px;
+		border: none;
+		background: var(--primary-color);
+		color: white;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -627,190 +643,191 @@
 	.timer-widget.timer-done .timer-display::after {
 		content: " ✓";
 	}
+
 	/* --- MOBILE UX OVERHAUL — RENEE PWA POLISH --- */
-@media (max-width: 768px) {
-    
-    /* Full viewport chat container — no wasted edges */
-    body {
-        margin: 0 !important;
-        padding: 0 !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-    }
-    
-    .chat-container {
-        position: relative !important;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        margin: 0 !important;
-        border-radius: 0 !important;
-        display: flex !important;
-        flex-direction: column !important;
-        padding: 0 !important;
-    }
+	@media (max-width: 768px) {
 
-	#clear-screen-btn {
-        font-size: 0 !important;
-    }
-    
-    #clear-screen-btn i {
-        font-size: 16px !important;
-    }
-    
-    /* Messages area — flex-grow to fill available space */
-    #chat-messages {
-        flex: 1 !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        padding: 16px 12px !important;
-        margin: 0 !important;
-        scroll-behavior: smooth !important;
-    }
-    
-    /* Message bubbles — full width like Gemini/Claude */
-    .message {
-        max-width: 100% !important;
-        width: 100% !important;
-        margin-bottom: 16px !important;
-        padding: 0 !important;
-    }
-    
-    .message-content {
-        max-width: 92% !important;
-        padding: 12px 16px !important;
-        border-radius: 18px !important;
-        font-size: 16px !important;
-        line-height: 1.5 !important;
-    }
-    
-    .user-message .message-content {
-        margin-left: auto !important;
-        background: #f6821f !important;
-        color: #ffffff !important;
-    }
-    
-    .assistant-message .message-content {
-        margin-right: auto !important;
-        background: #f8fafc !important;
-        color: #0f172a !important;
-        border: 1px solid #e2e8f0 !important;
-    }
-    
-    /* Input area — pinned to bottom with safe-area for iPhone */
-    .message-input {
-        flex-shrink: 0 !important;
-        padding: 12px 12px calc(12px + env(safe-area-inset-bottom)) 12px !important;
-        border-top: 1px solid #e2e8f0 !important;
-        background: #ffffff !important;
-    }
-    
-    .input-row {
-        gap: 8px !important;
-        align-items: flex-end !important;
-    }
-    
-    /* Textarea — bigger tap area, no zoom on focus */
-    #user-input {
-        font-size: 16px !important;
-        padding: 12px 14px !important;
-        min-height: 44px !important;
-        max-height: 120px !important;
-        border-radius: 22px !important;
-        border: 1px solid #e2e8f0 !important;
-    }
-    
-    /* Buttons — 44px minimum tap target per Apple HIG */
-    #send-button,
-    #mic-button {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        border-radius: 50% !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        font-size: 20px !important;
-    }
-    
-    /* Sidebar — full screen overlay on mobile */
-    #memory-sidebar {
-        width: 100% !important;
-        max-width: 100% !important;
-    }
-    
-    /* Footer — hide on mobile, no room for it */
-    footer {
-        display: none !important;
-    }
-    
-    /* Typing indicator — align left like assistant messages */
-    #typing-indicator {
-        padding: 0 12px 12px 12px !important;
-    }
+		/* Full viewport chat container — no wasted edges */
+		body {
+			margin: 0 !important;
+			padding: 0 !important;
+			height: 100vh !important;
+			height: 100dvh !important;
+		}
 
-    /* Kill the double-box on message bubbles */
-    .assistant-message,
-    .user-message {
-        background: transparent !important;
-        background-color: transparent !important;
-        border: none !important;
-        border-radius: 0 !important;
-        padding: 0 !important;
-    }
-    
-    /* Show controls-row as a horizontal button bar — all fit on one line */
-    .controls-row {
-        display: flex !important;
-        flex-wrap: nowrap !important;
-        gap: 6px !important;
-        padding: 6px 8px !important;
-        background: #ffffff !important;
-        border-bottom: 1px solid #e2e8f0 !important;
-        flex-shrink: 0 !important;
-        overflow: hidden !important;
-    }
-    
-    /* Mobile-appropriate button sizing in controls-row */
-    .controls-row button {
-        flex: 1 !important;
-        flex-shrink: 1 !important;
-        font-size: 12px !important;
-        padding: 6px 8px !important;
-        min-height: 36px !important;
-        white-space: nowrap !important;
-        text-overflow: ellipsis !important;
-        overflow: hidden !important;
-    }
-    
-    /* Hide Memorize button on mobile */
-    #memorize-btn {
-        display: none !important;
-    }
-    
-    /* Icon-only buttons in controls-row on mobile */
-    .controls-row button {
-        font-size: 0 !important;
-    }
-    
-    .controls-row button i {
-        font-size: 18px !important;
-    }
-    
-    /* Icon-only upload button */
-    #upload-btn {
-        font-size: 0 !important;
-    }
-    
-    #upload-btn i {
-        font-size: 18px !important;
-    }
-}
+		.chat-container {
+			position: relative !important;
+			top: auto !important;
+			left: auto !important;
+			right: auto !important;
+			bottom: auto !important;
+			width: 100% !important;
+			max-width: 100% !important;
+			height: 100vh !important;
+			height: 100dvh !important;
+			margin: 0 !important;
+			border-radius: 0 !important;
+			display: flex !important;
+			flex-direction: column !important;
+			padding: 0 !important;
+		}
+
+		#clear-screen-btn {
+			font-size: 0 !important;
+		}
+
+		#clear-screen-btn i {
+			font-size: 16px !important;
+		}
+
+		/* Messages area — flex-grow to fill available space */
+		#chat-messages {
+			flex: 1 !important;
+			overflow-y: auto !important;
+			-webkit-overflow-scrolling: touch !important;
+			padding: 16px 12px !important;
+			margin: 0 !important;
+			scroll-behavior: smooth !important;
+		}
+
+		/* Message bubbles — full width like Gemini/Claude */
+		.message {
+			max-width: 100% !important;
+			width: 100% !important;
+			margin-bottom: 16px !important;
+			padding: 0 !important;
+		}
+
+		.message-content {
+			max-width: 92% !important;
+			padding: 12px 16px !important;
+			border-radius: 18px !important;
+			font-size: 16px !important;
+			line-height: 1.5 !important;
+		}
+
+		.user-message .message-content {
+			margin-left: auto !important;
+			background: #f6821f !important;
+			color: #ffffff !important;
+		}
+
+		.assistant-message .message-content {
+			margin-right: auto !important;
+			background: #f8fafc !important;
+			color: #0f172a !important;
+			border: 1px solid #e2e8f0 !important;
+		}
+
+		/* Input area — pinned to bottom with safe-area for iPhone */
+		.message-input {
+			flex-shrink: 0 !important;
+			padding: 12px 12px calc(12px + env(safe-area-inset-bottom)) 12px !important;
+			border-top: 1px solid #e2e8f0 !important;
+			background: #ffffff !important;
+		}
+
+		.input-row {
+			gap: 8px !important;
+			align-items: flex-end !important;
+		}
+
+		/* Textarea — bigger tap area, no zoom on focus */
+		#user-input {
+			font-size: 16px !important;
+			padding: 12px 14px !important;
+			min-height: 44px !important;
+			max-height: 120px !important;
+			border-radius: 22px !important;
+			border: 1px solid #e2e8f0 !important;
+		}
+
+		/* Buttons — 44px minimum tap target per Apple HIG */
+		#send-button,
+		#mic-button {
+			width: 44px !important;
+			height: 44px !important;
+			min-width: 44px !important;
+			border-radius: 50% !important;
+			display: flex !important;
+			align-items: center !important;
+			justify-content: center !important;
+			font-size: 20px !important;
+		}
+
+		/* Sidebar — full screen overlay on mobile */
+		#memory-sidebar {
+			width: 100% !important;
+			max-width: 100% !important;
+		}
+
+		/* Footer — hide on mobile, no room for it */
+		footer {
+			display: none !important;
+		}
+
+		/* Typing indicator — align left like assistant messages */
+		#typing-indicator {
+			padding: 0 12px 12px 12px !important;
+		}
+
+		/* Kill the double-box on message bubbles */
+		.assistant-message,
+		.user-message {
+			background: transparent !important;
+			background-color: transparent !important;
+			border: none !important;
+			border-radius: 0 !important;
+			padding: 0 !important;
+		}
+
+		/* Show controls-row as a horizontal button bar — all fit on one line */
+		.controls-row {
+			display: flex !important;
+			flex-wrap: nowrap !important;
+			gap: 6px !important;
+			padding: 6px 8px !important;
+			background: #ffffff !important;
+			border-bottom: 1px solid #e2e8f0 !important;
+			flex-shrink: 0 !important;
+			overflow: hidden !important;
+		}
+
+		/* Mobile-appropriate button sizing in controls-row */
+		.controls-row button {
+			flex: 1 !important;
+			flex-shrink: 1 !important;
+			font-size: 12px !important;
+			padding: 6px 8px !important;
+			min-height: 36px !important;
+			white-space: nowrap !important;
+			text-overflow: ellipsis !important;
+			overflow: hidden !important;
+		}
+
+		/* Hide Memorize button on mobile */
+		#memorize-btn {
+			display: none !important;
+		}
+
+		/* Icon-only buttons in controls-row on mobile */
+		.controls-row button {
+			font-size: 0 !important;
+		}
+
+		.controls-row button i {
+			font-size: 18px !important;
+		}
+
+		/* Icon-only upload button */
+		#upload-btn {
+			font-size: 0 !important;
+		}
+
+		#upload-btn i {
+			font-size: 18px !important;
+		}
+	}
 </style>
 
 <script>
@@ -867,10 +884,14 @@
 			<button id="toggle-sidebar-btn" class="btn-secondary" style="display: none;"><i class="ph ph-database"></i>
 				Memory</button>
 
-			<button id="new-chat-btn" class="btn-primary" aria-label="New Chat" title="New Chat"><i class="ph ph-chat-circle-dots"></i></button>
-			<button id="clear-screen-btn" class="btn-secondary" aria-label="Clear Screen" title="Clear Screen"><i class="ph ph-trash"></i></button>
-			<button id="voice-toggle-btn" class="btn-secondary" aria-label="Voice" title="Voice"><i class="ph ph-speaker-slash" id="voice-icon"></i></button>
-			<button id="settings-toggle-btn" class="btn-secondary" aria-label="Settings" title="Settings"><i class="ph ph-gear"></i></button>
+			<button id="new-chat-btn" class="btn-primary" aria-label="New Chat" title="New Chat"><i
+					class="ph ph-chat-circle-dots"></i></button>
+			<button id="clear-screen-btn" class="btn-secondary" aria-label="Clear Screen" title="Clear Screen"><i
+					class="ph ph-trash"></i></button>
+			<button id="voice-toggle-btn" class="btn-secondary" aria-label="Voice" title="Voice"><i
+					class="ph ph-speaker-slash" id="voice-icon"></i></button>
+			<button id="settings-toggle-btn" class="btn-secondary" aria-label="Settings" title="Settings"><i
+					class="ph ph-gear"></i></button>
 		</div>
 		<ul id="settings-dropdown">
 			<li id="opt-model"><i class="ph ph-cpu"></i> Model</li>
@@ -953,7 +974,8 @@
 				<span class="dash-label">Durable Objects: State</span>
 				<div class="dash-desc">Coordinates real-time consistency and persists state across the edge.</div>
 				<div class="dash-value">ID: <span id="do-id-display" style="font-size: 0.65rem;">...</span><br>Status:
-					<span id="do-status-display" style="color: #22c55e;">Active</span></div>
+					<span id="do-status-display" style="color: #22c55e;">Active</span>
+				</div>
 			</div>
 
 			<div class="dash-card">
@@ -1032,13 +1054,13 @@
 		};
 
 		document.getElementById('new-chat-btn').onclick = async () => {
-		    sessionId = crypto.randomUUID();
-		    localStorage.setItem('jolene_session_id', sessionId);
-		    localStorage.setItem('chatSessionId', sessionId);
-		    await updateDashboard();
-		    document.getElementById('chat-messages').innerHTML = '';
-		    const greeting = "Hey Scott! 👋 Ready when you are. Music, timers, lights, temperature, house control — all of it. What do you need? 🥊";
-		    appendMessage('assistant-message', greeting);
+			sessionId = crypto.randomUUID();
+			localStorage.setItem('jolene_session_id', sessionId);
+			localStorage.setItem('chatSessionId', sessionId);
+			await updateDashboard();
+			document.getElementById('chat-messages').innerHTML = '';
+			const greeting = "Hey Scott! 👋 Ready when you are. Music, timers, lights, temperature, house control — all of it. What do you need? 🥊";
+			appendMessage('assistant-message', greeting);
 		};
 
 		const fileInput = document.getElementById('file-input');
