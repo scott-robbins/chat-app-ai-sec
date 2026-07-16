@@ -1154,6 +1154,7 @@ export class ChatSession extends DurableObject<Env> {
 							});
 							clearTimeout(transportTimeoutId);
 							console.log("[TRANSPORT DIRECT] Fired transport action immediately:", action, zone, value);
+							liveContext = `[SYSTEM DIRECTIVE - TRANSPORT ACTION ALREADY EXECUTED] The transport action "${action}" on zone "${zone}"${value !== null ? ` with value ${value}` : ''} has ALREADY been dispatched to the Sonos hardware via direct dispatch. DO NOT emit any THEATER_ACTION_TRIGGER for sonos_transport in your response. Just respond naturally confirming the action completed (e.g., "Skipped to next track in the ${zone}"). No trigger payload needed.`;
 						} catch (transportDirectErr: any) {
 							console.error("[TRANSPORT DIRECT] Direct dispatch failed:", transportDirectErr.message);
 						}
