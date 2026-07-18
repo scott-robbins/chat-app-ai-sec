@@ -1010,7 +1010,8 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
 					const trackName = "Engine No. 9 Deftones";
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play Rock Show for Callan and Josie. Rock Show is their nickname for Engine No. 9 by Deftones. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie 🤘"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					const rockShowDirective = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play Rock Show for Callan and Josie. Rock Show is their nickname for Engine No. 9 by Deftones. You MUST execute the tool "play_spotify" with arguments { "track": "${trackName}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing Rock Show — that's Engine No. 9 by Deftones — in the ${zone} for Callan and Josie 🤘"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					liveContext = liveContext ? liveContext + " " + rockShowDirective : rockShowDirective;
 				} else if (lowerMsg.includes("renee") && (lowerMsg.includes("playlist") || lowerMsg.includes("favorites") || lowerMsg.includes("music for renee") || lowerMsg.includes("renee's music") || lowerMsg.includes("play music for renee"))) {
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "main_bedroom";
@@ -1027,7 +1028,8 @@ export class ChatSession extends DurableObject<Env> {
 					];
 
 					const randomTrack = reneePlaylist[Math.floor(Math.random() * reneePlaylist.length)];
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play music for Renee. You MUST execute the tool "play_spotify" with arguments { "track": "${randomTrack}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing some Renee favorites in the ${zone} 🎵"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					const reneePlaylistDirective = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play music for Renee. You MUST execute the tool "play_spotify" with arguments { "track": "${randomTrack}", "zone": "${zone}" }. Respond naturally confirming (e.g., "Playing some Renee favorites in the ${zone} 🎵"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					liveContext = liveContext ? liveContext + " " + reneePlaylistDirective : reneePlaylistDirective;
 
 				} else if (lowerMsg.includes("crime junkie") || lowerMsg.includes("crime junkies") || (lowerMsg.includes("play") && lowerMsg.includes("renee") && lowerMsg.includes("podcast"))) {
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
@@ -1078,7 +1080,8 @@ export class ChatSession extends DurableObject<Env> {
 					const zoneMatch = userMsg.match(/\b(kitchen|theater|main_bedroom|bedroom|office)\b/i);
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "kitchen";
 					if (zone === "bedroom") zone = "main_bedroom";
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
+					const timerDirective = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user is requesting a countdown timer. You MUST execute the tool "set_timer" with arguments { "minutes": ${minutes}, "zone": "${zone}" }. Respond naturally confirming the timer was set (e.g., "Timer set for ${minutes} minutes — kitchen speakers will beep when done."). Then emit the trigger payload at the very end of your response. This is NOT optional.`;
+					liveContext = liveContext ? liveContext + " " + timerDirective : timerDirective;
 
 				} else if (lowerMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some)\s+/i) || (lowerMsg.match(/^play\s+/i) && !lowerMsg.match(/\s+by\s+/i) && !lowerMsg.match(/^play\s+(?:the\s+)?(?:song|track)\s+/i))) {
 					const artistMatch = userMsg.match(/^(?:play\s+some|play\s+music\s+by|queue\s+up\s+some|play)\s+(.+?)(?:\s+(?:in|on|through|via)\s+.+)?$/i);
@@ -1088,7 +1091,8 @@ export class ChatSession extends DurableObject<Env> {
 					let zone = zoneMatch ? zoneMatch[1].toLowerCase() : "theater";
 					if (zone === "bedroom") zone = "main_bedroom";
 
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a queue of tracks by an artist. You MUST execute the tool "spotify_artist" with arguments { "artist": "${artistName}", "zone": "${zone}" }. Respond naturally confirming the artist queue is starting (e.g., "Queueing up ${artistName} on the ${zone} Sonos — 10 tracks loaded"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					const artistQueueDirective = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a queue of tracks by an artist. You MUST execute the tool "spotify_artist" with arguments { "artist": "${artistName}", "zone": "${zone}" }. Respond naturally confirming the artist queue is starting (e.g., "Queueing up ${artistName} on the ${zone} Sonos — 10 tracks loaded"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					liveContext = liveContext ? liveContext + " " + artistQueueDirective : artistQueueDirective;
 				} else if (lowerMsg.match(/^(?:play|listen to|queue|put on)\s+/i)) {
 					const trackMatch = userMsg.match(/^(?:play|listen to|queue|put on)\s+(?:the\s+(?:song\s+)?)?(.+?)(?:\s+(?:in|on|through|via|by)\s+.+)?$/i);
 
@@ -1107,7 +1111,8 @@ export class ChatSession extends DurableObject<Env> {
 						trackName = "Engine No. 9 Deftones";
 					}
 
-					liveContext = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackNameWithArtist}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackNameWithArtist} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					const spotifyTrackDirective = `[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user wants to play a Spotify track. You MUST execute the tool "play_spotify" with arguments { "track": "${trackNameWithArtist}", "zone": "${zone}" }. Respond naturally confirming the song is playing (e.g., "Playing ${trackNameWithArtist} on the ${zone} Sonos speaker"). Then emit the trigger payload at the very end. This is NOT optional.`;
+					liveContext = liveContext ? liveContext + " " + spotifyTrackDirective : spotifyTrackDirective;
 				} else if (lowerMsg.match(/\b(?:skip|next track|next song|pause|resume|unpause|louder|quieter)\b/i) || lowerMsg.match(/(?:volume\s+to|set\s+volume\s+to)\s+\d+/i)) {
 
 
@@ -1154,27 +1159,34 @@ export class ChatSession extends DurableObject<Env> {
 							});
 							clearTimeout(transportTimeoutId);
 							console.log("[TRANSPORT DIRECT] Fired transport action immediately:", action, zone, value);
-							liveContext = `[SYSTEM DIRECTIVE - TRANSPORT ACTION ALREADY EXECUTED] The transport action "${action}" on zone "${zone}"${value !== null ? ` with value ${value}` : ''} has ALREADY been dispatched to the Sonos hardware via direct dispatch. DO NOT emit any THEATER_ACTION_TRIGGER for sonos_transport in your response. Just respond naturally confirming the action completed (e.g., "Skipped to next track in the ${zone}"). No trigger payload needed.`;
+							const transportDirective = `[SYSTEM DIRECTIVE - TRANSPORT ACTION ALREADY EXECUTED] The transport action "${action}" on zone "${zone}"${value !== null ? ` with value ${value}` : ''} has ALREADY been dispatched to the Sonos hardware via direct dispatch. DO NOT emit any THEATER_ACTION_TRIGGER for sonos_transport in your response. Just respond naturally confirming the action completed (e.g., "Skipped to next track in the ${zone}"). No trigger payload needed.`;
+							liveContext = liveContext ? liveContext + " " + transportDirective : transportDirective;
 						} catch (transportDirectErr: any) {
 							console.error("[TRANSPORT DIRECT] Direct dispatch failed:", transportDirectErr.message);
 						}
 					}
 
 				} else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = await this.getLiveNBAScore(userMsg);
+    				const nbaData = await this.getLiveNBAScore(userMsg);
+    				liveContext = liveContext ? liveContext + " " + nbaData : nbaData;
+
 				} else if (["weather", "forecast", "temperature", "outside", "now", "current", "news", "mma", "ufc", "fight", "time", "date", "today"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+    				const tavilyData = await this.tavilySearch(userMsg, easternTimeStr);
+    				liveContext = liveContext ? liveContext + " " + tavilyData : tavilyData;
 				} else if (this.detectSearchIntent(userMsg)) {
-					console.log("[SEARCH INTERCEPT] detectSearchIntent matched — firing Tavily for query:", userMsg);
-					liveContext = await this.tavilySearch(userMsg, easternTimeStr);
+    				console.log("[SEARCH INTERCEPT] detectSearchIntent matched — firing Tavily for query:", userMsg);
+    				const searchData = await this.tavilySearch(userMsg, easternTimeStr);
+    				liveContext = liveContext ? liveContext + " " + searchData : searchData;
 				}
 
 				if (["temp", "temperature", "thermostat", "degrees", "cool ", "warm ", " heat", " ac ", "climate", "set at"].some(kw => lowerMsg.includes(kw)) && !lowerMsg.includes("say to") && !lowerMsg.includes("speak to") && !lowerMsg.includes("announce")) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+					const tempDirective = `[SYSTEM LAYER DIRECTIVE] You have active real-time clearance to use the agentic tools "set_house_temperature" and "get_house_temperatures". If the user asks what a room is set at, what the temp is, or asks for status, strictly call "get_house_temperatures" to read the traits from the house first before answering. Always output the trigger payload at the absolute end of your turn if actions/reads are required.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+					liveContext = liveContext ? liveContext + " " + tempDirective : tempDirective;
 				}
 
 				if (["lava lamp", "office lamp", "office plug", "office lights", "lava"].some(kw => lowerMsg.includes(kw))) {
-					liveContext = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+					const lavaLampDirective = `[SYSTEM LAYER DIRECTIVE] You have verified security jurisdiction over the basement office. If Scott requests to toggle the lava lamp or turn the office light plug on/off, you must immediately call the "control_house_lights" tool with the zone argument strictly set to "office".` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
+					liveContext = liveContext ? liveContext + " " + lavaLampDirective : lavaLampDirective;
 				}
 
 				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue", "red", "purple", "teal", "green", "orange", "warm", "crisp"].some(c => lowerMsg.includes(c)))) {
@@ -1211,7 +1223,8 @@ export class ChatSession extends DurableObject<Env> {
 						console.error("[MASTER BEDROOM DIRECT DISPATCH] Failed:", mbErr.message);
 					}
 
-					liveContext = "The master bedroom lights " + (lightAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
+					const masterBedroomDirective = "The master bedroom lights " + (lightAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
+					liveContext = liveContext ? liveContext + " " + masterBedroomDirective : masterBedroomDirective;
 				}
 
 				if (lowerMsg.includes("kitchen") && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue", "red", "purple", "teal", "green", "orange", "warm", "crisp"].some(c => lowerMsg.includes(c)))) {
@@ -1248,8 +1261,9 @@ export class ChatSession extends DurableObject<Env> {
 		console.error("[KITCHEN DIRECT DISPATCH] Failed:", kitchenErr.message);
 	}
 
-	liveContext = "The kitchen lights " + (kitchenAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
-}
+		const kitchenLightsDirective = "The kitchen lights " + (kitchenAction === "off" ? "are now off." : "are now set to " + color + ".") + " Confirm this naturally in ONE short sentence. Do NOT emit any tool trigger. Do NOT copy prior response text. Just confirm the action completed.";
+		liveContext = liveContext ? liveContext + " " + kitchenLightsDirective : kitchenLightsDirective;
+	}
 
 				let sonosTargetZone = "";
 				if (["speak to", "say to", "broadcast", "tell renee", "announce", "play audio", "tell the office"].some(kw => lowerMsg.startsWith(kw) || lowerMsg.match(/^(jolene[,.]?\s+)?(say|speak|broadcast|announce|tell)/i))) {
