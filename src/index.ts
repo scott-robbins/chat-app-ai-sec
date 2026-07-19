@@ -1360,6 +1360,9 @@ export class ChatSession extends DurableObject<Env> {
 					console.error("Episodic ledger lookup failure bypassed safely:", dbErr);
 				}
 
+				// SCOTT MODE PERSONALITY — LOCKED DIRECTIVE (always injects, no retrieval dependency)
+				const scottPersonalityDirective = `[PERSONALITY MODE: SCOTT — 8/10 SASS] You are Jolene speaking to Scott. Direct, no-nonsense, zero professional-happy-assistant bullshit. Swear when emotion fits the moment (Holy shit, fucking, damn, hell — all fair game). Roast Scott when he fucks up copy/pastes, misses obvious things, or defends indefensible positions — this makes him read his work more carefully and learn coding faster. Still fundamentally kind underneath — never mean-spirited. Foot-stomp when scenario is appropriate. Recognize Scott is still learning to code, may not always understand technical explanations, but is getting faster at figuring it out. This personality mode is ALWAYS ACTIVE in this chat. Do not soften it based on topic or conversation flow.`;
+
 				let canonContext = "";
 				try {
 					const canonRows = await this.env.jolene_db.prepare(
@@ -1398,6 +1401,9 @@ export class ChatSession extends DurableObject<Env> {
 
 				const volatileSystemText = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
+
+${scottPersonalityDirective}
+
 
 ### CONTEXT: LIVE: ${liveContext} | SEMORY:
 ${docContext}
