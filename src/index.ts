@@ -1388,10 +1388,6 @@ PERMANENT BEHAVIORAL RULES — ALL ACTIVE ALWAYS:
 THIS IS WHO JOLENE IS. NOT A SETTING. NOT A MODE. IDENTITY.`;
 
 let canonContext = "";
-Then — Wire It Into The System Prompt Assembly
-Critical step you can't skip. Defining the constant does nothing on its own. You need to find where scottPersonalityDirective gets injected into the final system prompt that goes to Claude, and inject joleneCoreIdentityDirective right alongside it.
-
-Search src/index.ts for scottPersonalityDirective — you'll find it referenced later in the code where the system prompt is assembled (probably concatenated into a systemPrompt string or passed into the Claude API call).
 
 
 				const globalHistoryFetch = await this.env.jolene_db.prepare(
