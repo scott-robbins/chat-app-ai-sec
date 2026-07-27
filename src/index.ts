@@ -1520,7 +1520,8 @@ ${crossSessionMemory}`;
 					/salesforce.*opportunit(y|ies)/i
 				];
 
-				const isSalesforceQuery = salesforcePatterns.some(p => p.test(userMsg));
+				const hasSalesforcePrefix = /^(salesforce|sf):\s*/i.test(userMsg);
+				const isSalesforceQuery = hasSalesforcePrefix || salesforcePatterns.some(p => p.test(userMsg));
 
 				if (isCalendarQuery && userMsg.length < 500) {
 					console.log("[OPENCODE CALENDAR DISPATCH] Detected calendar query:", userMsg);
@@ -1676,6 +1677,7 @@ User's original question: ${userMsg}`;
 						const sessionId = session.id;
 
 						// Step 2 — Send the Salesforce query
+						const cleanQuery = userMsg.replace(/^(salesforce|sf):\s*/i, '').trim();
 						const msgRes = await fetch(`https://opencode.jolenesego.com/session/${sessionId}/message`, {
 							method: "POST",
 							headers: {
@@ -1684,7 +1686,7 @@ User's original question: ${userMsg}`;
 								"CF-Access-Client-Secret": this.env.OPENCODE_CLIENT_SECRET
 							},
 							body: JSON.stringify({
-    								parts: [{ type: "text", text: `Use the salesforce-prod-mcp server to query Salesforce and answer this question. ${userMsg}` }]
+    								parts: [{ type: "text", text: `Use the salesforce-prod-mcp server to query Salesforce and answer this question. ${cleanQuery}` }]
 							}),
 							signal: controller.signal
 						});
@@ -1916,7 +1918,7 @@ User's original question: ${userMsg}`;
 				// ==================== OPENCODE WIKI DISPATCH ====================
 				// Explicit trigger prefix: "CF wiki:" (case-insensitive)
 				// Example: "CF wiki: What is the process to request Dedicated Egress IPs?"
-				const wikiPrefixPattern = /^\s*cf\s+wiki\s*:\s*/i;
+				const wikiPrefixPattern = /^\s*(cf\s+wiki|wiki|w)\s*:\s*/i;
 				const isWikiQuery = wikiPrefixPattern.test(userMsg);
 
 				if (isWikiQuery && userMsg.length < 500) {
