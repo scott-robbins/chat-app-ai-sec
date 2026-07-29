@@ -760,6 +760,84 @@ export class ChatSession extends DurableObject<Env> {
 				durableObject: { id: sessionId, state: "Active" }
 			}), { headers });
 		}
+		if (url.pathname === "/api/vision-upload") {
+			if (request.method !== "POST") {
+				return new Response(JSON.stringify({ error: "Method not allowed. Use POST." }), { 
+					status: 405, 
+					headers 
+				});
+			}
+
+			try {
+				console.log("[VISION] Upload request received. Session:", sessionId);
+				
+				const formData = await request.formData();
+				const file = formData.get("image") as File | null;
+				
+				if (!file) {
+					console.error("[VISION] No image file in form data.");
+					return new Response(JSON.stringify({ error: "No image file provided. Field name must be 'image'." }), { 
+						status: 400, 
+						headers 
+					});
+				}
+
+				console.log("[VISION] File received. Name:", file.name, "Size:", file.size, "Type:", file.type);
+
+				// Validate file type — only images allowed for now
+				const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"];
+				if (!allowedTypes.includes(file.type.toLowerCase())) {
+					console.error("[VISION] Rejected file type:", file.type);
+					return new Response(JSON.stringify({ error: `File type ${file.type} not supported. Allowed: JPEG, PNG, GIF, WEBP, HEIC, HEIF.` }), { 
+						status: 400, 
+						headers 
+					});
+				}
+
+				// Validate file size — 20MB max (Anthropic vision API limit)
+				const MAX_SIZE = 20 * 1024 * 1024;
+				if (file.size > MAX_SIZE) {
+					console.error("[VISION] File too large:", file.size);
+					return new Response(JSON.stringify({ error: `File size ${file.size} exceeds 20MB limit.` }), { 
+						status: 400, 
+						headers 
+					});
+				}
+
+				// Build structured key: {sessionId}/{timestamp}-{sanitized-filename}
+				const timestamp = Date.now();
+				const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+				const fileKey = `${sessionId}/${timestamp}-${sanitizedName}`;
+				
+				console.log("[VISION] Writing to R2. Key:", fileKey);
+				
+				const arrayBuffer = await file.arrayBuffer();
+				await this.env.JOLENE_VISION_BUCKET.put(fileKey, arrayBuffer, {
+					httpMetadata: { contentType: file.type }
+				});
+				
+				console.log("[VISION] R2 write completed. Bytes:", arrayBuffer.byteLength);
+				
+				const publicUrl = `https://jolene-vision.jolenesego.com/${fileKey}`;
+				console.log("[VISION] Returning public URL:", publicUrl);
+				
+				return new Response(JSON.stringify({
+					success: true,
+					url: publicUrl,
+					fileName: file.name,
+					fileSize: file.size,
+					fileType: file.type,
+					key: fileKey
+				}), { headers });
+				
+			} catch (err) {
+				console.error("[VISION] Upload failed:", err);
+				return new Response(JSON.stringify({ error: "Vision upload failed", details: String(err) }), { 
+					status: 500, 
+					headers 
+				});
+			}
+		}
 
 		// 📡 JOLENE DYNAMIC TELEMETRY ROUTE: Sweeps index stats cleanly via deep query checks natively
 		if (url.pathname === "/api/diagnostic") {
