@@ -61,14 +61,18 @@
 		}
 	],
 	"r2_buckets": [
-		{
-			"binding": "DOCUMENTS",
-			"bucket_name": "chat-docs"
-		},
-		{
-			"binding": "JOLENE_AUDIO_BUCKET",
-			"bucket_name": "jolene-audio"
-		}
+    	{
+        	"binding": "DOCUMENTS",
+        	"bucket_name": "chat-docs"
+    	},
+    	{
+        	"binding": "JOLENE_AUDIO_BUCKET",
+        	"bucket_name": "jolene-audio"
+    	},
+    	{
+        	"binding": "JOLENE_VISION_BUCKET",
+        	"bucket_name": "jolene-vision"
+    	}
 	],
 	"analytics_engine_datasets": [
 		{
