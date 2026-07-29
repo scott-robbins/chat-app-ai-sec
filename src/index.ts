@@ -47,7 +47,7 @@ function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 	switch (intent) {
 		case 'heavy':
-			return 'anthropic/claude-opus-5';
+			return 'anthropic/claude-opus-4.7';
 		case 'medium':
 			return 'anthropic/claude-sonnet-4-6';
 		case 'casual':
@@ -561,34 +561,16 @@ export class ChatSession extends DurableObject<Env> {
 		}
 	}
 
-	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = [], visionUrls: string[] = []) {
+	async runAI(model: string, systemPrompt: string, userQuery: string, history: any[] = []) {
 		const chatMessages: any[] = [];
 		const sanitizedHistory = history.filter(m => m.role === 'user' || m.role === 'assistant');
 		for (const msg of sanitizedHistory) {
 			if (chatMessages.length === 0) { if (msg.role === 'user') chatMessages.push(msg); }
 			else { if (msg.role !== chatMessages[chatMessages.length - 1].role) chatMessages.push(msg); }
 		}
-
-		// === BUILD FINAL USER MESSAGE — TEXT OR MULTIMODAL BASED ON VISION URLS ===
-		let finalUserContent: any;
-		if (visionUrls && visionUrls.length > 0) {
-			console.log(`[VISION] Building multimodal message with ${visionUrls.length} image(s)`);
-			const contentBlocks: any[] = [];
-			for (const imgUrl of visionUrls) {
-				contentBlocks.push({
-					type: "image",
-					source: { type: "url", url: imgUrl }
-				});
-			}
-			contentBlocks.push({ type: "text", text: userQuery });
-			finalUserContent = contentBlocks;
-		} else {
-			finalUserContent = userQuery;
-		}
-
 		if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user') {
-			chatMessages[chatMessages.length - 1].content = finalUserContent;
-		} else { chatMessages.push({ role: "user", content: finalUserContent }); }
+			chatMessages[chatMessages.length - 1].content = userQuery;
+		} else { chatMessages.push({ role: "user", content: userQuery }); }
 
 		const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 		const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
@@ -602,14 +584,8 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			if (visionUrls && visionUrls.length > 0) {
-				console.log(`[VISION] AI response received. Length: ${(data.content?.[0]?.text || "").length} chars`);
-			}
 			return data.content?.[0]?.text || "Brain blip. Try again.";
-		} catch (e) {
-			console.error("[VISION] runAI failure:", e);
-			return "I hit a snag. Let's try that again.";
-		}
+		} catch (e) { return "I hit a snag. Let's try that again."; }
 	}
 
 	async tavilySearch(query: string, dateStr: string) {
@@ -1029,7 +1005,6 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const visionUrls: string[] = Array.isArray(body.visionUrls) ? body.visionUrls : [];
 
 				// === USER NAMESPACE DERIVATION FROM CLOUDFLARE ACCESS ===
 				const authenticatedEmail = request.headers.get("Cf-Access-Authenticated-User-Email") || "";
@@ -2331,27 +2306,10 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 					if (firstPassMessages.length === 0) { if (msg.role === 'user') firstPassMessages.push(msg); }
 					else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
 				}
-				// === BUILD FINAL USER MESSAGE — TEXT OR MULTIMODAL BASED ON VISION URLS ===
-				let finalUserContent: any;
-				if (visionUrls && visionUrls.length > 0) {
-					console.log(`[VISION] Building multimodal message with ${visionUrls.length} image(s) for chat dispatch`);
-					const contentBlocks: any[] = [];
-					for (const imgUrl of visionUrls) {
-						contentBlocks.push({
-							type: "image",
-							source: { type: "url", url: imgUrl }
-						});
-					}
-					contentBlocks.push({ type: "text", text: userMsg });
-					finalUserContent = contentBlocks;
-				} else {
-					finalUserContent = userMsg;
-				}
-
 				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
-					firstPassMessages[firstPassMessages.length - 1].content = finalUserContent;
+					firstPassMessages[firstPassMessages.length - 1].content = userMsg;
 				} else {
-					firstPassMessages.push({ role: "user", content: finalUserContent });
+					firstPassMessages.push({ role: "user", content: userMsg });
 				}
 
 				const systemBlocks: any[] = [];
