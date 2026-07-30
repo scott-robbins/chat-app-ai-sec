@@ -2817,11 +2817,13 @@ Content to speak as Jolene: ${chatTxt}`;
 				// Detect Sonos zone routing intent from user prompt
 				const userPromptLower = (userMsg || "").toLowerCase();
 				let sonosZone: string | null = null;
-				if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
-				else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
-				else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
-				else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
-
+				if (userMsg.split(' ').length <= 10) {
+					if (/\b(in|out of|through|to|on)\s+(the\s+)?kitchen\b/.test(userPromptLower)) sonosZone = "kitchen";
+					else if (/\b(in|out of|through|to|on)\s+(the\s+)?theater\b/.test(userPromptLower)) sonosZone = "theater";
+					else if (/\b(in|out of|through|to|on)\s+(the\s+)?(master\s+)?bedroom\b/.test(userPromptLower)) sonosZone = "main_bedroom";
+					else if (/\b(in|out of|through|to|on)\s+(the\s+)?office\b/.test(userPromptLower)) sonosZone = "office";
+				}
+				
 				console.log("[SONOS ZONE] Detected:", sonosZone || "none");
 
 				let voiceUrl: string | null = null;
