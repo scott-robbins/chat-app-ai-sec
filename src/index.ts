@@ -47,7 +47,7 @@ function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 	switch (intent) {
 		case 'heavy':
-			return 'anthropic/claude-opus-4.7';
+			return 'anthropic/claude-opus-5';
 		case 'medium':
 			return 'anthropic/claude-sonnet-4-6';
 		case 'casual':
