@@ -2314,7 +2314,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 				const imgResponse = await fetch(imgUrl);
 						const imgBuffer = await imgResponse.arrayBuffer();
 						const imgBase64 = btoa(String.fromCharCode(...new Uint8Array(imgBuffer)));
-						const imgMediaType = imgResponse.headers.get('content-type') || 'image/png';
+						const imgMediaType = 'image/png';
 						contentBlocks.push({ type: "image", source: { type: "base64", media_type: imgMediaType, data: imgBase64 } });
 					}
 					contentBlocks.push({ type: "text", text: userMsg });
