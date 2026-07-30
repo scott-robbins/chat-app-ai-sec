@@ -1005,6 +1005,7 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
+				const visionUrls: string[] = Array.isArray(body.visionUrls) ? body.visionUrls : [];
 
 				// === USER NAMESPACE DERIVATION FROM CLOUDFLARE ACCESS ===
 				const authenticatedEmail = request.headers.get("Cf-Access-Authenticated-User-Email") || "";
@@ -2306,10 +2307,22 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 					if (firstPassMessages.length === 0) { if (msg.role === 'user') firstPassMessages.push(msg); }
 					else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
 				}
-				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
-					firstPassMessages[firstPassMessages.length - 1].content = userMsg;
+				let finalUserContent: any;
+				if (visionUrls && visionUrls.length > 0) {
+					const contentBlocks: any[] = [];
+					for (const imgUrl of visionUrls) {
+						contentBlocks.push({ type: "image", source: { type: "url", url: imgUrl } });
+					}
+					contentBlocks.push({ type: "text", text: userMsg });
+					finalUserContent = contentBlocks;
 				} else {
-					firstPassMessages.push({ role: "user", content: userMsg });
+					finalUserContent = userMsg;
+				}
+
+				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
+					firstPassMessages[firstPassMessages.length - 1].content = finalUserContent;
+				} else {
+					firstPassMessages.push({ role: "user", content: finalUserContent });
 				}
 
 				const systemBlocks: any[] = [];
