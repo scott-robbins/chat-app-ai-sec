@@ -47,7 +47,7 @@ function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 	switch (intent) {
 		case 'heavy':
-			return 'anthropic/claude-opus-5';
+			return 'anthropic/claude-opus-4.7';
 		case 'medium':
 			return 'anthropic/claude-sonnet-4-6';
 		case 'casual':
@@ -1005,7 +1005,6 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
-				const visionUrls: string[] = Array.isArray(body.visionUrls) ? body.visionUrls : [];
 
 				// === USER NAMESPACE DERIVATION FROM CLOUDFLARE ACCESS ===
 				const authenticatedEmail = request.headers.get("Cf-Access-Authenticated-User-Email") || "";
@@ -2307,26 +2306,10 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 					if (firstPassMessages.length === 0) { if (msg.role === 'user') firstPassMessages.push(msg); }
 					else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
 				}
-				let finalUserContent: any;
-				if (visionUrls && visionUrls.length > 0) {
-					const contentBlocks: any[] = [];
-					for (const imgUrl of visionUrls) {
-				const imgResponse = await fetch(imgUrl);
-						const imgBuffer = await imgResponse.arrayBuffer();
-						const imgBase64 = btoa(String.fromCharCode(...new Uint8Array(imgBuffer)));
-						const imgMediaType = 'image/png';
-						contentBlocks.push({ type: "image", source: { type: "base64", media_type: imgMediaType, data: imgBase64 } });
-					}
-					contentBlocks.push({ type: "text", text: userMsg });
-					finalUserContent = contentBlocks;
-				} else {
-					finalUserContent = userMsg;
-				}
-
 				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
-					firstPassMessages[firstPassMessages.length - 1].content = finalUserContent;
+					firstPassMessages[firstPassMessages.length - 1].content = userMsg;
 				} else {
-					firstPassMessages.push({ role: "user", content: finalUserContent });
+					firstPassMessages.push({ role: "user", content: userMsg });
 				}
 
 				const systemBlocks: any[] = [];
@@ -2379,7 +2362,6 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 						body: JSON.stringify(firstPassBody)
 					});
 					const firstPassData: any = await firstPassRes.json();
-					console.log("[FIRST PASS RAW RESPONSE]", JSON.stringify(firstPassData).substring(0, 2000));
 					chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
 					if (firstPassData.usage) {
 						console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
