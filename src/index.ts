@@ -2362,6 +2362,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 						body: JSON.stringify(firstPassBody)
 					});
 					const firstPassData: any = await firstPassRes.json();
+					console.log("[FIRST PASS RAW RESPONSE]", JSON.stringify(firstPassData).substring(0, 2000));
 					chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
 					if (firstPassData.usage) {
 						console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
