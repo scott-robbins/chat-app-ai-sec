@@ -1267,7 +1267,7 @@ export class ChatSession extends DurableObject<Env> {
 					liveContext = liveContext ? liveContext + " " + lavaLampDirective : lavaLampDirective;
 				}
 
-				if ((lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue", "red", "purple", "teal", "green", "orange", "warm", "crisp"].some(c => lowerMsg.includes(c)))) {
+				if (userMsg.split(' ').length <= 10 && (lowerMsg.includes("bedroom") || lowerMsg.includes("master")) && (lowerMsg.includes("light") || lowerMsg.includes("lamp") || lowerMsg.includes("off") || lowerMsg.includes("kill") || lowerMsg.includes("shut") || ["blue", "red", "purple", "teal", "green", "orange", "warm", "crisp"].some(c => lowerMsg.includes(c)))) {
 					let color = "warm_white";
 					if (lowerMsg.includes("blue")) color = "blue";
 					else if (lowerMsg.includes("red")) color = "red";
