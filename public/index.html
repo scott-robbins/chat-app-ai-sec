@@ -1078,8 +1078,8 @@
 				if (isImage) {
 						appendMessage('system-indicator', `Uploading ${file.name} for vision...`);
 						const formData = new FormData();
-						formData.append('file', file);
-						const uploadRes = await fetch('/api/upload-image', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
+						formData.append('image', file);
+						const uploadRes = await fetch('/api/vision-upload', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
 						const uploadData = await uploadRes.json();
 						if (uploadData.url) {
 								pendingVisionUrls.push(uploadData.url);
@@ -1105,8 +1105,8 @@
 							if (!file) continue;
 							appendMessage('system-indicator', `Uploading pasted image...`);
 							const formData = new FormData();
-							formData.append('file', file);
-							const uploadRes = await fetch('/api/upload-image', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
+							formData.append('image', file);
+							const uploadRes = await fetch('/api/vision-upload', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
 							const uploadData = await uploadRes.json();
 							if (uploadData.url) {
 								pendingVisionUrls.push(uploadData.url);
