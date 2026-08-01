@@ -1095,6 +1095,26 @@
 				fileNameIndicator.innerText = "";
 				fileInput.value = "";
 			};
+			document.getElementById('user-input').addEventListener('paste', async (e) => {
+					const items = e.clipboardData?.items;
+					if (!items) return;
+					for (const item of items) {
+						if (item.type.startsWith('image/')) {
+							e.preventDefault();
+							const file = item.getAsFile();
+							if (!file) continue;
+							appendMessage('system-indicator', `Uploading pasted image...`);
+							const formData = new FormData();
+							formData.append('file', file);
+							const uploadRes = await fetch('/api/upload-image', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
+							const uploadData = await uploadRes.json();
+							if (uploadData.url) {
+								pendingVisionUrls.push(uploadData.url);
+								appendMessage('system-indicator', `Pasted image attached. Type your question.`);
+							}
+						}
+					}
+				});
 
 		// FIX: RESET IDENTITY & HISTORY HANDLER
 		document.getElementById('clear-vector-btn').onclick = async () => {
