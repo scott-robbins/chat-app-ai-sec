@@ -1602,7 +1602,7 @@ ${crossSessionMemory}`;
 				const hasSalesforcePrefix = /^(salesforce|sf):\s*/i.test(userMsg);
 				const isSalesforceQuery = hasSalesforcePrefix || salesforcePatterns.some(p => p.test(userMsg));
 
-				if (isCalendarQuery && userMsg.length < 500) {
+				if (isCalendarQuery && userMsg.length < 500 && visionUrls.length === 0) {
 					console.log("[OPENCODE CALENDAR DISPATCH] Detected calendar query:", userMsg);
 					console.log("[OPENCODE SECRETS DEBUG] Client ID length:", this.env.OPENCODE_CLIENT_ID?.length, "Secret length:", this.env.OPENCODE_CLIENT_SECRET?.length);
 					console.log("[OPENCODE SECRETS DEBUG] Client ID value:", this.env.OPENCODE_CLIENT_ID);
@@ -1726,7 +1726,7 @@ User's original question: ${userMsg}`;
 				// ==================== END OPENCODE CALENDAR DISPATCH ====================
 
 				// ==================== SALESFORCE DISPATCH ====================
-				if (isSalesforceQuery && userMsg.length < 500) {
+				if (isSalesforceQuery && userMsg.length < 500 && visionUrls.length === 0) {
 					console.log("[OPENCODE SALESFORCE DISPATCH] Detected Salesforce query:", userMsg);
 
 					try {
@@ -1875,7 +1875,7 @@ User's original question: ${userMsg}`;
 
 				const isDocsQuery = docsPatterns.some(p => p.test(userMsg));
 
-				if (isDocsQuery && userMsg.length < 500) {
+				if (isDocsQuery && userMsg.length < 500 && visionUrls.length === 0) {
 					console.log("[OPENCODE DOCS DISPATCH] Detected docs query:", userMsg);
 
 					try {
@@ -2000,7 +2000,7 @@ User's original question: ${userMsg}`;
 				const wikiPrefixPattern = /^\s*(cf\s+wiki|wiki|w)\s*:\s*/i;
 				const isWikiQuery = wikiPrefixPattern.test(userMsg);
 
-				if (isWikiQuery && userMsg.length < 500) {
+				if (isWikiQuery && userMsg.length < 500 && visionUrls.length === 0) {
 					// Strip the prefix from the actual query sent to OpenCode
 					const wikiQuery = userMsg.replace(wikiPrefixPattern, "").trim();
 					console.log("[OPENCODE WIKI DISPATCH] Detected wiki query:", wikiQuery);
@@ -2130,7 +2130,7 @@ User's original question: ${wikiQuery}`;
 				const gwsPrefixPattern = /^\s*gws\s*:\s*/i;
 				const isGwsQuery = gwsPrefixPattern.test(userMsg);
 
-				if (isGwsQuery && userMsg.length < 500) {
+				if (isGwsQuery && userMsg.length < 500 && visionUrls.length === 0) {
 					// Strip the prefix from the actual query sent to OpenCode
 					const gwsQuery = userMsg.replace(gwsPrefixPattern, "").trim();
 					console.log("[OPENCODE GWS DISPATCH] Detected GWS query:", gwsQuery);
