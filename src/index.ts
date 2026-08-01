@@ -1005,6 +1005,7 @@ export class ChatSession extends DurableObject<Env> {
 			try {
 				const body = await request.json() as any;
 				const userMsg = body.messages[body.messages.length - 1].content;
+				const visionUrls: string[] = body.visionUrls || [];
 
 				// === USER NAMESPACE DERIVATION FROM CLOUDFLARE ACCESS ===
 				const authenticatedEmail = request.headers.get("Cf-Access-Authenticated-User-Email") || "";
@@ -2300,6 +2301,16 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 
 				const cleanModel = (routedModel).replace("anthropic/", "").replace("4.7", "4-7");
 
+				// Build multimodal content — text + optional images
+				const finalUserContent: any = visionUrls.length > 0
+				? [
+					...visionUrls.map((url: string) => ({
+						type: "image",
+						source: { type: "url", url }
+					})),
+					{ type: "text", text: userMsg }
+					]
+				: userMsg;
 				const firstPassMessages: any[] = [];
 				const firstPassSanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
 				for (const msg of firstPassSanitizedHistory) {
@@ -2307,9 +2318,9 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 					else { if (msg.role !== firstPassMessages[firstPassMessages.length - 1].role) firstPassMessages.push(msg); }
 				}
 				if (firstPassMessages.length > 0 && firstPassMessages[firstPassMessages.length - 1].role === 'user') {
-					firstPassMessages[firstPassMessages.length - 1].content = userMsg;
+    				firstPassMessages[firstPassMessages.length - 1].content = finalUserContent;
 				} else {
-					firstPassMessages.push({ role: "user", content: userMsg });
+   							 firstPassMessages.push({ role: "user", content: finalUserContent });
 				}
 
 				const systemBlocks: any[] = [];
