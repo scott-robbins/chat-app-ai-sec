@@ -1015,6 +1015,7 @@
 		let isTyping = false;
 		let voiceEnabled = false;
 		let activeMode = "personal";
+		let pendingVisionUrls = [];
 
 		function getSessionId() {
 			let id = localStorage.getItem('jolene_session_id') || crypto.randomUUID();
