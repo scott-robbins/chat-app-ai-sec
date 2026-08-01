@@ -1072,16 +1072,29 @@
 		fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
 
 		document.getElementById('memorize-btn').onclick = async () => {
-			const file = fileInput.files[0];
-			if (!file) return;
-			appendMessage('system-indicator', `Memorizing ${file.name}...`);
-			const formData = new FormData();
-			formData.append('file', file);
-			await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
-			fileNameIndicator.innerText = "";
-			fileInput.value = "";
-			updateDashboard();
-		};
+				const file = fileInput.files[0];
+				if (!file) return;
+				const isImage = file.type.startsWith('image/');
+				if (isImage) {
+						appendMessage('system-indicator', `Uploading ${file.name} for vision...`);
+						const formData = new FormData();
+						formData.append('file', file);
+						const uploadRes = await fetch('/api/upload-image', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
+						const uploadData = await uploadRes.json();
+						if (uploadData.url) {
+								pendingVisionUrls.push(uploadData.url);
+								appendMessage('system-indicator', `Image attached. Type your question about it.`);
+							}
+				} else {
+					appendMessage('system-indicator', `Memorizing ${file.name}...`);
+					const formData = new FormData();
+					formData.append('file', file);
+					await fetch('/api/upload', { method: 'POST', headers: { 'x-session-id': sessionId, 'CF-Access-Client-Id': '778b06d8350584bc226fce14aff59e3c.access', 'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b' }, body: formData });
+					updateDashboard();
+				}
+				fileNameIndicator.innerText = "";
+				fileInput.value = "";
+			};
 
 		// FIX: RESET IDENTITY & HISTORY HANDLER
 		document.getElementById('clear-vector-btn').onclick = async () => {
