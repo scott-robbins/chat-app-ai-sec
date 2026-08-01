@@ -1206,8 +1206,9 @@
 					'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
 				},
 				/* VOICE WIRING ADDITION */
-				body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled })
+				body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled, visionUrls: pendingVisionUrls })
 			});
+			pendingVisionUrls = [];
 			const reader = res.body.getReader();
 			const decoder = new TextDecoder();
 			let assistantText = "";
@@ -1304,8 +1305,9 @@
 						'CF-Access-Client-Secret': '660e9fe2dfcb6e80b15bd1916111d2f0896705524770223cc6652c0931d98f2b'
 					},
 					/* VOICE WIRING ADDITION */
-					body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled })
+					body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled, visionUrls: pendingVisionUrls })
 				});
+				pendingVisionUrls = [];
 
 				const reader = res.body.getReader();
 				const decoder = new TextDecoder();
