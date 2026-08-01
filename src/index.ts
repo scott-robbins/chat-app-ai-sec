@@ -2368,12 +2368,14 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 				let chatTxt = "Brain blip. Try again.";
 				try {
 					console.log("[ROUTER] intent:", classifiedIntent, "model:", routedModel, "msg_len:", userMessageText.length);
+					console.log('[VISION DEBUG]', JSON.stringify({ model: cleanModel, contentType: typeof finalUserContent, isArray: Array.isArray(finalUserContent), visionCount: visionUrls.length }));
 					const firstPassRes = await fetch(firstPassUrl, {
 						method: "POST",
 						headers: firstPassHeaders,
 						body: JSON.stringify(firstPassBody)
 					});
 					const firstPassData: any = await firstPassRes.json();
+					console.log('[VISION RESPONSE]', JSON.stringify(firstPassData).substring(0, 500));
 					chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
 					if (firstPassData.usage) {
 						console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
