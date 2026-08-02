@@ -2315,6 +2315,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 							binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
 						}
 						const imgBase64 = btoa(binary);
+						console.log("[VISION BASE64] Length:", imgBase64.length, "First 50:", imgBase64.substring(0, 50));
 						// R2 custom domain returns text/html — trust the file extension instead
 						let contentType = 'image/png';
 						if (url.match(/\.jpe?g(\?|$)/i)) contentType = 'image/jpeg';
