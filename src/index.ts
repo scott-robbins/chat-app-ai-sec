@@ -2305,9 +2305,15 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 				// Build multimodal content — text + optional images
 				const finalUserContent: any = visionUrls.length > 0
 				? [
-					...visionUrls.map((url: string) => ({
-						type: "image",
-						source: { type: "url", url }
+					...await Promise.all(visionUrls.map(async (url: string) => {
+						const imgRes = await fetch(url);
+						const imgBuffer = await imgRes.arrayBuffer();
+						const imgBase64 = btoa(String.fromCharCode(...new Uint8Array(imgBuffer)));
+						const contentType = imgRes.headers.get('content-type') || 'image/png';
+						return {
+							type: "image",
+							source: { type: "base64", media_type: contentType, data: imgBase64 }
+						};
 					})),
 					{ type: "text", text: userMsg }
 					]
