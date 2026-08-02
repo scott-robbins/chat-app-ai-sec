@@ -2311,6 +2311,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 						const imgBase64 = btoa(String.fromCharCode(...new Uint8Array(imgBuffer)));
 						const rawContentType = imgRes.headers.get('content-type') || 'image/png';
 						const contentType = rawContentType.split(';')[0].trim();
+						console.log("[VISION BASE64] Raw content-type:", rawContentType, "Sanitized:", contentType);
 						return {
 							type: "image",
 							source: { type: "base64", media_type: contentType, data: imgBase64 }
