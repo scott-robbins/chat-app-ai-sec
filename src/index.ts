@@ -2309,10 +2309,13 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 						const imgRes = await fetch(url);
 						const imgBuffer = await imgRes.arrayBuffer();
 						const imgBase64 = btoa(String.fromCharCode(...new Uint8Array(imgBuffer)));
-						const rawContentType = imgRes.headers.get('content-type') || 'image/png';
-						const contentType = rawContentType.split(';')[0].trim();
-						console.log("[VISION BASE64] Raw content-type:", rawContentType, "Sanitized:", contentType);
-						return {
+						// R2 custom domain returns text/html — trust the file extension instead
+						let contentType = 'image/png';
+						if (url.match(/\.jpe?g(\?|$)/i)) contentType = 'image/jpeg';
+						else if (url.match(/\.gif(\?|$)/i)) contentType = 'image/gif';
+						else if (url.match(/\.webp(\?|$)/i)) contentType = 'image/webp';
+						console.log("[VISION BASE64] Detected from URL:", contentType);
+												return {
 							type: "image",
 							source: { type: "base64", media_type: contentType, data: imgBase64 }
 						};
