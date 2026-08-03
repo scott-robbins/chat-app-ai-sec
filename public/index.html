@@ -1066,7 +1066,7 @@
 			appendMessage('assistant-message', greeting);
 		};
 
-		const fileInput = document.getElementById('file-input');
+		let fileInput = document.getElementById('file-input');
 		const fileNameIndicator = document.getElementById('file-name-indicator');
 		document.getElementById('upload-btn').onclick = () => fileInput.click();
 		fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
@@ -1333,9 +1333,17 @@
 					const uploadData = await uploadRes.json();
 					if (uploadData.url) {
 						pendingVisionUrls.push(uploadData.url);
-						fileInput.value = ''; // clear staged file after successful upload
-						document.getElementById('file-name-indicator').textContent = ''; // clear UI indicator
-					} else {
+						// iOS Safari safe reset — clone and replace the file input entirely
+						const newFileInput = fileInput.cloneNode(true);
+						newFileInput.onchange = () => { 
+							fileNameIndicator.innerText = newFileInput.files[0]?.name || ""; 
+						};
+						fileInput.parentNode.replaceChild(newFileInput, fileInput);
+					// Update the global reference so future calls point at the new element
+					fileInput = newFileInput;
+					fileNameIndicator.innerText = '';
+					document.getElementById('upload-btn').onclick = () => fileInput.click();
+				} else {
 						appendMessage('system-indicator', `⚠️ Image upload failed — sending message without image.`);
 					}
 				} catch (err) {
