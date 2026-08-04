@@ -1069,7 +1069,12 @@
 		let fileInput = document.getElementById('file-input');
 		const fileNameIndicator = document.getElementById('file-name-indicator');
 		document.getElementById('upload-btn').onclick = () => fileInput.click();
-		fileInput.onchange = () => { fileNameIndicator.innerText = fileInput.files[0]?.name || ""; };
+				fileInput.onchange = () => { 
+			if (fileInput.files[0]) {
+				window.cachedStagedFile = fileInput.files[0];
+				fileNameIndicator.innerText = fileInput.files[0].name;
+			}
+		};
 
 		document.getElementById('memorize-btn').onclick = async () => {
 				const file = fileInput.files[0];
@@ -1315,7 +1320,7 @@
 			input.value = '';
 			showTyping(true);
 			// AUTO-UPLOAD staged image if present (PWA flow — no Memorize button needed)
-			const stagedFile = fileInput.files[0];
+			const stagedFile = fileInput.files[0] || window.cachedStagedFile || null;
 			if (stagedFile && stagedFile.type.startsWith('image/')) {
 				appendMessage('system-indicator', `Uploading ${stagedFile.name} for vision...`);
 				const formData = new FormData();
@@ -1350,6 +1355,7 @@
 					const uploadData = await uploadRes.json();
 					if (uploadData.url) {
 						pendingVisionUrls.push(uploadData.url);
+						window.cachedStagedFile = null;
 						// iOS Safari safe reset — clone and replace the file input entirely
 						const newFileInput = fileInput.cloneNode(true);
 						newFileInput.onchange = () => { 
