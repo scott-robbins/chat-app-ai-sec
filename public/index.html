@@ -1319,7 +1319,24 @@
 			if (stagedFile && stagedFile.type.startsWith('image/')) {
 				appendMessage('system-indicator', `Uploading ${stagedFile.name} for vision...`);
 				const formData = new FormData();
-				formData.append('image', stagedFile);
+					// Convert HEIC/camera captures to JPEG before upload (iOS Safari fix)
+					if (stagedFile.type === 'image/heic' || stagedFile.type === 'image/heif' || stagedFile.type === '' || stagedFile.name === 'image.jpg') {
+						try {
+							const bitmap = await createImageBitmap(stagedFile);
+							const canvas = document.createElement('canvas');
+							canvas.width = bitmap.width;
+							canvas.height = bitmap.height;
+							const ctx = canvas.getContext('2d');
+							ctx.drawImage(bitmap, 0, 0);
+							const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+							formData.append('image', blob, 'image.jpg');
+						} catch (conversionErr) {
+							appendMessage('system-indicator', `⚠️ HEIC conversion failed, uploading raw: ${conversionErr.message}`);
+							formData.append('image', stagedFile);
+						}
+					} else {
+						formData.append('image', stagedFile);
+					}
 				try {
 					const uploadRes = await fetch('/api/vision-upload', {
 						method: 'POST',
