@@ -1135,6 +1135,7 @@
 				}
 				fileNameIndicator.innerText = "";
 				fileInput.value = "";
+				clearFilePreview();
 			};
 			document.getElementById('user-input').addEventListener('paste', async (e) => {
 					const items = e.clipboardData?.items;
