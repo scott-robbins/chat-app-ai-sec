@@ -927,9 +927,9 @@
 				<button id="memorize-btn" class="btn-secondary"
 					style="padding: 6px 12px; font-size: 0.75rem; border-color: #22c55e;"><i class="ph ph-brain"></i>
 					Memorize</button>
-					<div id="file-preview-container" style="display: none; position: relative; align-items: center; margin-right: 8px;">
-    <img id="file-preview-thumb" src="" alt="Preview" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 2px solid var(--text-light);" />
-    <button id="file-preview-remove" type="button" title="Remove image" style="position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #ff4444; color: white; border: none; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; font-weight: bold;">✕</button>
+					<div id="input-preview-container" style="display: none; position: relative; align-items: center; margin-right: 8px;">
+    <img id="input-preview-thumb" src="" alt="Preview" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 2px solid var(--text-light);" />
+    <button id="input-preview-remove" type="button" title="Remove image" style="position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #ff4444; color: white; border: none; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; font-weight: bold;">✕</button>
 </div>
 				<span id="file-name-indicator"
 					style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
@@ -1075,8 +1075,8 @@
 		document.getElementById('upload-btn').onclick = () => fileInput.click();
 		function showFilePreview(file) {
 			if (!file || !file.type || !file.type.startsWith('image/')) return;
-			const container = document.getElementById('file-preview-container');
-			const thumb = document.getElementById('file-preview-thumb');
+			const container = document.getElementById('input-preview-container');
+			const thumb = document.getElementById('input-preview-thumb');
 			if (!container || !thumb) return;
 			const reader = new FileReader();
 			reader.onload = (e) => {
@@ -1087,14 +1087,14 @@
 		}
 
 		function clearFilePreview() {
-			const container = document.getElementById('file-preview-container');
-			const thumb = document.getElementById('file-preview-thumb');
+			const container = document.getElementById('input-preview-container');
+			const thumb = document.getElementById('input-preview-thumb');
 			if (container) container.style.display = 'none';
 			if (thumb) thumb.src = '';
 		}
 
 		setTimeout(() => {
-			const removeBtn = document.getElementById('file-preview-remove');
+			const removeBtn = document.getElementById('input-preview-remove');
 			if (removeBtn) {
 				removeBtn.onclick = () => {
 					clearFilePreview();
