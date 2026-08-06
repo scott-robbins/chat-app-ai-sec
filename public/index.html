@@ -1087,6 +1087,7 @@
 		}
 
 		function clearFilePreview() {
+		    console.log('🔴 clearFilePreview() FIRED — function body executing');
 			const container = document.getElementById('input-preview-container');
 			const thumb = document.getElementById('input-preview-thumb');
 			if (container) container.style.display = 'none';
@@ -1095,13 +1096,18 @@
 
 		setTimeout(() => {
 			const removeBtn = document.getElementById('input-preview-remove');
+			console.log('🟠 setTimeout fired — removeBtn:', removeBtn);
 			if (removeBtn) {
 				removeBtn.onclick = () => {
+					console.log('🟡 DELETE BUTTON CLICKED');
 					clearFilePreview();
 					fileNameIndicator.innerText = '';
 					window.cachedStagedFile = null;
 					if (fileInput) fileInput.value = '';
 				};
+				console.log('🟠 onclick wired successfully');
+			} else {
+				console.log('🔴 removeBtn NOT FOUND — onclick NOT wired');
 			}
 		}, 100);
 				fileInput.onchange = () => { 
