@@ -1131,9 +1131,7 @@
 				const file = fileInput.files[0];
 				if (!file) return;
 				const isImage = file.type.startsWith('image/');
-				const isPdf = file.type === 'application/pdf';
-				if (isImage || isPdf) {
-				if (isImage || isPdf) {
+				if (isImage) {
 						appendMessage('system-indicator', `Uploading ${file.name} for vision...`);
 						const formData = new FormData();
 						formData.append('image', file);
@@ -1141,7 +1139,7 @@
 						const uploadData = await uploadRes.json();
 						if (uploadData.url) {
 								pendingVisionUrls.push(uploadData.url);
-								appendMessage('system-indicator', `${isPdf ? 'PDF' : 'Image'} attached. Type your question about it.`);
+								appendMessage('system-indicator', `Image attached. Type your question about it.`);
 							}
 				} else {
 					appendMessage('system-indicator', `Memorizing ${file.name}...`);
