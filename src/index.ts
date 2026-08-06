@@ -2321,9 +2321,12 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 						if (url.match(/\.jpe?g(\?|$)/i)) contentType = 'image/jpeg';
 						else if (url.match(/\.gif(\?|$)/i)) contentType = 'image/gif';
 						else if (url.match(/\.webp(\?|$)/i)) contentType = 'image/webp';
+						else if (url.match(/\.pdf(\?|$)/i)) contentType = 'application/pdf';
 						console.log("[VISION BASE64] Detected from URL:", contentType);
-												return {
-							type: "image",
+							
+						const isPdf = contentType === 'application/pdf';
+						return {
+							type: isPdf ? "document" : "image",
 							source: { type: "base64", media_type: contentType, data: imgBase64 }
 						};
 					})),

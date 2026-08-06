@@ -933,7 +933,7 @@
 </div>
 				<span id="file-name-indicator"
 					style="font-size: 0.7rem; color: var(--text-light); align-self: center; font-style: italic;"></span>
-				<input type="file" id="file-input" style="display: none;">
+				<input type="file" id="file-input" accept="image/*,application/pdf" style="display: none;">
 			</div>
 			<div class="input-row">
 				<textarea id="user-input" placeholder="Ask Jolene a question..." rows="1"></textarea>
@@ -1074,16 +1074,25 @@
 		const fileNameIndicator = document.getElementById('file-name-indicator');
 		document.getElementById('upload-btn').onclick = () => fileInput.click();
 		function showFilePreview(file) {
-			if (!file || !file.type || !file.type.startsWith('image/')) return;
+			if (!file || !file.type) return;
+			const isImage = file.type.startsWith('image/');
+			const isPdf = file.type === 'application/pdf';
+			if (!isImage && !isPdf) return;
 			const container = document.getElementById('input-preview-container');
 			const thumb = document.getElementById('input-preview-thumb');
 			if (!container || !thumb) return;
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				thumb.src = e.target.result;
+			if (isPdf) {
+				thumb.src = '';
+				thumb.alt = '📄 ' + file.name;
 				container.style.display = 'inline-flex';
-			};
-			reader.readAsDataURL(file);
+			} else {
+				const reader = new FileReader();
+				reader.onload = (e) => {
+					thumb.src = e.target.result;
+					container.style.display = 'inline-flex';
+				};
+				reader.readAsDataURL(file);
+			}
 		}
 
 		function clearFilePreview() {
@@ -1434,7 +1443,7 @@
 				pendingVisionUrls = [];
 				console.log('🟢 SEND FLOW REACHED — about to call clearFilePreview()');
 				clearFilePreview();
-				
+
 				const reader = res.body.getReader();
 				const decoder = new TextDecoder();
 				let assistantText = "";
