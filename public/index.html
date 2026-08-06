@@ -1271,6 +1271,7 @@
 				body: JSON.stringify({ messages: [{ role: 'user', content }], model: modelSelector.value, voiceEnabled: voiceEnabled, visionUrls: pendingVisionUrls })
 			});
 			pendingVisionUrls = [];
+			clearFilePreview();
 			const reader = res.body.getReader();
 			const decoder = new TextDecoder();
 			let assistantText = "";
