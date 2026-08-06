@@ -1073,6 +1073,37 @@
 		let fileInput = document.getElementById('file-input');
 		const fileNameIndicator = document.getElementById('file-name-indicator');
 		document.getElementById('upload-btn').onclick = () => fileInput.click();
+		function showFilePreview(file) {
+			if (!file || !file.type || !file.type.startsWith('image/')) return;
+			const container = document.getElementById('file-preview-container');
+			const thumb = document.getElementById('file-preview-thumb');
+			if (!container || !thumb) return;
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				thumb.src = e.target.result;
+				container.style.display = 'inline-flex';
+			};
+			reader.readAsDataURL(file);
+		}
+
+		function clearFilePreview() {
+			const container = document.getElementById('file-preview-container');
+			const thumb = document.getElementById('file-preview-thumb');
+			if (container) container.style.display = 'none';
+			if (thumb) thumb.src = '';
+		}
+
+		setTimeout(() => {
+			const removeBtn = document.getElementById('file-preview-remove');
+			if (removeBtn) {
+				removeBtn.onclick = () => {
+					clearFilePreview();
+					fileNameIndicator.innerText = '';
+					window.cachedStagedFile = null;
+					if (fileInput) fileInput.value = '';
+				};
+			}
+		}, 100);
 				fileInput.onchange = () => { 
 			if (fileInput.files[0]) {
 				window.cachedStagedFile = fileInput.files[0];
