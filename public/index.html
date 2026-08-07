@@ -1412,7 +1412,13 @@
 						if (fileInput) fileInput.value = '';
 						// iOS Safari safe reset — clone and replace the file input entirely
 						const newFileInput = fileInput.cloneNode(true);
-						newFileInput.onchange = () => { 
+						newFileInput.onchange = () => {
+							if (newFileInput.files[0]) {
+								window.cachedStagedFile = newFileInput.files[0];
+								fileNameIndicator.innerText = newFileInput.files[0].name;
+								showFilePreview(newFileInput.files[0]);
+							}
+						};
 							fileNameIndicator.innerText = newFileInput.files[0]?.name || ""; 
 						};
 						fileInput.parentNode.replaceChild(newFileInput, fileInput);
