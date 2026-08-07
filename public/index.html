@@ -1410,14 +1410,7 @@
 						pendingVisionUrls.push(uploadData.url);
 						window.cachedStagedFile = null;
 						if (fileInput) fileInput.value = '';
-						// iOS Safari safe reset — clone and replace the file input entirely
-						const newFileInput = fileInput.cloneNode(true);
-						newFileInput.onchange = () => { 
-							fileNameIndicator.innerText = newFileInput.files[0]?.name || ""; 
-						};
-						fileInput.parentNode.replaceChild(newFileInput, fileInput);
-					// Update the global reference so future calls point at the new element
-					fileInput = newFileInput;
+						
 					fileNameIndicator.innerText = '';
 					document.getElementById('upload-btn').onclick = () => fileInput.click();
 				} else {
