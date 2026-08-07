@@ -35,6 +35,15 @@
 		--body-bg: linear-gradient(135deg, #fffaf5 0%, #f4f6f8 100%);
 	}
 
+	.message img {             
+		max-width: 300px;
+		max-height: 300px;
+		border-radius: 8px;
+		display: block;
+		margin-top: 8px;
+		cursor: pointer;
+	}
+
 	body.theme-fancy {
 		--app-bg: rgba(30, 41, 59, 0.4);
 		--light-bg: transparent;
@@ -1167,7 +1176,7 @@
 							const uploadData = await uploadRes.json();
 							if (uploadData.url) {
 								pendingVisionUrls.push(uploadData.url);
-								appendMessage('system-indicator', `Pasted image attached. Type your question.`);
+								appendMessage('user', `![Pasted image](${uploadData.url})`);
 							}
 						}
 					}
