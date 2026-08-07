@@ -1080,6 +1080,23 @@
 			appendMessage('assistant-message', greeting);
 		};
 
+		// Mermaid initialization — dark theme, manual render control
+		mermaid.initialize({
+			startOnLoad: false,
+			theme: 'dark',
+			securityLevel: 'loose',
+			themeVariables: {
+				darkMode: true,
+				background: '#1a1a1a',
+				primaryColor: '#F6821F',
+				primaryTextColor: '#ffffff',
+				primaryBorderColor: '#F6821F',
+				lineColor: '#FBAD41',
+				secondaryColor: '#0051C3',
+				tertiaryColor: '#2a2a2a'
+			}
+		});
+
 		let fileInput = document.getElementById('file-input');
 		const fileNameIndicator = document.getElementById('file-name-indicator');
 		document.getElementById('upload-btn').onclick = () => fileInput.click();
