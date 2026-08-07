@@ -1571,9 +1571,60 @@
 			div.className = cls === 'system-indicator' ? 'system-indicator' : `message ${cls}`;
 			div.innerHTML = `<div class="message-content">${marked.parse(text)}</div>`;
 			container.appendChild(div);
+			renderMermaidBlocks(div);
 			if (scroll) container.scrollTop = container.scrollHeight;
 			return div;
 		}
+
+		async function renderMermaidBlocks(container) {
+		const codeBlocks = container.querySelectorAll('code.language-mermaid');
+		for (let i = 0; i < codeBlocks.length; i++) {
+			const codeBlock = codeBlocks[i];
+			const mermaidSource = codeBlock.textContent;
+			const diagramId = `mermaid-diagram-${Date.now()}-${i}`;
+			try {
+				const { svg } = await mermaid.render(diagramId, mermaidSource);
+				const wrapper = document.createElement('div');
+				wrapper.className = 'mermaid-wrapper';
+				wrapper.innerHTML = svg;
+				const exportBtn = document.createElement('button');
+				exportBtn.className = 'mermaid-export-btn';
+				exportBtn.textContent = '⬇ Export PNG';
+				exportBtn.onclick = () => exportMermaidAsPng(wrapper.querySelector('svg'), `diagram-${Date.now()}.png`);
+				wrapper.appendChild(exportBtn);
+				codeBlock.parentElement.replaceWith(wrapper);
+			} catch (err) {
+				console.error('Mermaid render error:', err);
+				codeBlock.parentElement.innerHTML = `<div class="mermaid-error">⚠️ Mermaid render failed: ${err.message}</div>`;
+			}
+		}
+	}
+
+	function exportMermaidAsPng(svgElement, filename) {
+		const svgData = new XMLSerializer().serializeToString(svgElement);
+		const canvas = document.createElement('canvas');
+		const ctx = canvas.getContext('2d');
+		const img = new Image();
+		const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+		const url = URL.createObjectURL(svgBlob);
+		img.onload = () => {
+			canvas.width = img.width;
+			canvas.height = img.height;
+			ctx.fillStyle = '#1a1a1a';
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			ctx.drawImage(img, 0, 0);
+			URL.revokeObjectURL(url);
+			canvas.toBlob((blob) => {
+				const downloadUrl = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = downloadUrl;
+				link.download = filename;
+				link.click();
+				URL.revokeObjectURL(downloadUrl);
+			}, 'image/png');
+		};
+		img.src = url;
+	}
 
 		function showTyping(show) { isTyping = show; document.getElementById('typing-indicator').classList.toggle('visible', show); }
 		// --- PHASE 1 PUSH-TO-TALK VOICE (Web Speech API) ---
