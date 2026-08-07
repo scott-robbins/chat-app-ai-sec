@@ -784,11 +784,11 @@ export class ChatSession extends DurableObject<Env> {
 
 				console.log("[VISION] File received. Name:", file.name, "Size:", file.size, "Type:", file.type);
 
-				// Validate file type — only images allowed for now
-				const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"];
+				// Validate file type — images and PDFs allowed
+				const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif", "application/pdf"];
 				if (!allowedTypes.includes(file.type.toLowerCase())) {
 					console.error("[VISION] Rejected file type:", file.type);
-					return new Response(JSON.stringify({ error: `File type ${file.type} not supported. Allowed: JPEG, PNG, GIF, WEBP, HEIC, HEIF.` }), { 
+					return new Response(JSON.stringify({ error: `File type ${file.type} not supported. Allowed: JPEG, PNG, GIF, WEBP, HEIC, HEIF, PDF.` }), { 
 						status: 400, 
 						headers 
 					});
