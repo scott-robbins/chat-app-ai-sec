@@ -1374,7 +1374,7 @@
 			showTyping(true);
 			// AUTO-UPLOAD staged image if present (PWA flow — no Memorize button needed)
 			const stagedFile = window.cachedStagedFile || null;
-			if (stagedFile && stagedFile.type.startsWith('image/')) {
+			if (stagedFile && (stagedFile.type.startsWith('image/') || stagedFile.type === 'application/pdf')) {
 				appendMessage('system-indicator', `Uploading ${stagedFile.name} for vision...`);
 				const formData = new FormData();
 					// Convert HEIC/camera captures to JPEG before upload (iOS Safari fix)
