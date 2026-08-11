@@ -1320,6 +1320,7 @@
 			const msgDiv = appendMessage('assistant-message', "");
 			const contentDiv = msgDiv.querySelector('.message-content');
 			while (true) {
+				console.log('[STREAM LOOP 1] tick');
 				const { done, value } = await reader.read();
 				if (done) break;
 				const chunk = decoder.decode(value);
@@ -1473,6 +1474,7 @@
 
 				let lineBuffer = "";
 				while (true) {
+					console.log('[STREAM LOOP 2] tick');
 					const { done, value } = await reader.read();
 					if (done) break;
 
@@ -1523,7 +1525,13 @@
 
 									try {
 										contentDiv.innerHTML = marked.parse(assistantText);
-										if (assistantText.includes('```mermaid') && assistantText.match(/```mermaid[\s\S]*?```/)) {
+										const hasMermaidFence = assistantText.includes('```mermaid');
+										const hasCompleteMermaid = !!assistantText.match(/```mermaid[\s\S]*?```/);
+										if (hasMermaidFence) {
+											console.log('[MERMAID GUARD] Fence found:', hasMermaidFence, '| Complete:', hasCompleteMermaid, '| Length:', assistantText.length);
+										}
+										if (hasMermaidFence && hasCompleteMermaid) {
+											console.log('[MERMAID GUARD] FIRING renderMermaidBlocks NOW');
 											renderMermaidBlocks(contentDiv);
 										}
 									} catch (parseErr) {
