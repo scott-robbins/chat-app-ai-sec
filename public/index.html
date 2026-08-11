@@ -1535,7 +1535,7 @@
 											console.log('[MERMAID GUARD] FIRING renderMermaidBlocks NOW');
 											console.log('[MERMAID GUARD] contentDiv:', contentDiv);
     										console.log('[MERMAID GUARD] contentDiv.querySelectorAll code.language-mermaid:', contentDiv.querySelectorAll('code.language-mermaid').length);
-											renderMermaidBlocks(contentDiv);
+											setTimeout(() => renderMermaidBlocks(contentDiv), 100);
 											setTimeout(() => {
 												console.log('[MERMAID GUARD] 500ms AFTER render — code blocks:', contentDiv.querySelectorAll('code.language-mermaid').length, '| wrappers:', contentDiv.querySelectorAll('.mermaid-wrapper').length);
 											}, 500);
