@@ -1533,6 +1533,8 @@
 										}
 										if (hasMermaidFence && hasCompleteMermaid) {
 											console.log('[MERMAID GUARD] FIRING renderMermaidBlocks NOW');
+											console.log('[MERMAID GUARD] contentDiv:', contentDiv);
+    										console.log('[MERMAID GUARD] contentDiv.querySelectorAll code.language-mermaid:', contentDiv.querySelectorAll('code.language-mermaid').length);
 											renderMermaidBlocks(contentDiv);
 										}
 									} catch (parseErr) {
