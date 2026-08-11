@@ -1537,6 +1537,11 @@
     										console.log('[MERMAID GUARD] contentDiv.querySelectorAll code.language-mermaid:', contentDiv.querySelectorAll('code.language-mermaid').length);
 											renderMermaidBlocks(contentDiv);
 											setTimeout(() => {
+												console.log('[MERMAID GUARD] 500ms AFTER render — code blocks:', contentDiv.querySelectorAll('code.language-mermaid').length, '| wrappers:', contentDiv.querySelectorAll('.mermaid-wrapper').length);
+											}, 500);
+											setTimeout(() => {
+												console.log('[MERMAID GUARD] 2000ms AFTER render — code blocks:', contentDiv.querySelectorAll('code.language-mermaid').length, '| wrappers:', contentDiv.querySelectorAll('.mermaid-wrapper').length);
+											}, 2000);
 										}
 									} catch (parseErr) {
 										console.warn("[STREAM PARSE FALLBACK]", parseErr);
@@ -1592,22 +1597,16 @@
 		}
 
 		async function renderMermaidBlocks(container) {
-			console.log('[RENDER FN] ENTERED with container:', container);
-			const codeBlocks = container.querySelectorAll('code.language-mermaid');
-			console.log('[RENDER FN] Found code blocks:', codeBlocks.length);
-			for (let i = 0; i < codeBlocks.length; i++) {
-				const codeBlock = codeBlocks[i];
-				const mermaidSource = codeBlock.textContent;
-				const diagramId = `mermaid-diagram-${Date.now()}-${i}`;
-				console.log('[RENDER FN] Processing block:', codeBlock);
-				console.log('[RENDER FN] mermaidSource length:', mermaidSource.length);
-				try {
-					console.log('[RENDER FN] About to call mermaid.render()');
-					const { svg } = await mermaid.render(diagramId, mermaidSource);
-					console.log('[RENDER FN] mermaid.render() returned, svg length:', svg.lengt
-					const wrapper = document.createElement('div');
-					wrapper.className = 'mermaid-wrapper';
-					wrapper.innerHTML = svg;
+		const codeBlocks = container.querySelectorAll('code.language-mermaid');
+		for (let i = 0; i < codeBlocks.length; i++) {
+			const codeBlock = codeBlocks[i];
+			const mermaidSource = codeBlock.textContent;
+			const diagramId = `mermaid-diagram-${Date.now()}-${i}`;
+			try {
+				const { svg } = await mermaid.render(diagramId, mermaidSource);
+				const wrapper = document.createElement('div');
+				wrapper.className = 'mermaid-wrapper';
+				wrapper.innerHTML = svg;
 				const exportBtn = document.createElement('button');
 				exportBtn.className = 'mermaid-export-btn';
 				exportBtn.textContent = '⬇ Export PNG';
