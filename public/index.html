@@ -1536,6 +1536,12 @@
 											console.log('[MERMAID GUARD] contentDiv:', contentDiv);
     										console.log('[MERMAID GUARD] contentDiv.querySelectorAll code.language-mermaid:', contentDiv.querySelectorAll('code.language-mermaid').length);
 											renderMermaidBlocks(contentDiv);
+											setTimeout(() => {
+												console.log('[MERMAID GUARD] 500ms AFTER render — code blocks:', contentDiv.querySelectorAll('code.language-mermaid').length, '| wrappers:', contentDiv.querySelectorAll('.mermaid-wrapper').length);
+											}, 500);
+											setTimeout(() => {
+												console.log('[MERMAID GUARD] 2000ms AFTER render — code blocks:', contentDiv.querySelectorAll('code.language-mermaid').length, '| wrappers:', contentDiv.querySelectorAll('.mermaid-wrapper').length);
+											}, 2000);
 										}
 									} catch (parseErr) {
 										console.warn("[STREAM PARSE FALLBACK]", parseErr);
