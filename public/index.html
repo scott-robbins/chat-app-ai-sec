@@ -1523,6 +1523,9 @@
 
 									try {
 										contentDiv.innerHTML = marked.parse(assistantText);
+										if (assistantText.includes('```mermaid') && assistantText.match(/```mermaid[\s\S]*?```/)) {
+											renderMermaidBlocks(contentDiv);
+										}
 									} catch (parseErr) {
 										console.warn("[STREAM PARSE FALLBACK]", parseErr);
 										contentDiv.textContent = assistantText;
