@@ -2202,6 +2202,7 @@ Question: ${gwsQuery}`;
 						const rawGwsData = textPart?.text || "OpenCode returned no response.";
 
 						console.log("[OPENCODE GWS DISPATCH] GWS data retrieved, length:", rawGwsData.length);
+						console.log("[OPENCODE GWS DISPATCH] rawGwsData content:", rawGwsData);
 
 						// Step 4 — Format through Claude Haiku for native Jolene voice
 						const formattingPrompt = `You are Jolene — Scott Robbins' AI assistant. You are witty, snarky, punchy, direct. You do NOT open with "Hey!", "Hi there!", "Sure!", "Absolutely!", "Great question!", or any generic assistant pleasantries. You lead with SUBSTANCE first, snark second, pleasantries never.
@@ -2265,6 +2266,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 						const finalResponse = haikuData.content?.[0]?.text || rawGwsData;
 
 						console.log("[OPENCODE GWS DISPATCH] Formatted response generated, length:", finalResponse.length);
+						console.log("[OPENCODE GWS DISPATCH] finalResponse content:", finalResponse);
 
 						if (sessionId) {
 							await this.env.jolene_db.prepare("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)")
