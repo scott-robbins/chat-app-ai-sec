@@ -2489,11 +2489,13 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 										chatTxt += `\n\n` + `✅ *[Long-term memory verified — row #${newRowId} persisted]*`;
+									console.log('[FOOTER APPEND DIAGNOSTIC] chatTxt tail after success footer:', chatTxt.slice(-300));
 									} else {
 										chatTxt = chatTxt.split("\n").filter(line => !strictTriggerRegex.test(line)).join("\n");
 										chatTxt += `\n\n` + `⚠️ *[MEMORY WRITE FAILED — save this fact externally: "${rawFact}"]*`;
 									}
 								}
+								console.log('[FOOTER APPEND DIAGNOSTIC] chatTxt tail after failure footer:', chatTxt.slice(-300));
 								realDispatchFired = true;
 							} else if (payload.tool === "set_timer") {
 								console.log("[TIMER DISPATCH] Setting timer for", payload.arguments.minutes, "minutes in zone:", payload.arguments.zone);
