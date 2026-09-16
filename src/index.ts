@@ -1047,7 +1047,7 @@ export class ChatSession extends DurableObject<Env> {
 				// === TIER 8 PROACTIVE TEMPORAL TRIGGER INJECTION ===
 				try {
 					const today = new Date().toISOString().split("T")[0];
-					const proactiveTriggerRows = await db
+					const proactiveTriggerRows = await this.env.jolene_db
 							.prepare(
 								`SELECT id, trigger_type, trigger_label, target_date, lead_days, payload 
 								FROM proactive_triggers 
@@ -1081,7 +1081,7 @@ export class ChatSession extends DurableObject<Env> {
 				} catch (e: any) {
 					console.error("[TIER 8 TRIGGER] Query failed:", e.message);
 				}
-				
+
 				// TIER 6 — PROCEDURAL/PREFERENCE MEMORY
 			try {
 				const proceduralRuleRows = await this.env.jolene_db
