@@ -1061,9 +1061,11 @@ export class ChatSession extends DurableObject<Env> {
 							)
 							.bind(today, today, today, today)
 							.all();
+							console.log('[TIER 8 QUERY RESULT]', 'rows:', proactiveTriggerRows.results?.length ?? 0);
 
 					if (proactiveTriggerRows.results && proactiveTriggerRows.results.length > 0) {
 						const triggered = proactiveTriggerRows.results as any[];
+						console.log('[TIER 8 INJECTION]', triggered.length, 'triggers injected:', triggered.map((t: any) => t.trigger_label).join(', '));
 						let tier8Injection = "[SYSTEM DIRECTIVE - TIER 8 PROACTIVE TEMPORAL TRIGGERS] You have active proactive alerts that MUST be surfaced naturally in this response BEFORE answering Scott's actual message. Weave them in conversationally — do NOT dump them as a robotic list. Examples of natural surface: 'Real quick before I answer that — [alert content]. Now, on your actual question...' OR 'Heads up first — [alert content]. Anyway, to your question...'. Active alerts:";
 						for (const t of triggered) {
 							tier8Injection += ` [${t.trigger_label}]: ${t.payload}`;
