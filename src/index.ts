@@ -1061,7 +1061,10 @@ export class ChatSession extends DurableObject<Env> {
 							)
 							.bind(today, today, today, today)
 							.all();
+							console.log('[TIER 8 RAW RESULT]', JSON.stringify(proactiveTriggerRows));
 							console.log('[TIER 8 QUERY RESULT]', 'rows:', proactiveTriggerRows.results?.length ?? 0);
+							console.log('[TIER 8 BIND VALUE]', 'today:', today, 'typeof:', typeof today, 'length:', today?.length);
+
 
 					if (proactiveTriggerRows.results && proactiveTriggerRows.results.length > 0) {
 						const triggered = proactiveTriggerRows.results as any[];
