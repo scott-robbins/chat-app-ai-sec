@@ -1047,21 +1047,23 @@ export class ChatSession extends DurableObject<Env> {
 				// === TIER 8 PROACTIVE TEMPORAL TRIGGER INJECTION ===
 				try {
 					const today = new Date().toISOString().split("T")[0];
-					const triggerResult = await this.env.jolene_db.prepare(`
-						SELECT id, trigger_label, payload, lead_days, target_date
-						FROM proactive_triggers
-						WHERE is_active = 1
-						  AND (
-						    (lead_days < 0 AND date(target_date, lead_days || ' days') <= ? AND (last_fired_date IS NULL OR last_fired_date != ?))
-						    OR
-						    (lead_days >= 0 AND trigger_type = 'training_gap' AND (last_fired_date IS NULL OR date(last_fired_date, lead_days || ' days') <= ?))
-						  )
-						ORDER BY target_date ASC
-						LIMIT 3
-					`).bind(today, today, today).all();
+					const proactiveTriggerRows = await db
+							.prepare(
+								`SELECT id, trigger_type, trigger_label, target_date, lead_days, payload 
+								FROM proactive_triggers 
+								WHERE is_active = 1
+								AND (
+									(lead_days < 0 AND date(target_date, lead_days || ' days') <= ? AND (last_fired_date IS NULL OR last_fired_date != ?))
+									OR
+									(lead_days >= 0 AND date(target_date, '-' || lead_days || ' days') <= ? AND (last_fired_date IS NULL OR last_fired_date != ?))
+								)
+								ORDER BY target_date ASC`
+							)
+							.bind(today, today, today, today)
+							.all();
 
-					if (triggerResult.results && triggerResult.results.length > 0) {
-						const triggered = triggerResult.results as any[];
+					if (proactiveTriggerRows.results && proactiveTriggerRows.results.length > 0) {
+						const triggered = proactiveTriggerRows.results as any[];
 						let tier8Injection = "[SYSTEM DIRECTIVE - TIER 8 PROACTIVE TEMPORAL TRIGGERS] You have active proactive alerts that MUST be surfaced naturally in this response BEFORE answering Scott's actual message. Weave them in conversationally — do NOT dump them as a robotic list. Examples of natural surface: 'Real quick before I answer that — [alert content]. Now, on your actual question...' OR 'Heads up first — [alert content]. Anyway, to your question...'. Active alerts:";
 						for (const t of triggered) {
 							tier8Injection += ` [${t.trigger_label}]: ${t.payload}`;
