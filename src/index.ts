@@ -1429,12 +1429,22 @@ export class ChatSession extends DurableObject<Env> {
 					const recentEpisodicRows = await this.env.jolene_db.prepare(
 						"SELECT timestamp, fact_text, source_tag FROM episodic_memories WHERE user_id = ? AND source_tag != 'canon_fact' ORDER BY id DESC LIMIT 25"
 					).bind(userId).all();
+					const selfReflectionRows = await this.env.jolene_db.prepare(
+					"SELECT timestamp, failure_type, description, fix_applied, severity, status FROM self_reflections WHERE status IN ('active', 'resolved') ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, timestamp DESC LIMIT 15"
+					).all();
 					if (recentEpisodicRows.results && recentEpisodicRows.results.length > 0) {
 						episodicContext = "\n=== TIER 2 EPISODIC TIMELINE DIARY RECORDS ===\n";
 						recentEpisodicRows.results.forEach((row: any) => {
 							episodicContext += `• [Event Logger - ${row.timestamp}] (Source: ${row.source_tag}): ${row.fact_text}\n`;
 						});
 					}
+					if (selfReflectionRows.results && selfReflectionRows.results.length > 0) {
+						episodicContext += "\n=== TIER 10 SELF-REFLECTION BEHAVIORAL RULES ===\n";
+						selfReflectionRows.results.forEach((row: any) => {
+							const statusIndicator = row.status === 'active' ? '⚠️ ACTIVE' : '✅ RESOLVED';
+							episodicContext += `${statusIndicator} [${row.failure_type.toUpperCase()}] (severity: ${row.severity}) — ${row.description} → FIX: ${row.fix_applied}\n`;
+						});
+						}
 				} catch (dbErr) {
 					console.error("Episodic ledger lookup failure bypassed safely:", dbErr);
 				}
