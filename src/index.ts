@@ -1112,6 +1112,32 @@ export class ChatSession extends DurableObject<Env> {
 			} catch (tier6Err: any) {
 				console.error("[TIER 6 TRIGGER] Query failed:", tier6Err.message);
 			}
+				// TIER 9 — EMOTIONAL/SENTIMENT CONTEXT MEMORY
+			try {
+				const emotionalContextRows = await this.env.jolene_db
+					.prepare(
+						`SELECT emotion_type, intensity, trigger_event, jolene_calibration, duration_context, expires_at
+						 FROM emotional_context 
+						 WHERE is_active = 1 
+						 AND (expires_at IS NULL OR expires_at >= date('now'))
+						 ORDER BY created_at DESC
+						 LIMIT 5`
+					)
+					.all();
+
+				if (emotionalContextRows.results && emotionalContextRows.results.length > 0) {
+					const emotions = emotionalContextRows.results as any[];
+					let tier9Injection = "\n\n[TIER 9 — EMOTIONAL CONTEXT & TONE CALIBRATION]\nScott's current emotional state and conversation calibration:\n";
+					for (const emotion of emotions) {
+						tier9Injection += `\n• [${emotion.emotion_type.toUpperCase()} — Intensity ${emotion.intensity}/10] Trigger: ${emotion.trigger_event}\n  Calibration: ${emotion.jolene_calibration}\n  Duration: ${emotion.duration_context}`;
+					}
+					tier9Injection += "\n\nAdjust your tone, pacing, and response depth according to these emotional signals. Match Scott's energy when appropriate, back off when he's frustrated, celebrate wins authentically.";
+					liveContext = liveContext ? liveContext + " " + tier9Injection : tier9Injection;
+					console.log('[TIER 9 INJECTION]', emotions.length, 'emotional context rows injected');
+				}
+			} catch (tier9Err: any) {
+				console.error("[TIER 9 TRIGGER] Query failed:", tier9Err.message);
+			}
 				const lowerMsg = userMsg.toLowerCase();
 
 				// Rock Show intercept — Callan and Josie's favorite = Engine No. 9 by Deftones
