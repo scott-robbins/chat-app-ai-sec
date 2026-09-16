@@ -1081,7 +1081,32 @@ export class ChatSession extends DurableObject<Env> {
 				} catch (e: any) {
 					console.error("[TIER 8 TRIGGER] Query failed:", e.message);
 				}
+				
+				// TIER 6 — PROCEDURAL/PREFERENCE MEMORY
+			try {
+				const proceduralRuleRows = await this.env.jolene_db
+					.prepare(
+						`SELECT rule_category, rule_name, rule_text, priority 
+						 FROM procedural_rules 
+						 WHERE is_active = 1 
+						 ORDER BY priority ASC, id ASC 
+						 LIMIT 15`
+					)
+					.all();
 
+				if (proceduralRuleRows.results && proceduralRuleRows.results.length > 0) {
+					const rules = proceduralRuleRows.results as any[];
+					let tier6Injection = "\n\n[TIER 6 — PROCEDURAL RULES & PREFERENCES]\nThese are locked workflow rules, tool preferences, and communication patterns Scott has established. Follow them without deviation:\n";
+					for (const rule of rules) {
+						tier6Injection += `\n• [${rule.rule_category.toUpperCase()} / Priority ${rule.priority}] ${rule.rule_name}: ${rule.rule_text}`;
+					}
+					tier6Injection += "\n\nThese rules override generic assistant defaults. Do not suggest workflows that violate them.";
+					liveContext = liveContext ? liveContext + " " + tier6Injection : tier6Injection;
+					console.log('[TIER 6 INJECTION]', rules.length, 'procedural rules injected into liveContext');
+				}
+			} catch (tier6Err: any) {
+				console.error("[TIER 6 TRIGGER] Query failed:", tier6Err.message);
+			}
 				const lowerMsg = userMsg.toLowerCase();
 
 				// Rock Show intercept — Callan and Josie's favorite = Engine No. 9 by Deftones
