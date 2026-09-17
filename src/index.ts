@@ -10,38 +10,60 @@ const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
  * to selectively promote workload traffic to specialized target models in production.
  */
 function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
-	const lower = message.toLowerCase();
+    const lower = message.toLowerCase();
 
-	const heavyKeywords = [
-		'code', 'debug', 'architecture', 'audit', 'memory', 'diagnose', 'refactor',
-		'deploy', 'error', 'exception', 'stack trace', 'regex', 'src/', '.ts',
-		'.js', '.html', 'function', 'class', 'interface', 'schema', 'migration'
-	];
+    const heavyKeywords = [
+        // Code & engineering
+        'code', 'debug', 'architecture', 'audit', 'memory', 'diagnose', 'refactor',
+        'deploy', 'error', 'exception', 'stack trace', 'regex', 'src/', '.ts',
+        '.js', '.html', 'function', 'class', 'interface', 'schema', 'migration',
+        // Analysis & strategy
+        'analysis', 'strategy', 'plan', 'design', 'probability', 'decision',
+        'evaluate', 'compare', 'tradeoff', 'reason through', 'walk through',
+        // Customer prep contexts (high-stakes reasoning)
+        'iadb', 'fordham', 'jhu', 'penn state', 'william & mary', 'william and mary',
+        'georgetown', 'nyc dob', 'department of buildings', 'ming lu', 'ming',
+        'customer prep', 'demo prep', 'workshop', 'discovery call',
+        // Kalshi/betting (multi-variable probability work)
+        'kalshi', 'combo', 'payout', 'market analysis', 'implied probability',
+        'expected value', 'ev calculation', 'parlay',
+        // Memory tier work
+        'tier 6', 'tier 8', 'tier 9', 'tier 10', 'tier 11', 'proactive_triggers',
+        'procedural_rules', 'self_reflections', 'emotional_context', 'episodic_memories'
+    ];
 
-	const mediumKeywords = [
-		'remember', 'recall', 'what did', 'who is', 'when did', 'calendar',
-		'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare',
-		'family', 'kids', 'pi', 'mcp', 'theater', 'kitchen', 'master bedroom',
-		'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat',
-		'timer', 'set a timer', 'set timer', 'play', 'spotify', 'music', 'song'
-	];
+    const mediumKeywords = [
+        // Memory recall
+        'remember', 'recall', 'what did', 'who is', 'when did', 'calendar',
+        // Family
+        'bry', 'renee', 'callan', 'josie', 'josh', 'tony', 'cloudflare',
+        'family', 'kids',
+        // Home/hardware
+        'pi', 'mcp', 'theater', 'kitchen', 'master bedroom',
+        'tool', 'trigger', 'hardware', 'sonos', 'hue', 'thermostat',
+        'timer', 'set a timer', 'set timer', 'play', 'spotify', 'music', 'song',
+        // Sports/entertainment context
+        'nfl', 'bills', 'lions', 'patriots', 'fantasy', 'game tonight',
+        'thursday night football', 'sunday night football', 'monday night football',
+        'cavs', 'basketball', 'football', 'mma', 'ufc', 'boxing'
+    ];
 
-	const hasHeavyKeyword = heavyKeywords.some(kw => lower.includes(kw));
-	const hasCodeBlock = message.includes('```');
-	const isHeavyLength = message.length > 800;
+    const hasHeavyKeyword = heavyKeywords.some(kw => lower.includes(kw));
+    const hasCodeBlock = message.includes('```');
+    const isHeavyLength = message.length > 800;
 
-	if (hasHeavyKeyword || hasCodeBlock || isHeavyLength) {
-		return 'heavy';
-	}
+    if (hasHeavyKeyword || hasCodeBlock || isHeavyLength) {
+        return 'heavy';
+    }
 
-	const hasMediumKeyword = mediumKeywords.some(kw => lower.includes(kw));
-	const isMediumLength = message.length >= 200 && message.length <= 800;
+    const hasMediumKeyword = mediumKeywords.some(kw => lower.includes(kw));
+    const isMediumLength = message.length >= 200 && message.length <= 800;
 
-	if (hasMediumKeyword || isMediumLength) {
-		return 'medium';
-	}
+    if (hasMediumKeyword || isMediumLength) {
+        return 'medium';
+    }
 
-	return 'casual';
+    return 'casual';
 }
 
 function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
