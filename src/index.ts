@@ -1433,6 +1433,254 @@ export class ChatSession extends DurableObject<Env> {
 
 					liveContext = liveContext + `\n\n[SYSTEM DIRECTIVE - MANDATORY TOOL EXECUTION] The user explicitly used "say to" or "speak to" or "announce" which is a HARD COMMAND to fire the control_sonos_audio tool. You MUST emit the trigger payload at the very end of your response. This is NOT optional. Even if the question has a clear answer, you must answer it AND emit the trigger payload to broadcast that answer to the "${sonosTargetZone}" zone. Construct your response as the actual spoken content you want broadcast through Sonos. Do not mention URL strings.` + " [CRITICAL TOOL EMISSION FORMAT REMINDER] Your response must end with the exact trigger payload line and nothing after it. Do NOT write any success footer, JSON success block, Tool executed text, or Hardware bridge text in your response prose. The Worker layer appends the real result footer after the Pi dispatches. If you write fake success theater without emitting a real trigger line at the absolute end of your response, the Worker guardrail will strip your entire response and replace it with a forensic warning.";
 				}
+				// ============================================================================
+    // KALSHI SETUP CARD HANDLER — Data Intelligence Tool
+    // On-demand NFL game analysis: conviction score, blowout probability, injury risk,
+    // recommended bet structure (Tier 1/2/3)
+    // ============================================================================
+    
+    if (lowerMsg.includes('setup card') && userMsg.split(' ').length <= 25) {
+      console.log('[KALSHI_SETUP_CARD] Intent detected');
+      
+      try {
+        // NFL Stadium Map — Team to City/Coordinates for OpenWeather lookup
+        const stadiumMap = {
+          'bills': { city: 'Orchard Park', state: 'NY', lat: 42.7739, lon: -78.7878 },
+          'dolphins': { city: 'Miami Gardens', state: 'FL', lat: 25.9581, lon: -80.2389 },
+          'jets': { city: 'East Rutherford', state: 'NJ', lat: 40.8135, lon: -74.0740 },
+          'patriots': { city: 'Foxborough', state: 'MA', lat: 42.0909, lon: -71.3049 },
+          'ravens': { city: 'Baltimore', state: 'MD', lat: 39.2784, lon: -76.6226 },
+          'steelers': { city: 'Pittsburgh', state: 'PA', lat: 40.4465, lon: -80.0155 },
+          'browns': { city: 'Cleveland', state: 'OH', lat: 41.5051, lon: -81.6995 },
+          'bengals': { city: 'Cincinnati', state: 'OH', lat: 39.0954, lon: -84.4670 },
+          'texans': { city: 'Houston', state: 'TX', lat: 29.6853, lon: -95.4107 },
+          'colts': { city: 'Indianapolis', state: 'IN', lat: 39.7684, lon: -86.1581 },
+          'titans': { city: 'Nashville', state: 'TN', lat: 36.1627, lon: -86.7816 },
+          'jaguars': { city: 'Jacksonville', state: 'FL', lat: 30.3235, lon: -81.8373 },
+          'chiefs': { city: 'Kansas City', state: 'MO', lat: 39.0489, lon: -94.4835 },
+          'chargers': { city: 'Los Angeles', state: 'CA', lat: 33.8638, lon: -117.8992 },
+          'broncos': { city: 'Denver', state: 'CO', lat: 39.7439, lon: -104.8006 },
+          'raiders': { city: 'Las Vegas', state: 'NV', lat: 36.2339, lon: -115.0186 },
+          'cowboys': { city: 'Arlington', state: 'TX', lat: 32.8975, lon: -97.0022 },
+          'eagles': { city: 'Philadelphia', state: 'PA', lat: 39.9012, lon: -75.1673 },
+          'commanders': { city: 'Landover', state: 'MD', lat: 38.9078, lon: -76.8644 },
+          'giants': { city: 'East Rutherford', state: 'NJ', lat: 40.8135, lon: -74.0740 },
+          'packers': { city: 'Green Bay', state: 'WI', lat: 44.5013, lon: -88.0622 },
+          'lions': { city: 'Detroit', state: 'MI', lat: 42.6407, lon: -83.1885 },
+          'bears': { city: 'Chicago', state: 'IL', lat: 41.8623, lon: -87.6167 },
+          'vikings': { city: 'Minneapolis', state: 'MN', lat: 44.9738, lon: -93.2589 },
+          'saints': { city: 'New Orleans', state: 'LA', lat: 29.9511, lon: -90.0715 },
+          'buccaneers': { city: 'Tampa', state: 'FL', lat: 27.9759, lon: -82.5033 },
+          'falcons': { city: 'Atlanta', state: 'GA', lat: 33.7490, lon: -84.3880 },
+          'panthers': { city: 'Charlotte', state: 'NC', lat: 35.1358, lon: -80.8526 },
+          'seahawks': { city: 'Seattle', state: 'WA', lat: 47.5952, lon: -122.3316 },
+          '49ers': { city: 'Santa Clara', state: 'CA', lat: 37.4041, lon: -121.9944 },
+          'cardinals': { city: 'Glendale', state: 'AZ', lat: 33.3764, lon: -112.2622 },
+          'rams': { city: 'Los Angeles', state: 'CA', lat: 34.0007, lon: -118.2437 }
+        };
+
+        // Parse user input for game data
+        const gameDataRegex = /setup card for (.+?) (?:vs|against) (.+?) on (.+?)(?:\n|$)/i;
+        const openingLineRegex = /opening line:\s*(.*?)(?:\n|$)/i;
+        const currentLineRegex = /current line:\s*(.*?)(?:\n|$)/i;
+        const injuriesRegex = /key injuries:\s*([\s\S]*?)(?:context:|$)/i;
+        const contextRegex = /context:\s*(.*?)(?:\n|$)/i;
+
+        const gameMatch = userMsg.match(gameDataRegex);
+        const openingLineMatch = userMsg.match(openingLineRegex);
+        const currentLineMatch = userMsg.match(currentLineRegex);
+        const injuriesMatch = userMsg.match(injuriesRegex);
+        const contextMatch = userMsg.match(contextRegex);
+
+        if (!gameMatch) {
+          console.log('[KALSHI_SETUP_CARD] Parse failed — missing game info');
+          throw new Error('Could not parse game data. Format: setup card for [TEAM1] vs [TEAM2] on [DATE]');
+        }
+
+        const team1 = gameMatch[1].trim().toLowerCase();
+        const team2 = gameMatch[2].trim().toLowerCase();
+        const gameDate = gameMatch[3].trim();
+        
+        const openingLine = openingLineMatch ? openingLineMatch[1].trim() : 'N/A';
+        const currentLine = currentLineMatch ? currentLineMatch[1].trim() : 'N/A';
+        const injuriesText = injuriesMatch ? injuriesMatch[1].trim() : 'None reported';
+        const contextText = contextMatch ? contextMatch[1].trim() : 'Standard game';
+
+        console.log(`[KALSHI_SETUP_CARD] Parsed: ${team1} vs ${team2}, ${gameDate}`);
+
+        // Fetch weather for both stadiums
+        const team1Stadium = stadiumMap[team1];
+        const team2Stadium = stadiumMap[team2];
+
+        if (!team1Stadium || !team2Stadium) {
+          throw new Error(`Team not found in stadium map. Check team names: ${team1}, ${team2}`);
+        }
+
+        console.log(`[KALSHI_SETUP_CARD] Fetching weather for ${team1Stadium.city} and ${team2Stadium.city}`);
+
+        const weatherUrl1 = `https://api.openweathermap.org/data/2.5/weather?lat=${team1Stadium.lat}&lon=${team1Stadium.lon}&appid=${this.env.OPENWEATHER_API_KEY}&units=imperial`;
+        const weatherUrl2 = `https://api.openweathermap.org/data/2.5/weather?lat=${team2Stadium.lat}&lon=${team2Stadium.lon}&appid=${this.env.OPENWEATHER_API_KEY}&units=imperial`;
+
+        const [weatherRes1, weatherRes2] = await Promise.all([
+          fetch(weatherUrl1),
+          fetch(weatherUrl2)
+        ]);
+
+        if (!weatherRes1.ok || !weatherRes2.ok) {
+          throw new Error(`Weather API failed: ${weatherRes1.status}, ${weatherRes2.status}`);
+        }
+
+        const weather1 = await weatherRes1.json();
+        const weather2 = await weatherRes2.json();
+
+        console.log(`[KALSHI_SETUP_CARD] Weather fetched. ${team1}: ${weather1.main.temp}°F, ${team2}: ${weather2.main.temp}°F`);
+
+        // Parse spread and O/U from current line
+        const spreadRegex = /([+-]?)(\d+\.?\d*)/;
+        const ouRegex = /o\/u\s*(\d+\.?\d*)/i;
+        
+        const currentSpreadMatch = currentLine.match(spreadRegex);
+        const currentOUMatch = currentLine.match(ouRegex);
+
+        const currentSpread = currentSpreadMatch ? parseFloat(currentSpreadMatch[0]) : 0;
+        const currentOU = currentOUMatch ? parseFloat(currentOUMatch[1]) : 0;
+
+        // Parse opening line for movement calculation
+        const openingSpreadMatch = openingLine.match(spreadRegex);
+        const spreadMovement = openingSpreadMatch 
+          ? currentSpread - parseFloat(openingSpreadMatch[0])
+          : 0;
+
+        // ========================================================================
+        // CONVICTION SCORE CALCULATION (1-10 scale)
+        // ========================================================================
+        let convictionScore = 5; // Base neutral
+
+        // Factor 1: Spread Movement (+/- 1 per 0.5pt)
+        if (spreadMovement > 0) convictionScore += Math.floor(spreadMovement / 0.5);
+        if (spreadMovement < 0) convictionScore -= Math.floor(Math.abs(spreadMovement) / 0.5);
+
+        // Factor 2: Weather Impact (wind, rain, snow)
+        const wind1 = weather1.wind?.speed || 0;
+        const wind2 = weather2.wind?.speed || 0;
+        const avgWind = (wind1 + wind2) / 2;
+        if (avgWind > 15) convictionScore += 1; // Windy = more conviction on running game
+        if (weather1.rain || weather2.rain) convictionScore += 1; // Rain affects passing
+
+        // Factor 3: Context Flags (home opener, division, short week, etc.)
+        if (contextText.toLowerCase().includes('home opener')) convictionScore += 2;
+        if (contextText.toLowerCase().includes('division')) convictionScore += 1;
+        if (contextText.toLowerCase().includes('short week')) convictionScore -= 1;
+        if (contextText.toLowerCase().includes('back-to-back')) convictionScore -= 1;
+        if (contextText.toLowerCase().includes('cross-country')) convictionScore -= 1;
+
+        // Factor 4: Injury Impact (rough heuristic — count injury mentions)
+        const injuryCount = (injuriesText.match(/out|questionable|day-to-day/gi) || []).length;
+        if (injuryCount > 3) convictionScore -= 1;
+        if (injuryCount > 5) convictionScore -= 2;
+
+        // Cap conviction score at 1-10
+        convictionScore = Math.max(1, Math.min(10, convictionScore));
+
+        // ========================================================================
+        // BLOWOUT PROBABILITY CALCULATION
+        // ========================================================================
+        let blowoutProbability = 30; // Base 30%
+
+        if (Math.abs(currentSpread) >= 5) blowoutProbability += 20;
+        if (Math.abs(currentSpread) >= 7) blowoutProbability += 15;
+        if (avgWind > 15) blowoutProbability += 10; // Windy favors dominant team
+        if (injuryCount > 3) blowoutProbability += 10; // Injury disparity favors blowout
+
+        blowoutProbability = Math.min(85, blowoutProbability); // Cap at 85%
+
+        // ========================================================================
+        // INJURY RISK CLASSIFICATION
+        // ========================================================================
+        const highRiskProps = injuriesText.toLowerCase().includes('out') 
+          ? 'High risk props: receiving yards from OUT players. Avoid or size down.'
+          : 'No critical OUT status. Standard risk assessment.';
+
+        // ========================================================================
+        // BET TIER RECOMMENDATIONS
+        // ========================================================================
+        let tier1Allocation = '40-50%';
+        let tier2Allocation = '30-40%';
+        let tier3Allocation = '10-20%';
+
+        if (convictionScore <= 3) {
+          tier1Allocation = 'SKIP';
+          tier2Allocation = 'SKIP';
+          tier3Allocation = '100% (lottery only)';
+        } else if (convictionScore <= 5) {
+          tier1Allocation = '20-30%';
+          tier2Allocation = '40-50%';
+          tier3Allocation = '20-30%';
+        } else if (convictionScore >= 8) {
+          tier1Allocation = '50-60%';
+          tier2Allocation = '25-35%';
+          tier3Allocation = '10-15%';
+        }
+
+        // ========================================================================
+        // FORMAT SETUP CARD OUTPUT
+        // ========================================================================
+        const setupCard = `
+═══════════════════════════════════════════════════════════════
+KALSHI SETUP CARD — ${team1.toUpperCase()} vs ${team2.toUpperCase()} — ${gameDate}
+═══════════════════════════════════════════════════════════════
+
+GAME INFO
+─────────────────────────────────────────────────────────────
+Opening Line:      ${openingLine}
+Current Line:      ${currentLine}
+Line Movement:     ${spreadMovement > 0 ? '+' : ''}${spreadMovement.toFixed(1)} pts
+Weather ${team1}:  ${weather1.main.temp}°F, Wind ${wind1.toFixed(1)} mph, ${weather1.weather[0].main}
+Weather ${team2}:  ${weather2.main.temp}°F, Wind ${wind2.toFixed(1)} mph, ${weather2.weather[0].main}
+Context:           ${contextText}
+
+CONVICTION SCORE: ${convictionScore}/10
+─────────────────────────────────────────────────────────────
+${convictionScore <= 3 ? '🔴 NO CONVICTION — Do not deploy' : ''}
+${convictionScore > 3 && convictionScore <= 5 ? '🟡 MARGINAL — Light sizing only' : ''}
+${convictionScore > 5 && convictionScore <= 7 ? '🟢 SOLID — Deploy all three tiers' : ''}
+${convictionScore > 7 ? '🟢🟢 STRONG — Bias toward Tier 1' : ''}
+
+BLOWOUT PROBABILITY: ${blowoutProbability}%
+─────────────────────────────────────────────────────────────
+${blowoutProbability > 60 ? '⚠️ HIGH blowout risk — Receiving props on losing side are fragile' : 'Standard game script expected'}
+
+INJURY RISK EXPOSURE
+─────────────────────────────────────────────────────────────
+${injuriesText}
+${highRiskProps}
+
+RECOMMENDED BET STRUCTURE
+─────────────────────────────────────────────────────────────
+Tier 1 (Conviction Single):    ${tier1Allocation}
+Tier 2 (Game Script Props):    ${tier2Allocation}
+Tier 3 (Lottery Ticket):       ${tier3Allocation}
+
+NEXT STEP
+─────────────────────────────────────────────────────────────
+Say: "Make my buys. Budget: $XX"
+(Include current Kalshi odds for props you want to target)
+
+═══════════════════════════════════════════════════════════════
+`;
+
+        console.log('[KALSHI_SETUP_CARD] Card generated successfully');
+        liveContext += `\n[KALSHI_SETUP_CARD]\n${setupCard}`;
+
+      } catch (err) {
+        console.error('[KALSHI_SETUP_CARD] Error:', err.message);
+        liveContext += `\n[KALSHI_SETUP_CARD_ERROR] ${err.message}`;
+      }
+    }
+
+    // ============================================================================
+    // END KALSHI SETUP CARD HANDLER
+    // ============================================================================
 
 				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
 				let searchTerms = new Set<string>([userMsg]);
