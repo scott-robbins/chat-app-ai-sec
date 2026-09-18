@@ -1582,18 +1582,30 @@ export class ChatSession extends DurableObject<Env> {
         // Cap conviction score at 1-10
         convictionScore = Math.max(1, Math.min(10, convictionScore));
 
-        // ========================================================================
+        // ================================================================================
         // BLOWOUT PROBABILITY CALCULATION
-        // ========================================================================
+        // ================================================================================
         let blowoutProbability = 30; // Base 30%
 
-        if (Math.abs(currentSpread) >= 5) blowoutProbability += 20;
+        // Spread strength (tiered)
+        if (Math.abs(currentSpread) >= 5) blowoutProbability += 15;
         if (Math.abs(currentSpread) >= 7) blowoutProbability += 15;
-        if (avgWind > 15) blowoutProbability += 10; // Windy favors dominant team
-        if (injuryCount > 3) blowoutProbability += 10; // Injury disparity favors blowout
+        if (Math.abs(currentSpread) >= 10) blowoutProbability += 10;
+
+        // Line movement toward favorite (sharp money signal)
+        if (Math.abs(spreadMovement) >= 0.5) blowoutProbability += 8;
+        if (Math.abs(spreadMovement) >= 1.5) blowoutProbability += 7;
+
+        // Weather factors
+        if (avgWind > 10) blowoutProbability += 5;
+        if (avgWind > 15) blowoutProbability += 10;
+
+        // Injury quality (opponent skill players)
+        if (injuryCount >= 1) blowoutProbability += 8;
+        if (injuryCount >= 3) blowoutProbability += 10;
 
         blowoutProbability = Math.min(85, blowoutProbability); // Cap at 85%
-
+		
         // ========================================================================
         // INJURY RISK CLASSIFICATION
         // ========================================================================
