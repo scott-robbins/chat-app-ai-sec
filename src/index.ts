@@ -1439,7 +1439,7 @@ export class ChatSession extends DurableObject<Env> {
     // recommended bet structure (Tier 1/2/3)
     // ============================================================================
     
-    if (lowerMsg.includes('setup card') && userMsg.split(' ').length <= 25) {
+    if (lowerMsg.includes('setup card')) {
       console.log('[KALSHI_SETUP_CARD] Intent detected');
       
       try {
