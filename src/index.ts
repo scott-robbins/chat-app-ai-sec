@@ -763,6 +763,67 @@ export class ChatSession extends DurableObject<Env> {
 		const sessionId = request.headers.get("x-session-id") || "global";
 		const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+		// ============================================================
+    // KALSHI BALANCE TEST — Diagnostic route to prove auth works
+    // GET https://chat.jolenesego.com/api/kalshi/balance
+    // ============================================================
+    if (url.pathname === "/api/kalshi/balance" && request.method === "GET") {
+      try {
+        const { signKalshiRequest } = await import("./kalshi-auth");
+
+        const baseUrl = "https://api.elections.kalshi.com";
+        const path = "/trade-api/v2/portfolio/balance";
+
+        const kalshiHeaders = await signKalshiRequest(this.env, "GET", path);
+
+        console.log("[KALSHI TEST] Signing request:", {
+          method: "GET",
+          path: path,
+          timestamp: kalshiHeaders["KALSHI-ACCESS-TIMESTAMP"],
+          keyIdPreview: kalshiHeaders["KALSHI-ACCESS-KEY"].slice(0, 8) + "...",
+          signaturePreview: kalshiHeaders["KALSHI-ACCESS-SIGNATURE"].slice(0, 20) + "...",
+        });
+
+        const kalshiResponse = await fetch(baseUrl + path, {
+          method: "GET",
+          headers: kalshiHeaders as unknown as HeadersInit,
+        });
+
+        const responseText = await kalshiResponse.text();
+
+        console.log("[KALSHI TEST] Response:", {
+          status: kalshiResponse.status,
+          statusText: kalshiResponse.statusText,
+          body: responseText.slice(0, 500),
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: kalshiResponse.ok,
+            status: kalshiResponse.status,
+            statusText: kalshiResponse.statusText,
+            kalshiResponse: responseText,
+            debug: {
+              baseUrl: baseUrl,
+              path: path,
+              keyIdPreview: kalshiHeaders["KALSHI-ACCESS-KEY"].slice(0, 8) + "...",
+              timestamp: kalshiHeaders["KALSHI-ACCESS-TIMESTAMP"],
+            },
+          }, null, 2),
+          { headers }
+        );
+      } catch (error: any) {
+        console.error("[KALSHI TEST] Error:", error);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: error.message,
+            stack: error.stack,
+          }, null, 2),
+          { status: 500, headers }
+        );
+      }
+    }
 		if (url.pathname === "/api/tts") {
 			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
 		}
