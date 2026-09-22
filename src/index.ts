@@ -824,6 +824,175 @@ export class ChatSession extends DurableObject<Env> {
         );
       }
     }
+	 // ============================================================================
+    // KALSHI EVENTS DISCOVERY — List upcoming NFL events with tickers
+    // GET https://chat.jolenesego.com/api/kalshi/events?sport=nfl
+    // ============================================================================
+    if (url.pathname === "/api/kalshi/events" && request.method === "GET") {
+      try {
+        const { signKalshiRequest } = await import("./kalshi-auth");
+        
+        const sport = url.searchParams.get("sport") || "nfl";
+        const seriesTicker = sport.toLowerCase() === "nfl" ? "KXNFLGAME" : "";
+        
+        const baseUrl = "https://api.elections.kalshi.com";
+        const path = `/trade-api/v2/events?series_ticker=${seriesTicker}&status=open&limit=50`;
+        
+        const kalshiHeaders = await signKalshiRequest(this.env, "GET", path);
+        
+        console.log("[KALSHI EVENTS] Fetching:", { sport, path });
+        
+        const kalshiResponse = await fetch(baseUrl + path, {
+          method: "GET",
+          headers: kalshiHeaders as unknown as HeadersInit,
+        });
+        
+        const responseText = await kalshiResponse.text();
+        
+        console.log("[KALSHI EVENTS] Response:", {
+          status: kalshiResponse.status,
+          bodyPreview: responseText.slice(0, 300),
+        });
+        
+        if (!kalshiResponse.ok) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              status: kalshiResponse.status,
+              error: responseText.slice(0, 500),
+            }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        
+        const data = JSON.parse(responseText);
+        
+        // Simplify the events for easier consumption
+        const simplifiedEvents = (data.events || []).map((event: any) => ({
+          event_ticker: event.event_ticker,
+          series_ticker: event.series_ticker,
+          title: event.title,
+          sub_title: event.sub_title,
+          category: event.category,
+          mutually_exclusive: event.mutually_exclusive,
+          strike_date: event.strike_date,
+        }));
+        
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sport: sport,
+            event_count: simplifiedEvents.length,
+            events: simplifiedEvents,
+            cursor: data.cursor || null,
+          }, null, 2),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      } catch (err: any) {
+        console.error("[KALSHI EVENTS] Error:", err.message);
+        return new Response(
+          JSON.stringify({ success: false, error: err.message }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+    
+    // ============================================================================
+    // KALSHI MARKETS FETCH — Live market prices for a specific event
+    // GET https://chat.jolenesego.com/api/kalshi/markets?event=KXNFLGAME-25SEP25ATLGB
+    // ============================================================================
+    if (url.pathname === "/api/kalshi/markets" && request.method === "GET") {
+      try {
+        const { signKalshiRequest } = await import("./kalshi-auth");
+        
+        const eventTicker = url.searchParams.get("event");
+        
+        if (!eventTicker) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Missing required query param: event (e.g., ?event=KXNFLGAME-25SEP25ATLGB)",
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        
+        const baseUrl = "https://api.elections.kalshi.com";
+        const path = `/trade-api/v2/markets?event_ticker=${eventTicker}&limit=200`;
+        
+        const kalshiHeaders = await signKalshiRequest(this.env, "GET", path);
+        
+        console.log("[KALSHI MARKETS] Fetching:", { eventTicker, path });
+        
+        const kalshiResponse = await fetch(baseUrl + path, {
+          method: "GET",
+          headers: kalshiHeaders as unknown as HeadersInit,
+        });
+        
+        const responseText = await kalshiResponse.text();
+        
+        console.log("[KALSHI MARKETS] Response:", {
+          status: kalshiResponse.status,
+          bodyPreview: responseText.slice(0, 300),
+        });
+        
+        if (!kalshiResponse.ok) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              status: kalshiResponse.status,
+              error: responseText.slice(0, 500),
+            }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        
+        const data = JSON.parse(responseText);
+        
+        // Simplify markets for easier consumption
+        const simplifiedMarkets = (data.markets || []).map((market: any) => ({
+          ticker: market.ticker,
+          event_ticker: market.event_ticker,
+          title: market.title,
+          subtitle: market.subtitle,
+          yes_bid: market.yes_bid,
+          yes_ask: market.yes_ask,
+          no_bid: market.no_bid,
+          no_ask: market.no_ask,
+          last_price: market.last_price,
+          implied_probability_yes: market.yes_ask,
+          implied_probability_no: market.no_ask,
+          volume: market.volume,
+          volume_24h: market.volume_24h,
+          open_interest: market.open_interest,
+          status: market.status,
+          can_close_early: market.can_close_early,
+          expiration_time: market.expiration_time,
+        }));
+        
+        return new Response(
+          JSON.stringify({
+            success: true,
+            event_ticker: eventTicker,
+            market_count: simplifiedMarkets.length,
+            markets: simplifiedMarkets,
+            cursor: data.cursor || null,
+          }, null, 2),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      } catch (err: any) {
+        console.error("[KALSHI MARKETS] Error:", err.message);
+        return new Response(
+          JSON.stringify({ success: false, error: err.message }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+    
+    // ============================================================================
+    // END KALSHI PART 2 — LIVE MARKETS
+    // ============================================================================
+
 		if (url.pathname === "/api/tts") {
 			return new Response(JSON.stringify({ status: "browser_native_ready" }), { headers });
 		}
