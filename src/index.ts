@@ -2104,8 +2104,8 @@ Say: "Make my buys. Budget: $XX"
     // ============================================================================
     // END KALSHI LIVE PROPS PULL HANDLER
     // ============================================================================
-	
-	// ============================================================================
+
+	 // ============================================================================
     // KALSHI PRE-GAME INTEL FETCH — Multi-source Tavily fusion for game context
     // Trigger: "pull intel for ATL GB" or "get intel" or "game intel"
     // Example: "pull intel for atlanta green bay"
@@ -2120,7 +2120,7 @@ Say: "Make my buys. Budget: $XX"
       console.log('[KALSHI_INTEL_FETCH] Intent detected');
 
       try {
-        // Team abbreviation map — match user input to standardized abbreviations
+        // Team abbreviation map
         const teamAbbrevMap: Record<string, string> = {
           'atlanta': 'ATL', 'falcons': 'ATL', 'atl': 'ATL',
           'green bay': 'GB', 'packers': 'GB', 'gb': 'GB',
@@ -2156,11 +2156,9 @@ Say: "Make my buys. Budget: $XX"
           'carolina': 'CAR', 'panthers': 'CAR', 'car': 'CAR',
         };
 
-        // Extract team names from user message
         const messageWords = lowerMsg.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
         const foundTeams: string[] = [];
 
-        // Try multi-word team names first
         const multiWordTeams = ['new york giants', 'new york jets', 'los angeles rams', 'los angeles chargers', 'new england', 'green bay', 'kansas city', 'las vegas', 'san francisco', 'tampa bay', 'new orleans'];
         for (const multiTeam of multiWordTeams) {
           if (lowerMsg.includes(multiTeam) && teamAbbrevMap[multiTeam]) {
@@ -2170,19 +2168,16 @@ Say: "Make my buys. Budget: $XX"
           }
         }
 
-        // Then single-word abbreviations and city names
         for (const word of messageWords) {
           if (teamAbbrevMap[word] && !foundTeams.includes(teamAbbrevMap[word])) {
             foundTeams.push(teamAbbrevMap[word]);
           }
         }
 
-        // If no explicit teams found, look for "tnf" or "snf" or "mnf" to infer game
         let intelTeam1 = foundTeams[0] || null;
         let intelTeam2 = foundTeams[1] || null;
 
         if (!intelTeam1 || !intelTeam2) {
-          // Default to upcoming Thursday game (ATL @ GB for Week 3)
           if (lowerMsg.includes('tnf') || (lowerMsg.includes('thursday') && !intelTeam1)) {
             intelTeam1 = 'ATL';
             intelTeam2 = 'GB';
@@ -2192,11 +2187,9 @@ Say: "Make my buys. Budget: $XX"
           }
         }
 
-        console.log(`[KALSHI_INTEL_FETCH] Teams identified: ${intelTeam1} @ ${intelTeam2}`);
+        console.log(`[KALSHI_INTEL_FETCH] Teams: ${intelTeam1} @ ${intelTeam2}`);
 
-        const workerBase = new URL(request.url).origin;
-
-        // Fetch raw intel from Tavily via 4 parallel queries
+        // DIRECT TAVILY CALLS — 4 parallel searches
         const intelQueries = [
           { key: 'injuries', query: `${intelTeam1} ${intelTeam2} Week 3 2026 injury report NFL` },
           { key: 'qb_status', query: `${intelTeam1} starting QB Week 3 2026 status` },
@@ -2206,27 +2199,41 @@ Say: "Make my buys. Budget: $XX"
 
         const intelFetches = intelQueries.map(async ({ key, query }) => {
           try {
-            const tavilyUrl = `${workerBase}/api/tavily/search?query=${encodeURIComponent(query)}&max_results=3`;
-            const res = await fetch(tavilyUrl);
+            const res = await fetch('https://api.tavily.com/search', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${env.TAVILY_API_KEY || ""}`
+              },
+              body: JSON.stringify({
+                query: query,
+                search_depth: "advanced",
+                max_results: 3,
+                include_answer: true
+              })
+            });
             const data: any = await res.json();
             return {
               key,
               raw_results: data.results || [],
-              success: data.success || false,
+              answer: data.answer || '',
+              success: true,
             };
           } catch (err: any) {
-            return { key, raw_results: [], success: false, error: err.message };
+            return { key, raw_results: [], answer: '', success: false, error: err.message };
           }
         });
 
         const intelResults = await Promise.all(intelFetches);
 
-        // Assemble raw intel blob and structure via Claude
+        // Assemble raw intel blob
         let intelBlob = `Game: ${intelTeam1} @ ${intelTeam2} Week 3 2026\n\n`;
-
         for (const result of intelResults) {
-          if (result.success && result.raw_results.length > 0) {
+          if (result.success && (result.raw_results.length > 0 || result.answer)) {
             intelBlob += `=== ${result.key.toUpperCase()} ===\n`;
+            if (result.answer) {
+              intelBlob += `SUMMARY: ${result.answer}\n`;
+            }
             for (const item of result.raw_results) {
               intelBlob += `${item.title || 'Source'}: ${item.content || item.snippet || ''}\n`;
             }
@@ -2234,9 +2241,18 @@ Say: "Make my buys. Budget: $XX"
           }
         }
 
-        console.log('[KALSHI_INTEL_FETCH] Raw intel assembled, structuring via Claude');
+        console.log('[KALSHI_INTEL_FETCH] Raw intel assembled, structuring via AI Gateway Claude');
 
-        // Call Claude to structure raw intel into game analysis JSON
+        // DIRECT CLAUDE CALL VIA AI GATEWAY
+        const accountId = env.CF_ACCOUNT_ID || env.ACCOUNT_ID;
+        const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+        const claudeUrl = `${gatewayBase}/anthropic/v1/messages`;
+        const claudeHeaders = {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01"
+        };
+
         const structurePrompt = `You are an NFL analyst. Given the raw intel below, extract and structure the game context into JSON format.
 
 Raw Intel:
@@ -2255,37 +2271,40 @@ Return ONLY valid JSON (no markdown, no explanations) matching this schema:
   "red_flags": ["flag 1", "flag 2"]
 }`;
 
-        const claudeRes = await fetch(`${workerBase}/api/claude/message`, {
+        const claudeBody = {
+          model: "claude-haiku-4-5",
+          messages: [{ role: "user", content: structurePrompt }],
+          max_tokens: 1024
+        };
+
+        const claudeRes = await fetch(claudeUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'claude-3-5-haiku-20241022',
-            max_tokens: 1024,
-            messages: [{ role: 'user', content: structurePrompt }],
-          }),
+          headers: claudeHeaders,
+          body: JSON.stringify(claudeBody)
         });
 
         const claudeData: any = await claudeRes.json();
         const structuredIntelText = claudeData.content?.[0]?.text || '{}';
 
-        // Parse Claude's JSON response
         let structuredIntel: any = {};
         try {
-          structuredIntel = JSON.parse(structuredIntelText);
+          // Strip markdown code fences if Claude wrapped the JSON
+          const cleanText = structuredIntelText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+          structuredIntel = JSON.parse(cleanText);
         } catch (parseErr: any) {
-          console.warn('[KALSHI_INTEL_FETCH] Claude JSON parse failed, using raw blob');
+          console.warn('[KALSHI_INTEL_FETCH] Claude JSON parse failed:', parseErr.message);
           structuredIntel = {
             injuries: { home: [], away: [] },
             qb_status: { home: 'Unknown', away: 'Unknown' },
             weather: 'Unknown',
             line: { spread: 'Unknown', total: 0, movement: 'unknown' },
-            key_edges: [],
+            key_edges: ['Raw intel returned but structuring failed — check logs'],
             red_flags: [],
           };
         }
 
-        // Build formatted summary for chat
-        let summary = `═══════════════════════════════════════════════════════════════\nPRE-GAME INTEL — ${intelTeam1} @ ${intelTeam2} (Week 3, Thu Sep 24)\n═══════════════════════════════════════════════════════════════\n\n`;
+        // Build formatted summary
+        let summary = `═══════════════════════════════════════════════════════════════\nPRE-GAME INTEL — ${intelTeam1} @ ${intelTeam2} (Week 3)\n═══════════════════════════════════════════════════════════════\n\n`;
 
         summary += `MATCHUP: ${intelTeam1} @ ${intelTeam2}\n`;
         summary += `SPREAD: ${structuredIntel.line?.spread || 'TBD'}\n`;
