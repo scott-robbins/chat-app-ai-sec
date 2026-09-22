@@ -1910,8 +1910,202 @@ Say: "Make my buys. Budget: $XX"
     // ============================================================================
     // END KALSHI SETUP CARD HANDLER
     // ============================================================================
+	// ============================================================================
+    // KALSHI LIVE PROPS PULL — Fetch live market prices for a game
+    // Trigger: "pull [team1] [team2] props" or "kalshi props for [team1] [team2]"
+    // Example: "pull ATL GB props" or "pull atlanta green bay props"
+    // ============================================================================
 
-				// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
+    if (
+      lowerMsg.includes('pull') && lowerMsg.includes('props') ||
+      lowerMsg.includes('kalshi props for') ||
+      lowerMsg.includes('kalshi markets for')
+    ) {
+      console.log('[KALSHI_PROPS_PULL] Intent detected');
+
+      try {
+        // Team abbreviation map — user says "atlanta" or "ATL", we normalize to ATL
+        const teamAbbrevMap: Record<string, string> = {
+          'atlanta': 'ATL', 'falcons': 'ATL', 'atl': 'ATL',
+          'green bay': 'GB', 'packers': 'GB', 'gb': 'GB',
+          'kansas city': 'KC', 'chiefs': 'KC', 'kc': 'KC',
+          'buffalo': 'BUF', 'bills': 'BUF', 'buf': 'BUF',
+          'detroit': 'DET', 'lions': 'DET', 'det': 'DET',
+          'new york giants': 'NYG', 'giants': 'NYG', 'nyg': 'NYG',
+          'los angeles rams': 'LAR', 'rams': 'LAR', 'lar': 'LAR',
+          'philadelphia': 'PHI', 'eagles': 'PHI', 'phi': 'PHI',
+          'dallas': 'DAL', 'cowboys': 'DAL', 'dal': 'DAL',
+          'cleveland': 'CLE', 'browns': 'CLE', 'cle': 'CLE',
+          'cincinnati': 'CIN', 'bengals': 'CIN', 'cin': 'CIN',
+          'pittsburgh': 'PIT', 'steelers': 'PIT', 'pit': 'PIT',
+          'baltimore': 'BAL', 'ravens': 'BAL', 'bal': 'BAL',
+          'houston': 'HOU', 'texans': 'HOU', 'hou': 'HOU',
+          'indianapolis': 'IND', 'colts': 'IND', 'ind': 'IND',
+          'tennessee': 'TEN', 'titans': 'TEN', 'ten': 'TEN',
+          'jacksonville': 'JAX', 'jaguars': 'JAX', 'jax': 'JAX',
+          'miami': 'MIA', 'dolphins': 'MIA', 'mia': 'MIA',
+          'new england': 'NE', 'patriots': 'NE', 'ne': 'NE',
+          'new york jets': 'NYJ', 'jets': 'NYJ', 'nyj': 'NYJ',
+          'denver': 'DEN', 'broncos': 'DEN', 'den': 'DEN',
+          'las vegas': 'LV', 'raiders': 'LV', 'lv': 'LV',
+          'los angeles chargers': 'LAC', 'chargers': 'LAC', 'lac': 'LAC',
+          'chicago': 'CHI', 'bears': 'CHI', 'chi': 'CHI',
+          'minnesota': 'MIN', 'vikings': 'MIN', 'min': 'MIN',
+          'washington': 'WAS', 'commanders': 'WAS', 'was': 'WAS',
+          'san francisco': 'SF', '49ers': 'SF', 'niners': 'SF', 'sf': 'SF',
+          'seattle': 'SEA', 'seahawks': 'SEA', 'sea': 'SEA',
+          'arizona': 'ARI', 'cardinals': 'ARI', 'ari': 'ARI',
+          'new orleans': 'NO', 'saints': 'NO', 'no': 'NO',
+          'tampa bay': 'TB', 'buccaneers': 'TB', 'tb': 'TB',
+          'carolina': 'CAR', 'panthers': 'CAR', 'car': 'CAR',
+        };
+
+        // Extract team names from user message (order matters — check longer names first)
+        const messageWords = lowerMsg.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+        const foundTeams: string[] = [];
+
+        // Try multi-word team names first
+        const multiWordTeams = ['new york giants', 'new york jets', 'los angeles rams', 'los angeles chargers', 'new england', 'green bay', 'kansas city', 'las vegas', 'san francisco', 'tampa bay', 'new orleans'];
+        for (const multiTeam of multiWordTeams) {
+          if (lowerMsg.includes(multiTeam) && teamAbbrevMap[multiTeam]) {
+            if (!foundTeams.includes(teamAbbrevMap[multiTeam])) {
+              foundTeams.push(teamAbbrevMap[multiTeam]);
+            }
+          }
+        }
+
+        // Then single-word abbreviations and city names
+        for (const word of messageWords) {
+          if (teamAbbrevMap[word] && !foundTeams.includes(teamAbbrevMap[word])) {
+            foundTeams.push(teamAbbrevMap[word]);
+          }
+        }
+
+        if (foundTeams.length < 2) {
+          throw new Error(`Could not identify two teams. Found: ${foundTeams.join(', ')}. Try: "pull ATL GB props"`);
+        }
+
+        const [team1Abbrev, team2Abbrev] = foundTeams.slice(0, 2);
+        console.log(`[KALSHI_PROPS_PULL] Teams identified: ${team1Abbrev} @ ${team2Abbrev}`);
+
+        const workerBase = new URL(request.url).origin;
+
+        const propSeries = [
+          { code: 'KXNFLPASSYDS', label: 'Passing Yards' },
+          { code: 'KXNFLRECYDS', label: 'Receiving Yards' },
+          { code: 'KXNFLRSHYDS', label: 'Rushing Yards' },
+          { code: 'KXNFLRRYDS', label: 'Rush+Rec Combined' },
+        ];
+
+        // First — find the correct game ticker
+        const gameEventsUrl = `${workerBase}/api/kalshi/events?series=KXNFLGAME`;
+        const gameEventsRes = await fetch(gameEventsUrl);
+        const gameEventsData: any = await gameEventsRes.json();
+
+        let matchedGameTicker: string | null = null;
+        if (gameEventsData.success && gameEventsData.events) {
+          for (const event of gameEventsData.events) {
+            const ticker = event.event_ticker || '';
+            const tickerSuffix = ticker.split('-')[1] || '';
+            if (tickerSuffix.includes(team1Abbrev) && tickerSuffix.includes(team2Abbrev)) {
+              matchedGameTicker = ticker;
+              break;
+            }
+          }
+        }
+
+        if (!matchedGameTicker) {
+          throw new Error(`No upcoming NFL game found for ${team1Abbrev} vs ${team2Abbrev}.`);
+        }
+
+        console.log(`[KALSHI_PROPS_PULL] Matched game ticker: ${matchedGameTicker}`);
+
+        const gameSuffix = matchedGameTicker.split('-')[1];
+
+        // Fetch all prop categories in parallel
+        const propFetches = propSeries.map(async ({ code, label }) => {
+          const eventTicker = `${code}-${gameSuffix}`;
+          const marketsUrl = `${workerBase}/api/kalshi/markets?event=${eventTicker}`;
+          try {
+            const res = await fetch(marketsUrl);
+            const data: any = await res.json();
+            return {
+              label,
+              code,
+              event_ticker: eventTicker,
+              market_count: data.market_count || 0,
+              markets: data.markets || [],
+              success: data.success || false,
+            };
+          } catch (err: any) {
+            return { label, code, event_ticker: eventTicker, market_count: 0, markets: [], success: false, error: err.message };
+          }
+        });
+
+        const propResults = await Promise.all(propFetches);
+
+        // Build summary
+        let summary = `═══════════════════════════════════════════════════════════════\nKALSHI LIVE PROPS — ${team1Abbrev} vs ${team2Abbrev}\nGame Ticker: ${matchedGameTicker}\n═══════════════════════════════════════════════════════════════\n\n`;
+
+        for (const prop of propResults) {
+          if (!prop.success || prop.market_count === 0) {
+            summary += `${prop.label}: No markets available (${prop.event_ticker})\n\n`;
+            continue;
+          }
+
+          summary += `${prop.label.toUpperCase()} — ${prop.market_count} markets\n`;
+          summary += `─────────────────────────────────────────────────────────────\n`;
+
+          const topMarkets = prop.markets
+            .filter((m: any) => {
+              const yesAsk = parseFloat(m.yes_ask_dollars || '0');
+              return yesAsk > 0.05 && yesAsk < 0.90;
+            })
+            .slice(0, 12);
+
+          for (const market of topMarkets) {
+            const title = market.no_sub_title || market.title || 'Unknown';
+            const yesAsk = parseFloat(market.yes_ask_dollars || '0');
+            const prevPrice = parseFloat(market.previous_price_dollars || '0');
+            const lastPrice = parseFloat(market.last_price_dollars || '0');
+            const openInterest = parseFloat(market.open_interest_fp || '0');
+
+            const yesAskPct = Math.round(yesAsk * 100);
+            const noAskPct = Math.round(parseFloat(market.no_ask_dollars || '0') * 100);
+
+            let movement = '';
+            if (prevPrice > 0 && lastPrice > 0) {
+              const delta = ((lastPrice - prevPrice) / prevPrice) * 100;
+              if (Math.abs(delta) > 5) {
+                movement = delta > 0 ? ` 📈${delta.toFixed(0)}%` : ` 📉${delta.toFixed(0)}%`;
+              }
+            }
+
+            summary += `  ${title.padEnd(35)} YES ${yesAskPct}¢ / NO ${noAskPct}¢${movement}`;
+            if (openInterest > 100) summary += `  [OI: $${openInterest.toFixed(0)}]`;
+            summary += `\n`;
+          }
+
+          summary += `\n`;
+        }
+
+        summary += `═══════════════════════════════════════════════════════════════\n`;
+        summary += `NEXT STEP: Say "build tiers for ${team1Abbrev} ${team2Abbrev}" to get sharp play recommendations.\n`;
+        summary += `═══════════════════════════════════════════════════════════════\n`;
+
+        console.log('[KALSHI_PROPS_PULL] Summary generated');
+        liveContext += `\n[KALSHI_PROPS_PULL]\n${summary}`;
+
+      } catch (err: any) {
+        console.error('[KALSHI_PROPS_PULL] Error:', err.message);
+        liveContext += `\n[KALSHI_PROPS_PULL_ERROR] ${err.message}`;
+      }
+    }
+
+    // ============================================================================
+    // END KALSHI LIVE PROPS PULL HANDLER
+    // ============================================================================
+	// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
 				let searchTerms = new Set<string>([userMsg]);
 				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
 				const targetSynonyms: Record<string, string[]> = {
