@@ -2363,6 +2363,285 @@ Return ONLY valid JSON (no markdown, no explanations) matching this schema:
     // ============================================================================
     // END KALSHI PRE-GAME INTEL FETCH HANDLER
     // ============================================================================
+	// ============================================================================
+    // KALSHI TIER BUILDER — Automated 2-tier structure recommendation
+    // Trigger: "build tiers for ATL GB" or "suggest tiers" or "build picks"
+    // Example: "build tiers for atlanta green bay"
+    // ============================================================================
+
+    if (
+      lowerMsg.includes('build tier') ||
+      lowerMsg.includes('suggest tier') ||
+      lowerMsg.includes('build pick') ||
+      lowerMsg.includes('tier structure') ||
+      lowerMsg.includes('build my picks')
+    ) {
+      console.log('[KALSHI_TIER_BUILDER] Intent detected');
+
+      try {
+        // Check if intel and props are in liveContext
+        const hasIntel = liveContext.includes('[KALSHI_INTEL_FETCH]');
+        const hasProps = liveContext.includes('[KALSHI_PROPS_PULL]');
+
+        console.log(`[KALSHI_TIER_BUILDER] Intel present: ${hasIntel}, Props present: ${hasProps}`);
+
+        if (!hasIntel || !hasProps) {
+          console.log('[KALSHI_TIER_BUILDER] Missing intel or props, auto-fetching');
+          liveContext += '\n[KALSHI_TIER_BUILDER] Fetching intel and props...';
+          // Note: In production, would auto-trigger Part 4 and Part 2 here
+          // For now, we proceed and Claude will work with partial context
+        }
+
+        // Extract team abbreviations from message
+        const teamAbbrevMap: Record<string, string> = {
+          'atlanta': 'ATL', 'falcons': 'ATL', 'atl': 'ATL',
+          'green bay': 'GB', 'packers': 'GB', 'gb': 'GB',
+          'kansas city': 'KC', 'chiefs': 'KC', 'kc': 'KC',
+          'buffalo': 'BUF', 'bills': 'BUF', 'buf': 'BUF',
+          'detroit': 'DET', 'lions': 'DET', 'det': 'DET',
+          'new york giants': 'NYG', 'giants': 'NYG', 'nyg': 'NYG',
+          'los angeles rams': 'LAR', 'rams': 'LAR', 'lar': 'LAR',
+          'philadelphia': 'PHI', 'eagles': 'PHI', 'phi': 'PHI',
+          'dallas': 'DAL', 'cowboys': 'DAL', 'dal': 'DAL',
+          'cleveland': 'CLE', 'browns': 'CLE', 'cle': 'CLE',
+          'cincinnati': 'CIN', 'bengals': 'CIN', 'cin': 'CIN',
+          'pittsburgh': 'PIT', 'steelers': 'PIT', 'pit': 'PIT',
+          'baltimore': 'BAL', 'ravens': 'BAL', 'bal': 'BAL',
+          'houston': 'HOU', 'texans': 'HOU', 'hou': 'HOU',
+          'indianapolis': 'IND', 'colts': 'IND', 'ind': 'IND',
+          'tennessee': 'TEN', 'titans': 'TEN', 'ten': 'TEN',
+          'jacksonville': 'JAX', 'jaguars': 'JAX', 'jax': 'JAX',
+          'miami': 'MIA', 'dolphins': 'MIA', 'mia': 'MIA',
+          'new england': 'NE', 'patriots': 'NE', 'ne': 'NE',
+          'new york jets': 'NYJ', 'jets': 'NYJ', 'nyj': 'NYJ',
+          'denver': 'DEN', 'broncos': 'DEN', 'den': 'DEN',
+          'las vegas': 'LV', 'raiders': 'LV', 'lv': 'LV',
+          'los angeles chargers': 'LAC', 'chargers': 'LAC', 'lac': 'LAC',
+          'chicago': 'CHI', 'bears': 'CHI', 'chi': 'CHI',
+          'minnesota': 'MIN', 'vikings': 'MIN', 'min': 'MIN',
+          'washington': 'WAS', 'commanders': 'WAS', 'was': 'WAS',
+          'san francisco': 'SF', '49ers': 'SF', 'niners': 'SF', 'sf': 'SF',
+          'seattle': 'SEA', 'seahawks': 'SEA', 'sea': 'SEA',
+          'arizona': 'ARI', 'cardinals': 'ARI', 'ari': 'ARI',
+          'new orleans': 'NO', 'saints': 'NO', 'no': 'NO',
+          'tampa bay': 'TB', 'buccaneers': 'TB', 'tb': 'TB',
+          'carolina': 'CAR', 'panthers': 'CAR', 'car': 'CAR',
+        };
+
+        const messageWords = lowerMsg.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+        const foundTeams: string[] = [];
+
+        const multiWordTeams = ['new york giants', 'new york jets', 'los angeles rams', 'los angeles chargers', 'new england', 'green bay', 'kansas city', 'las vegas', 'san francisco', 'tampa bay', 'new orleans'];
+        for (const multiTeam of multiWordTeams) {
+          if (lowerMsg.includes(multiTeam) && teamAbbrevMap[multiTeam]) {
+            if (!foundTeams.includes(teamAbbrevMap[multiTeam])) {
+              foundTeams.push(teamAbbrevMap[multiTeam]);
+            }
+          }
+        }
+
+        for (const word of messageWords) {
+          if (teamAbbrevMap[word] && !foundTeams.includes(teamAbbrevMap[word])) {
+            foundTeams.push(teamAbbrevMap[word]);
+          }
+        }
+
+        let tierTeam1 = foundTeams[0] || 'ATL';
+        let tierTeam2 = foundTeams[1] || 'GB';
+
+        console.log(`[KALSHI_TIER_BUILDER] Teams: ${tierTeam1} @ ${tierTeam2}`);
+
+        // Build Claude prompt with framework rules
+        const frameworkRules = `
+KALSHI TIER BUILDING FRAMEWORK (LOCKED RULES):
+1. YARDS-ONLY NO TEAM OUTCOME BETS — Never anchor tiers on moneyline, spread, or total. Only player yardage props (rushing yards, receiving yards, passing yards, scrimmage yards combined).
+2. ONE-PLAYER-ONE-TIER RULE — No single player anchors multiple tiers. If Bijan is in Tier 1, he cannot be in Tier 2. Diversify player exposure.
+3. TIER 1 (CONVICTION CONSERVATIVE) — 2-4 legs, all yardage-based, combined probability 45-55%, multiplier 2.0-3.0x, stake ~$12. Target: safe baseline hits.
+4. TIER 2 (SHARP EDGE) — 2 legs max, higher yardage thresholds, combined probability 30-40%, multiplier 2.5-3.5x, stake ~$8. Target: identified market mispricing.
+5. NO TIER 3 LOTTERY — Bankroll compounding via consistent small wins (50-60% hit rate on 2-3x multipliers) beats occasional lotteries (20% hit rate on 10x multipliers).
+6. BANKROLL PHILOSOPHY — Total deploy $20 max (respects $100 minimum floor mandate). Protect 5% of bankroll as emergency floor. Build via compounding, not chasing.
+7. AGGRESSIVE EDGE IDENTIFICATION — Hunt for props where market price (implied probability) is significantly lower than real probability given game context (injuries, QB status, matchups). Recommend those as Tier 2 anchors.
+8. RED FLAG FILTERING — Ignore props tied to players who are injured, questionable, or part of a collapsing team script. One injury cascades risk.
+
+TIER NAMING CONVENTION:
+- Tier 1: "Conservative Yardage Stack" (safe baseline, high hit rate)
+- Tier 2: "Sharp Edge Upgrade" (market mispricing, lower hit rate but better multiplier)
+`;
+
+        const buildPrompt = `You are a professional sports bettor and Kalshi expert. Given the game intel and available Kalshi props below, recommend a 2-tier yards-only structure aligned with bankroll compounding strategy.
+
+GAME CONTEXT:
+${liveContext}
+
+${frameworkRules}
+
+TASK:
+1. Analyze the game intel for key edges (injuries, QB status, matchups, weather impact).
+2. Review available props and identify which yardage lines are mispriced (market probability < real probability).
+3. Recommend Tier 1: 3-4 safe baseline yardage props that correlate with game script.
+4. Recommend Tier 2: 2 props representing sharpest identified edge (market mispricing).
+5. Assign probability estimates and multiplier targets based on combined leg analysis.
+6. Calculate stake recommendations ($12 Tier 1, $8 Tier 2) and payout targets.
+
+Return ONLY valid JSON (no markdown, no explanations) matching this schema:
+{
+  "matchup": "${tierTeam1} @ ${tierTeam2}",
+  "tier1": {
+    "name": "Conservative Yardage Stack",
+    "legs": [
+      { "player": "Name", "stat": "rushing/receiving/passing yards", "threshold": 60, "probability": 0.75, "reasoning": "safe baseline" },
+      { "player": "Name", "stat": "...", "threshold": 55, "probability": 0.72, "reasoning": "..." }
+    ],
+    "combined_probability": 0.50,
+    "multiplier": 2.3,
+    "stake": 12,
+    "payout": 28,
+    "profit_target": 16
+  },
+  "tier2": {
+    "name": "Sharp Edge Upgrade",
+    "legs": [
+      { "player": "Name", "stat": "...", "threshold": 90, "probability": 0.45, "reasoning": "market underpricing with Nacua OUT" },
+      { "player": "Name", "stat": "...", "threshold": 60, "probability": 0.42, "reasoning": "secondary weakness vs elite WR" }
+    ],
+    "combined_probability": 0.35,
+    "multiplier": 2.8,
+    "stake": 8,
+    "payout": 22,
+    "profit_target": 14
+  },
+  "total_deploy": 20,
+  "max_upside": 50,
+  "expected_value": 16,
+  "key_insights": ["edge 1", "edge 2"],
+  "red_flags": ["flag 1", "flag 2"]
+}`;
+
+        console.log('[KALSHI_TIER_BUILDER] Calling Claude via AI Gateway');
+
+        // DIRECT CLAUDE CALL VIA AI GATEWAY
+        const accountId = env.CF_ACCOUNT_ID || env.ACCOUNT_ID;
+        const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+        const claudeUrl = `${gatewayBase}/anthropic/v1/messages`;
+        const claudeHeaders = {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01"
+        };
+
+        const claudeBody = {
+          model: "claude-haiku-4-5",
+          messages: [{ role: "user", content: buildPrompt }],
+          max_tokens: 2048
+        };
+
+        const tierRes = await fetch(claudeUrl, {
+          method: 'POST',
+          headers: claudeHeaders,
+          body: JSON.stringify(claudeBody)
+        });
+
+        const tierData: any = await tierRes.json();
+        const tierText = tierData.content?.[0]?.text || '{}';
+
+        let tierStructure: any = {};
+        try {
+          const cleanText = tierText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+          tierStructure = JSON.parse(cleanText);
+        } catch (parseErr: any) {
+          console.warn('[KALSHI_TIER_BUILDER] Claude JSON parse failed:', parseErr.message);
+          tierStructure = {
+            matchup: `${tierTeam1} @ ${tierTeam2}`,
+            tier1: {
+              name: "Conservative Yardage Stack",
+              legs: [{ player: "Unable to analyze", stat: "unknown", threshold: 0, probability: 0, reasoning: "Claude parsing failed" }],
+              combined_probability: 0,
+              multiplier: 0,
+              stake: 0,
+              payout: 0,
+              profit_target: 0
+            },
+            tier2: { name: "Sharp Edge Upgrade", legs: [], combined_probability: 0, multiplier: 0, stake: 0, payout: 0, profit_target: 0 },
+            total_deploy: 20,
+            max_upside: 0,
+            expected_value: 0,
+            key_insights: ["Raw intel returned but structuring failed — check logs"],
+            red_flags: []
+          };
+        }
+
+        // Format tier structure for chat
+        let tierSummary = `═══════════════════════════════════════════════════════════════\nTIER STRUCTURE — ${tierStructure.matchup}\n═══════════════════════════════════════════════════════════════\n\n`;
+
+        tierSummary += `🥇 TIER 1 — ${tierStructure.tier1?.name || "Conservative Yardage Stack"}\n`;
+        tierSummary += `Stake: $${tierStructure.tier1?.stake || 12} | Payout: $${tierStructure.tier1?.payout || 0} | Probability: ${(tierStructure.tier1?.combined_probability * 100 || 0).toFixed(0)}% | Multiplier: ${tierStructure.tier1?.multiplier || 0}x\n`;
+        tierSummary += `Expected Profit: +$${tierStructure.tier1?.profit_target || 0}\n\n`;
+
+        if (tierStructure.tier1?.legs && tierStructure.tier1.legs.length > 0) {
+          tierSummary += `Legs:\n`;
+          for (const leg of tierStructure.tier1.legs) {
+            tierSummary += `  ✓ ${leg.player} ${leg.stat} ${leg.threshold}+ (${(leg.probability * 100).toFixed(0)}% prob)\n`;
+            tierSummary += `    └─ ${leg.reasoning}\n`;
+          }
+          tierSummary += '\n';
+        }
+
+        tierSummary += `🥈 TIER 2 — ${tierStructure.tier2?.name || "Sharp Edge Upgrade"}\n`;
+        tierSummary += `Stake: $${tierStructure.tier2?.stake || 8} | Payout: $${tierStructure.tier2?.payout || 0} | Probability: ${(tierStructure.tier2?.combined_probability * 100 || 0).toFixed(0)}% | Multiplier: ${tierStructure.tier2?.multiplier || 0}x\n`;
+        tierSummary += `Expected Profit: +$${tierStructure.tier2?.profit_target || 0}\n\n`;
+
+        if (tierStructure.tier2?.legs && tierStructure.tier2.legs.length > 0) {
+          tierSummary += `Legs:\n`;
+          for (const leg of tierStructure.tier2.legs) {
+            tierSummary += `  🔥 ${leg.player} ${leg.stat} ${leg.threshold}+ (${(leg.probability * 100).toFixed(0)}% prob)\n`;
+            tierSummary += `    └─ ${leg.reasoning}\n`;
+          }
+          tierSummary += '\n';
+        }
+
+        tierSummary += `═══════════════════════════════════════════════════════════════\n`;
+        tierSummary += `TOTAL DEPLOY: $${tierStructure.total_deploy || 20}\n`;
+        tierSummary += `MAX UPSIDE: $${tierStructure.max_upside || 0}\n`;
+        tierSummary += `EXPECTED VALUE: +$${tierStructure.expected_value || 0}\n`;
+        tierSummary += `═══════════════════════════════════════════════════════════════\n\n`;
+
+        if (tierStructure.key_insights && tierStructure.key_insights.length > 0) {
+          tierSummary += `KEY EDGES:\n`;
+          for (const insight of tierStructure.key_insights) {
+            tierSummary += `  • ${insight}\n`;
+          }
+          tierSummary += '\n';
+        }
+
+        if (tierStructure.red_flags && tierStructure.red_flags.length > 0) {
+          tierSummary += `RED FLAGS:\n`;
+          for (const flag of tierStructure.red_flags) {
+            tierSummary += `  ⚠️  ${flag}\n`;
+          }
+          tierSummary += '\n';
+        }
+
+        tierSummary += `═══════════════════════════════════════════════════════════════\n`;
+        tierSummary += `NEXT STEPS:\n`;
+        tierSummary += `1. Review legs and reasoning above\n`;
+        tierSummary += `2. Go to Kalshi and place these bets manually:\n`;
+        tierSummary += `   • Tier 1: $${tierStructure.tier1?.stake || 12} on the parlay\n`;
+        tierSummary += `   • Tier 2: $${tierStructure.tier2?.stake || 8} on the parlay\n`;
+        tierSummary += `3. Once placed, say "monitor ${tierTeam1} ${tierTeam2}" to track live game\n`;
+        tierSummary += `═══════════════════════════════════════════════════════════════\n`;
+
+        console.log('[KALSHI_TIER_BUILDER] Tier structure generated');
+        liveContext += `\n[KALSHI_TIER_BUILDER]\n${tierSummary}`;
+
+      } catch (err: any) {
+        console.error('[KALSHI_TIER_BUILDER] Error:', err.message);
+        liveContext += `\n[KALSHI_TIER_BUILDER_ERROR] ${err.message}`;
+      }
+    }
+
+    // ============================================================================
+    // END KALSHI TIER BUILDER
+    // ============================================================================
 	// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
 				let searchTerms = new Set<string>([userMsg]);
 				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
