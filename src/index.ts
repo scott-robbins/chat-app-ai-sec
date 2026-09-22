@@ -2101,9 +2101,248 @@ Say: "Make my buys. Budget: $XX"
         liveContext += `\n[KALSHI_PROPS_PULL_ERROR] ${err.message}`;
       }
     }
-
     // ============================================================================
     // END KALSHI LIVE PROPS PULL HANDLER
+    // ============================================================================
+	
+	// ============================================================================
+    // KALSHI PRE-GAME INTEL FETCH — Multi-source Tavily fusion for game context
+    // Trigger: "pull intel for ATL GB" or "get intel" or "game intel"
+    // Example: "pull intel for atlanta green bay"
+    // ============================================================================
+
+    if (
+      lowerMsg.includes('pull intel') ||
+      lowerMsg.includes('get intel') ||
+      lowerMsg.includes('game intel') ||
+      lowerMsg.includes('tnf intel')
+    ) {
+      console.log('[KALSHI_INTEL_FETCH] Intent detected');
+
+      try {
+        // Team abbreviation map — match user input to standardized abbreviations
+        const teamAbbrevMap: Record<string, string> = {
+          'atlanta': 'ATL', 'falcons': 'ATL', 'atl': 'ATL',
+          'green bay': 'GB', 'packers': 'GB', 'gb': 'GB',
+          'kansas city': 'KC', 'chiefs': 'KC', 'kc': 'KC',
+          'buffalo': 'BUF', 'bills': 'BUF', 'buf': 'BUF',
+          'detroit': 'DET', 'lions': 'DET', 'det': 'DET',
+          'new york giants': 'NYG', 'giants': 'NYG', 'nyg': 'NYG',
+          'los angeles rams': 'LAR', 'rams': 'LAR', 'lar': 'LAR',
+          'philadelphia': 'PHI', 'eagles': 'PHI', 'phi': 'PHI',
+          'dallas': 'DAL', 'cowboys': 'DAL', 'dal': 'DAL',
+          'cleveland': 'CLE', 'browns': 'CLE', 'cle': 'CLE',
+          'cincinnati': 'CIN', 'bengals': 'CIN', 'cin': 'CIN',
+          'pittsburgh': 'PIT', 'steelers': 'PIT', 'pit': 'PIT',
+          'baltimore': 'BAL', 'ravens': 'BAL', 'bal': 'BAL',
+          'houston': 'HOU', 'texans': 'HOU', 'hou': 'HOU',
+          'indianapolis': 'IND', 'colts': 'IND', 'ind': 'IND',
+          'tennessee': 'TEN', 'titans': 'TEN', 'ten': 'TEN',
+          'jacksonville': 'JAX', 'jaguars': 'JAX', 'jax': 'JAX',
+          'miami': 'MIA', 'dolphins': 'MIA', 'mia': 'MIA',
+          'new england': 'NE', 'patriots': 'NE', 'ne': 'NE',
+          'new york jets': 'NYJ', 'jets': 'NYJ', 'nyj': 'NYJ',
+          'denver': 'DEN', 'broncos': 'DEN', 'den': 'DEN',
+          'las vegas': 'LV', 'raiders': 'LV', 'lv': 'LV',
+          'los angeles chargers': 'LAC', 'chargers': 'LAC', 'lac': 'LAC',
+          'chicago': 'CHI', 'bears': 'CHI', 'chi': 'CHI',
+          'minnesota': 'MIN', 'vikings': 'MIN', 'min': 'MIN',
+          'washington': 'WAS', 'commanders': 'WAS', 'was': 'WAS',
+          'san francisco': 'SF', '49ers': 'SF', 'niners': 'SF', 'sf': 'SF',
+          'seattle': 'SEA', 'seahawks': 'SEA', 'sea': 'SEA',
+          'arizona': 'ARI', 'cardinals': 'ARI', 'ari': 'ARI',
+          'new orleans': 'NO', 'saints': 'NO', 'no': 'NO',
+          'tampa bay': 'TB', 'buccaneers': 'TB', 'tb': 'TB',
+          'carolina': 'CAR', 'panthers': 'CAR', 'car': 'CAR',
+        };
+
+        // Extract team names from user message
+        const messageWords = lowerMsg.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+        const foundTeams: string[] = [];
+
+        // Try multi-word team names first
+        const multiWordTeams = ['new york giants', 'new york jets', 'los angeles rams', 'los angeles chargers', 'new england', 'green bay', 'kansas city', 'las vegas', 'san francisco', 'tampa bay', 'new orleans'];
+        for (const multiTeam of multiWordTeams) {
+          if (lowerMsg.includes(multiTeam) && teamAbbrevMap[multiTeam]) {
+            if (!foundTeams.includes(teamAbbrevMap[multiTeam])) {
+              foundTeams.push(teamAbbrevMap[multiTeam]);
+            }
+          }
+        }
+
+        // Then single-word abbreviations and city names
+        for (const word of messageWords) {
+          if (teamAbbrevMap[word] && !foundTeams.includes(teamAbbrevMap[word])) {
+            foundTeams.push(teamAbbrevMap[word]);
+          }
+        }
+
+        // If no explicit teams found, look for "tnf" or "snf" or "mnf" to infer game
+        let intelTeam1 = foundTeams[0] || null;
+        let intelTeam2 = foundTeams[1] || null;
+
+        if (!intelTeam1 || !intelTeam2) {
+          // Default to upcoming Thursday game (ATL @ GB for Week 3)
+          if (lowerMsg.includes('tnf') || (lowerMsg.includes('thursday') && !intelTeam1)) {
+            intelTeam1 = 'ATL';
+            intelTeam2 = 'GB';
+            console.log('[KALSHI_INTEL_FETCH] Defaulting to TNF ATL @ GB');
+          } else {
+            throw new Error(`Could not identify two teams. Try: "pull intel for ATL GB" or "tnf intel"`);
+          }
+        }
+
+        console.log(`[KALSHI_INTEL_FETCH] Teams identified: ${intelTeam1} @ ${intelTeam2}`);
+
+        const workerBase = new URL(request.url).origin;
+
+        // Fetch raw intel from Tavily via 4 parallel queries
+        const intelQueries = [
+          { key: 'injuries', query: `${intelTeam1} ${intelTeam2} Week 3 2026 injury report NFL` },
+          { key: 'qb_status', query: `${intelTeam1} starting QB Week 3 2026 status` },
+          { key: 'weather', query: `${intelTeam2} stadium weather forecast September 24 2026 game time` },
+          { key: 'vegas_line', query: `${intelTeam1} vs ${intelTeam2} Vegas spread line September 24 2026` },
+        ];
+
+        const intelFetches = intelQueries.map(async ({ key, query }) => {
+          try {
+            const tavilyUrl = `${workerBase}/api/tavily/search?query=${encodeURIComponent(query)}&max_results=3`;
+            const res = await fetch(tavilyUrl);
+            const data: any = await res.json();
+            return {
+              key,
+              raw_results: data.results || [],
+              success: data.success || false,
+            };
+          } catch (err: any) {
+            return { key, raw_results: [], success: false, error: err.message };
+          }
+        });
+
+        const intelResults = await Promise.all(intelFetches);
+
+        // Assemble raw intel blob and structure via Claude
+        let intelBlob = `Game: ${intelTeam1} @ ${intelTeam2} Week 3 2026\n\n`;
+
+        for (const result of intelResults) {
+          if (result.success && result.raw_results.length > 0) {
+            intelBlob += `=== ${result.key.toUpperCase()} ===\n`;
+            for (const item of result.raw_results) {
+              intelBlob += `${item.title || 'Source'}: ${item.content || item.snippet || ''}\n`;
+            }
+            intelBlob += '\n';
+          }
+        }
+
+        console.log('[KALSHI_INTEL_FETCH] Raw intel assembled, structuring via Claude');
+
+        // Call Claude to structure raw intel into game analysis JSON
+        const structurePrompt = `You are an NFL analyst. Given the raw intel below, extract and structure the game context into JSON format.
+
+Raw Intel:
+${intelBlob}
+
+Return ONLY valid JSON (no markdown, no explanations) matching this schema:
+{
+  "injuries": {
+    "home": [{ "player": "Name", "position": "POS", "status": "OUT/QUESTIONABLE/DOUBTFUL", "detail": "reason" }],
+    "away": [{ "player": "Name", "position": "POS", "status": "OUT/QUESTIONABLE/DOUBTFUL", "detail": "reason" }]
+  },
+  "qb_status": { "home": "Name (health note)", "away": "Name (health note)" },
+  "weather": "temp (F), wind, conditions",
+  "line": { "spread": "GB -6.5", "total": 47.5, "movement": "stable/shifting" },
+  "key_edges": ["edge 1", "edge 2", "edge 3"],
+  "red_flags": ["flag 1", "flag 2"]
+}`;
+
+        const claudeRes = await fetch(`${workerBase}/api/claude/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-3-5-haiku-20241022',
+            max_tokens: 1024,
+            messages: [{ role: 'user', content: structurePrompt }],
+          }),
+        });
+
+        const claudeData: any = await claudeRes.json();
+        const structuredIntelText = claudeData.content?.[0]?.text || '{}';
+
+        // Parse Claude's JSON response
+        let structuredIntel: any = {};
+        try {
+          structuredIntel = JSON.parse(structuredIntelText);
+        } catch (parseErr: any) {
+          console.warn('[KALSHI_INTEL_FETCH] Claude JSON parse failed, using raw blob');
+          structuredIntel = {
+            injuries: { home: [], away: [] },
+            qb_status: { home: 'Unknown', away: 'Unknown' },
+            weather: 'Unknown',
+            line: { spread: 'Unknown', total: 0, movement: 'unknown' },
+            key_edges: [],
+            red_flags: [],
+          };
+        }
+
+        // Build formatted summary for chat
+        let summary = `═══════════════════════════════════════════════════════════════\nPRE-GAME INTEL — ${intelTeam1} @ ${intelTeam2} (Week 3, Thu Sep 24)\n═══════════════════════════════════════════════════════════════\n\n`;
+
+        summary += `MATCHUP: ${intelTeam1} @ ${intelTeam2}\n`;
+        summary += `SPREAD: ${structuredIntel.line?.spread || 'TBD'}\n`;
+        summary += `TOTAL: ${structuredIntel.line?.total || 'TBD'}\n`;
+        summary += `WEATHER: ${structuredIntel.weather || 'TBD'}\n\n`;
+
+        summary += `STARTING QBs:\n`;
+        summary += `  Home (${intelTeam2}): ${structuredIntel.qb_status?.home || 'Unknown'}\n`;
+        summary += `  Away (${intelTeam1}): ${structuredIntel.qb_status?.away || 'Unknown'}\n\n`;
+
+        if (structuredIntel.injuries?.away?.length > 0) {
+          summary += `AWAY INJURIES (${intelTeam1}):\n`;
+          for (const inj of structuredIntel.injuries.away) {
+            summary += `  ${inj.player} (${inj.position}) — ${inj.status}: ${inj.detail}\n`;
+          }
+          summary += '\n';
+        }
+
+        if (structuredIntel.injuries?.home?.length > 0) {
+          summary += `HOME INJURIES (${intelTeam2}):\n`;
+          for (const inj of structuredIntel.injuries.home) {
+            summary += `  ${inj.player} (${inj.position}) — ${inj.status}: ${inj.detail}\n`;
+          }
+          summary += '\n';
+        }
+
+        if (structuredIntel.key_edges?.length > 0) {
+          summary += `KEY EDGES:\n`;
+          for (const edge of structuredIntel.key_edges) {
+            summary += `  • ${edge}\n`;
+          }
+          summary += '\n';
+        }
+
+        if (structuredIntel.red_flags?.length > 0) {
+          summary += `RED FLAGS:\n`;
+          for (const flag of structuredIntel.red_flags) {
+            summary += `  ⚠️  ${flag}\n`;
+          }
+          summary += '\n';
+        }
+
+        summary += `═══════════════════════════════════════════════════════════════\n`;
+        summary += `NEXT STEP: Say "pull props for ${intelTeam1} ${intelTeam2}" to get live Kalshi pricing.\n`;
+        summary += `═══════════════════════════════════════════════════════════════\n`;
+
+        console.log('[KALSHI_INTEL_FETCH] Summary generated');
+        liveContext += `\n[KALSHI_INTEL_FETCH]\n${summary}`;
+
+      } catch (err: any) {
+        console.error('[KALSHI_INTEL_FETCH] Error:', err.message);
+        liveContext += `\n[KALSHI_INTEL_FETCH_ERROR] ${err.message}`;
+      }
+    }
+
+    // ============================================================================
+    // END KALSHI PRE-GAME INTEL FETCH HANDLER
     // ============================================================================
 	// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
 				let searchTerms = new Set<string>([userMsg]);
