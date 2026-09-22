@@ -826,21 +826,20 @@ export class ChatSession extends DurableObject<Env> {
     }
 	 // ============================================================================
     // KALSHI EVENTS DISCOVERY — List upcoming NFL events with tickers
-    // GET https://chat.jolenesego.com/api/kalshi/events?sport=nfl
+    // GET https://chat.jolenesego.com/api/kalshi/events?series=KXNFLGAME
     // ============================================================================
     if (url.pathname === "/api/kalshi/events" && request.method === "GET") {
       try {
         const { signKalshiRequest } = await import("./kalshi-auth");
         
-        const sport = url.searchParams.get("sport") || "nfl";
-        const seriesTicker = sport.toLowerCase() === "nfl" ? "KXNFLGAME" : "";
+        const seriesTicker = url.searchParams.get("series") || "KXNFLGAME";
         
         const baseUrl = "https://api.elections.kalshi.com";
         const path = `/trade-api/v2/events?series_ticker=${seriesTicker}&status=open&limit=50`;
         
         const kalshiHeaders = await signKalshiRequest(this.env, "GET", path);
         
-        console.log("[KALSHI EVENTS] Fetching:", { sport, path });
+        console.log("[KALSHI EVENTS] Fetching:", { seriesTicker, path });
         
         const kalshiResponse = await fetch(baseUrl + path, {
           method: "GET",
@@ -879,10 +878,10 @@ export class ChatSession extends DurableObject<Env> {
         }));
         
         return new Response(
-          JSON.stringify({
-            success: true,
-            sport: sport,
-            event_count: simplifiedEvents.length,
+			JSON.stringify({
+				success: true,
+				series: seriesTicker,
+				event_count: simplifiedEvents.length,
             events: simplifiedEvents,
             cursor: data.cursor || null,
           }, null, 2),
@@ -949,25 +948,13 @@ export class ChatSession extends DurableObject<Env> {
         
         const data = JSON.parse(responseText);
         
-        // Simplify markets for easier consumption
+       // Simplify markets for easier consumption — return raw + computed convenience fields
         const simplifiedMarkets = (data.markets || []).map((market: any) => ({
-          ticker: market.ticker,
-          event_ticker: market.event_ticker,
-          title: market.title,
-          subtitle: market.subtitle,
-          yes_bid: market.yes_bid,
-          yes_ask: market.yes_ask,
-          no_bid: market.no_bid,
-          no_ask: market.no_ask,
-          last_price: market.last_price,
-          implied_probability_yes: market.yes_ask,
-          implied_probability_no: market.no_ask,
-          volume: market.volume,
-          volume_24h: market.volume_24h,
-          open_interest: market.open_interest,
-          status: market.status,
-          can_close_early: market.can_close_early,
-          expiration_time: market.expiration_time,
+          // Return the raw market object AS-IS so we see ALL fields Kalshi sends
+          ...market,
+          // Add computed convenience fields
+          implied_probability_yes_pct: market.yes_ask ? Math.round(market.yes_ask) : null,
+          implied_probability_no_pct: market.no_ask ? Math.round(market.no_ask) : null,
         }));
         
         return new Response(
