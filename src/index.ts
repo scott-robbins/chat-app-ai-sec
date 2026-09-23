@@ -2453,19 +2453,99 @@ Return ONLY valid JSON (no markdown, no explanations) matching this schema:
 
         // Build Claude prompt with framework rules
         const frameworkRules = `
-KALSHI TIER BUILDING FRAMEWORK (LOCKED RULES):
-1. YARDS-ONLY NO TEAM OUTCOME BETS — Never anchor tiers on moneyline, spread, or total. Only player yardage props (rushing yards, receiving yards, passing yards, scrimmage yards combined).
-2. ONE-PLAYER-ONE-TIER RULE — No single player anchors multiple tiers. If Bijan is in Tier 1, he cannot be in Tier 2. Diversify player exposure.
-3. TIER 1 (CONVICTION CONSERVATIVE) — 2-4 legs, all yardage-based, combined probability 45-55%, multiplier 2.0-3.0x, stake ~$12. Target: safe baseline hits.
-4. TIER 2 (SHARP EDGE) — 2 legs max, higher yardage thresholds, combined probability 30-40%, multiplier 2.5-3.5x, stake ~$8. Target: identified market mispricing.
-5. NO TIER 3 LOTTERY — Bankroll compounding via consistent small wins (50-60% hit rate on 2-3x multipliers) beats occasional lotteries (20% hit rate on 10x multipliers).
-6. BANKROLL PHILOSOPHY — Total deploy $20 max (respects $100 minimum floor mandate). Protect 5% of bankroll as emergency floor. Build via compounding, not chasing.
-7. AGGRESSIVE EDGE IDENTIFICATION — Hunt for props where market price (implied probability) is significantly lower than real probability given game context (injuries, QB status, matchups). Recommend those as Tier 2 anchors.
-8. RED FLAG FILTERING — Ignore props tied to players who are injured, questionable, or part of a collapsing team script. One injury cascades risk.
+KALSHI TIER BUILDING FRAMEWORK (SEPTEMBER 23 2026 DUAL-PROTOCOL UPDATE):
+
+CORE PHILOSOPHY: Balanced discipline. Not too conservative, not too aggressive. Tier 1 + Tier 2 should hit MOST weeks via logical deduction from injuries/matchups/game script. Tier 3 is disciplined structure — either third conservative tier for single-game or cross-game lottery for Sunday slates.
+
+GAME CONTEXT DETECTION: Determine protocol based on gameContext parameter:
+- "single_game" = TNF, SNF, MNF, or standalone night game
+- "sunday_slate" = Sunday 1pm or 4pm multi-game window with 4+ concurrent games
+
+═══════════════════════════════════════════════════════════════
+SINGLE-GAME PROTOCOL (TNF / SNF / MNF)
+═══════════════════════════════════════════════════════════════
+
+TIER 1 (CONSERVATIVE ANCHOR):
+- 3 legs, all yardage-based
+- Combined probability: 35-45%
+- Multiplier: 2.5-3x
+- Stake: $15
+- Target payout: ~$45 (+$30 profit)
+- Purpose: Safe baseline via logical deduction (proven volume, matchup edge, game script correlation)
+
+TIER 2 (SHARP EDGE):
+- 3 legs, all yardage-based, DIFFERENT PLAYERS from Tier 1
+- Combined probability: 30-35%
+- Multiplier: 2.5-3x
+- Stake: $15
+- Target payout: ~$45 (+$30 profit)
+- Purpose: Capture market mispricing via injury/matchup edges
+
+TIER 3 (CONSERVATIVE THIRD):
+- 4 legs, all yardage-based
+- Combined probability: 20-25%
+- Multiplier: 3-4x
+- Stake: $10
+- Target payout: ~$40 (+$30 profit)
+- Purpose: Third conservative shot for compounding wins
+- PLAYER OVERLAP: May share ONE player max with Tier 1 OR Tier 2 (not both). Never share players with BOTH Tier 1 AND Tier 2 simultaneously.
+
+SINGLE-GAME PLAYER OVERLAP RULE: Any player can appear in maximum 2 tiers total. Never all 3 tiers. Prevents single-injury cascading all three tiers (Monday MNF Jackson Dart lesson).
+
+TOTAL SINGLE-GAME DEPLOY: $40. Max profit if all three hit: ~$90.
+
+═══════════════════════════════════════════════════════════════
+SUNDAY MULTI-GAME PROTOCOL (1pm / 4pm slates)
+═══════════════════════════════════════════════════════════════
+
+TIER 1 (CONSERVATIVE ANCHOR):
+- 3 legs, all yardage-based, single-game OR cross-game acceptable
+- Combined probability: 35-45%
+- Multiplier: 2.5-3x
+- Stake: $15
+- Target payout: ~$45 (+$30 profit)
+
+TIER 2 (SHARP EDGE):
+- 3 legs, all yardage-based, single-game OR cross-game acceptable
+- STRICT UNIQUE PLAYERS from Tier 1 (zero overlap)
+- Combined probability: 30-35%
+- Multiplier: 2.5-3x
+- Stake: $15
+- Target payout: ~$45 (+$30 profit)
+
+TIER 3 (CROSS-SLATE LOTTERY):
+- 4-5 legs, all yardage-based
+- REQUIRED: Cross-game construction — legs must come from 4-5 DIFFERENT games in the slate
+- STRICT UNIQUE PLAYERS from Tier 1 AND Tier 2 (zero overlap with any prior tier)
+- Combined probability: 12-18%
+- Multiplier: 6-8x
+- Stake: $10
+- Target payout: ~$70-100 (+$60-90 profit)
+- Purpose: Diversified lottery that avoids single-game/single-player cascade risk
+
+SUNDAY PLAYER OVERLAP RULE: STRICT unique players across ALL three tiers within same slate window. No player appears in more than one tier.
+
+TOTAL PER SUNDAY WINDOW: $40. Total Sunday deploy across 1pm + 4pm: $80.
+
+═══════════════════════════════════════════════════════════════
+UNIVERSAL RULES (BOTH PROTOCOLS)
+═══════════════════════════════════════════════════════════════
+
+1. YARDS-ONLY: Rushing yards, receiving yards, passing yards, or scrimmage yards combined. NO team outcomes (moneyline, spread, totals). NO touchdowns.
+
+2. LOGICAL DEDUCTION REQUIRED: Every leg must have a clear WHY answer in the reasoning field. Injury benefit, matchup edge, guaranteed volume in game script, or identified market mispricing. No gut picks, no vibes.
+
+3. RED FLAG FILTERING: Skip questionable or injured players as anchors. If a player is designated QUESTIONABLE or DOUBTFUL, do not use them as a Tier 1 leg. May use in Tier 3 lottery only.
+
+4. AGGRESSIVE EDGE IDENTIFICATION: Hunt for props where market implied probability is significantly lower than real probability given game context. Deploy those edges in Tier 2 or Tier 3.
+
+5. BACARDI DISCIPLINE: Framework produces recommendations only. Stakes are LOCKED at $15/$15/$10. No mid-strategy bumps. No stake changes based on recent wins.
+
+6. BANKROLL FLOOR: Never deploy more than $40 per game/window regardless of confidence. Never scale up mid-week based on recent wins (recency bias trap).
 
 TIER NAMING CONVENTION:
-- Tier 1: "Conservative Yardage Stack" (safe baseline, high hit rate)
-- Tier 2: "Sharp Edge Upgrade" (market mispricing, lower hit rate but better multiplier)
+- Single-game: Tier 1 "Conservative Anchor" | Tier 2 "Sharp Edge" | Tier 3 "Conservative Third"
+- Sunday slate: Tier 1 "Conservative Anchor" | Tier 2 "Sharp Edge" | Tier 3 "Cross-Slate Lottery"
 `;
 
         const buildPrompt = `You are a professional sports bettor and Kalshi expert. Given the game intel and available Kalshi props below, recommend a 2-tier yards-only structure aligned with bankroll compounding strategy.
@@ -2476,44 +2556,69 @@ ${liveContext}
 ${frameworkRules}
 
 TASK:
-1. Analyze the game intel for key edges (injuries, QB status, matchups, weather impact).
-2. Review available props and identify which yardage lines are mispriced (market probability < real probability).
-3. Recommend Tier 1: 3-4 safe baseline yardage props that correlate with game script.
-4. Recommend Tier 2: 2 props representing sharpest identified edge (market mispricing).
-5. Assign probability estimates and multiplier targets based on combined leg analysis.
-6. Calculate stake recommendations ($12 Tier 1, $8 Tier 2) and payout targets.
+Analyze the live intel and props data above, then construct a three-tier betting recommendation following the dual-protocol framework rules.
+
+FIRST determine the gameContext:
+- If liveContext references a single game (TNF/SNF/MNF or standalone night game), use SINGLE-GAME PROTOCOL
+- If liveContext references multiple concurrent games (Sunday 1pm slate or 4pm slate with 4+ games), use SUNDAY MULTI-GAME PROTOCOL
+
+Then construct three tiers per the protocol rules:
+- Tier 1: Conservative Anchor ($15, 3 legs)
+- Tier 2: Sharp Edge ($15, 3 legs, different players from Tier 1)
+- Tier 3: Conservative Third (single-game, $10, 4 legs) OR Cross-Slate Lottery (Sunday, $10, 4-5 legs across 4+ different games)
+
+Enforce all player overlap rules per protocol. Every leg must include clear WHY reasoning.
 
 Return ONLY valid JSON (no markdown, no explanations) matching this schema:
 {
   "matchup": "${tierTeam1} @ ${tierTeam2}",
+  "gameContext": "single_game" | "sunday_slate",
+  "protocol": "SINGLE-GAME PROTOCOL" | "SUNDAY MULTI-GAME PROTOCOL",
   "tier1": {
-    "name": "Conservative Yardage Stack",
+    "name": "Conservative Anchor",
     "legs": [
-      { "player": "Name", "stat": "rushing/receiving/passing yards", "threshold": 60, "probability": 0.75, "reasoning": "safe baseline" },
-      { "player": "Name", "stat": "...", "threshold": 55, "probability": 0.72, "reasoning": "..." }
+      { "player": "Name", "stat": "rushing/receiving/passing yards", "threshold": 60, "probability": 0.75, "reasoning": "safe baseline via game script" },
+      { "player": "Name", "stat": "...", "threshold": 55, "probability": 0.72, "reasoning": "..." },
+      { "player": "Name", "stat": "...", "threshold": 40, "probability": 0.68, "reasoning": "..." }
     ],
-    "combined_probability": 0.50,
-    "multiplier": 2.3,
-    "stake": 12,
-    "payout": 28,
-    "profit_target": 16
+    "combined_probability": 0.40,
+    "multiplier": 2.7,
+    "stake": 15,
+    "payout": 45,
+    "profit_target": 30
   },
   "tier2": {
-    "name": "Sharp Edge Upgrade",
+    "name": "Sharp Edge",
     "legs": [
-      { "player": "Name", "stat": "...", "threshold": 90, "probability": 0.45, "reasoning": "market underpricing with Nacua OUT" },
-      { "player": "Name", "stat": "...", "threshold": 60, "probability": 0.42, "reasoning": "secondary weakness vs elite WR" }
+      { "player": "Name", "stat": "...", "threshold": 90, "probability": 0.45, "reasoning": "market underpricing due to injury benefit" },
+      { "player": "Name", "stat": "...", "threshold": 60, "probability": 0.42, "reasoning": "secondary weakness vs elite WR" },
+      { "player": "Name", "stat": "...", "threshold": 200, "probability": 0.55, "reasoning": "..." }
     ],
-    "combined_probability": 0.35,
+    "combined_probability": 0.32,
     "multiplier": 2.8,
-    "stake": 8,
-    "payout": 22,
-    "profit_target": 14
+    "stake": 15,
+    "payout": 45,
+    "profit_target": 30
   },
-  "total_deploy": 20,
-  "max_upside": 50,
-  "expected_value": 16,
-  "key_insights": ["edge 1", "edge 2"],
+  "tier3": {
+    "name": "Conservative Third" | "Cross-Slate Lottery",
+    "legs": [
+      { "player": "Name", "stat": "...", "threshold": 70, "probability": 0.55, "reasoning": "...", "game": "TEAM1 @ TEAM2" },
+      { "player": "Name", "stat": "...", "threshold": 65, "probability": 0.50, "reasoning": "...", "game": "TEAM3 @ TEAM4" },
+      { "player": "Name", "stat": "...", "threshold": 50, "probability": 0.60, "reasoning": "...", "game": "TEAM5 @ TEAM6" },
+      { "player": "Name", "stat": "...", "threshold": 45, "probability": 0.58, "reasoning": "...", "game": "TEAM7 @ TEAM8" }
+    ],
+    "combined_probability": 0.22,
+    "multiplier": 3.7,
+    "stake": 10,
+    "payout": 37,
+    "profit_target": 27
+  },
+  "total_deploy": 40,
+  "max_upside": 127,
+  "expected_value": 30,
+  "player_overlap_check": "Confirm no player appears in all 3 tiers (single-game) or in more than 1 tier (Sunday). List any players appearing in 2 tiers.",
+  "key_insights": ["edge 1", "edge 2", "edge 3"],
   "red_flags": ["flag 1", "flag 2"]
 }`;
 
