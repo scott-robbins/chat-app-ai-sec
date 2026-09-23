@@ -2642,6 +2642,284 @@ Return ONLY valid JSON (no markdown, no explanations) matching this schema:
     // ============================================================================
     // END KALSHI TIER BUILDER
     // ============================================================================
+	// ============================================================================
+    // KALSHI LIVE IN-GAME STRATEGIST — Real-time game monitoring + alerts
+    // Trigger: "monitor ATL GB" or "watch game" or "game monitor"
+    // Example: "monitor atlanta green bay"
+    // ============================================================================
+
+    if (
+      lowerMsg.includes('monitor') ||
+      lowerMsg.includes('watch game') ||
+      lowerMsg.includes('game monitor') ||
+      lowerMsg.includes('live game')
+    ) {
+      console.log('[KALSHI_LIVE_GAME] Intent detected');
+
+      try {
+        // Extract team abbreviations
+        const teamAbbrevMap: Record<string, string> = {
+          'atlanta': 'ATL', 'falcons': 'ATL', 'atl': 'ATL',
+          'green bay': 'GB', 'packers': 'GB', 'gb': 'GB',
+          'kansas city': 'KC', 'chiefs': 'KC', 'kc': 'KC',
+          'buffalo': 'BUF', 'bills': 'BUF', 'buf': 'BUF',
+          'detroit': 'DET', 'lions': 'DET', 'det': 'DET',
+          'new york giants': 'NYG', 'giants': 'NYG', 'nyg': 'NYG',
+          'los angeles rams': 'LAR', 'rams': 'LAR', 'lar': 'LAR',
+          'philadelphia': 'PHI', 'eagles': 'PHI', 'phi': 'PHI',
+          'dallas': 'DAL', 'cowboys': 'DAL', 'dal': 'DAL',
+          'cleveland': 'CLE', 'browns': 'CLE', 'cle': 'CLE',
+          'cincinnati': 'CIN', 'bengals': 'CIN', 'cin': 'CIN',
+          'pittsburgh': 'PIT', 'steelers': 'PIT', 'pit': 'PIT',
+          'baltimore': 'BAL', 'ravens': 'BAL', 'bal': 'BAL',
+          'houston': 'HOU', 'texans': 'HOU', 'hou': 'HOU',
+          'indianapolis': 'IND', 'colts': 'IND', 'ind': 'IND',
+          'tennessee': 'TEN', 'titans': 'TEN', 'ten': 'TEN',
+          'jacksonville': 'JAX', 'jaguars': 'JAX', 'jax': 'JAX',
+          'miami': 'MIA', 'dolphins': 'MIA', 'mia': 'MIA',
+          'new england': 'NE', 'patriots': 'NE', 'ne': 'NE',
+          'new york jets': 'NYJ', 'jets': 'NYJ', 'nyj': 'NYJ',
+          'denver': 'DEN', 'broncos': 'DEN', 'den': 'DEN',
+          'las vegas': 'LV', 'raiders': 'LV', 'lv': 'LV',
+          'los angeles chargers': 'LAC', 'chargers': 'LAC', 'lac': 'LAC',
+          'chicago': 'CHI', 'bears': 'CHI', 'chi': 'CHI',
+          'minnesota': 'MIN', 'vikings': 'MIN', 'min': 'MIN',
+          'washington': 'WAS', 'commanders': 'WAS', 'was': 'WAS',
+          'san francisco': 'SF', '49ers': 'SF', 'niners': 'SF', 'sf': 'SF',
+          'seattle': 'SEA', 'seahawks': 'SEA', 'sea': 'SEA',
+          'arizona': 'ARI', 'cardinals': 'ARI', 'ari': 'ARI',
+          'new orleans': 'NO', 'saints': 'NO', 'no': 'NO',
+          'tampa bay': 'TB', 'buccaneers': 'TB', 'tb': 'TB',
+          'carolina': 'CAR', 'panthers': 'CAR', 'car': 'CAR',
+        };
+
+        const messageWords = lowerMsg.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+        const foundTeams: string[] = [];
+
+        const multiWordTeams = ['new york giants', 'new york jets', 'los angeles rams', 'los angeles chargers', 'new england', 'green bay', 'kansas city', 'las vegas', 'san francisco', 'tampa bay', 'new orleans'];
+        for (const multiTeam of multiWordTeams) {
+          if (lowerMsg.includes(multiTeam) && teamAbbrevMap[multiTeam]) {
+            if (!foundTeams.includes(teamAbbrevMap[multiTeam])) {
+              foundTeams.push(teamAbbrevMap[multiTeam]);
+            }
+          }
+        }
+
+        for (const word of messageWords) {
+          if (teamAbbrevMap[word] && !foundTeams.includes(teamAbbrevMap[word])) {
+            foundTeams.push(teamAbbrevMap[word]);
+          }
+        }
+
+        let gameTeam1 = foundTeams[0] || 'ATL';
+        let gameTeam2 = foundTeams[1] || 'GB';
+
+        console.log(`[KALSHI_LIVE_GAME] Monitoring ${gameTeam1} @ ${gameTeam2}`);
+
+        // DIRECT TAVILY CALL for live game data
+        const liveGameQueries = [
+          { key: 'score', query: `${gameTeam1} vs ${gameTeam2} live score today` },
+          { key: 'injuries', query: `${gameTeam1} ${gameTeam2} live injury update today` },
+          { key: 'stats', query: `${gameTeam1} ${gameTeam2} game stats passing rushing receiving yards today` },
+        ];
+
+        const liveGameFetches = liveGameQueries.map(async ({ key, query }) => {
+          try {
+            const res = await fetch('https://api.tavily.com/search', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${env.TAVILY_API_KEY || ""}`
+              },
+              body: JSON.stringify({
+                query: query,
+                search_depth: "basic",
+                max_results: 2,
+                include_answer: true
+              })
+            });
+            const data: any = await res.json();
+            return {
+              key,
+              raw_results: data.results || [],
+              answer: data.answer || '',
+              success: true,
+            };
+          } catch (err: any) {
+            return { key, raw_results: [], answer: '', success: false, error: err.message };
+          }
+        });
+
+        const liveGameResults = await Promise.all(liveGameFetches);
+
+        // Assemble live game blob
+        let liveGameBlob = `Game: ${gameTeam1} @ ${gameTeam2} (Live)\n\n`;
+        for (const result of liveGameResults) {
+          if (result.success && (result.raw_results.length > 0 || result.answer)) {
+            liveGameBlob += `=== ${result.key.toUpperCase()} ===\n`;
+            if (result.answer) {
+              liveGameBlob += `${result.answer}\n`;
+            }
+            for (const item of result.raw_results) {
+              liveGameBlob += `${item.title || 'Source'}: ${item.content || item.snippet || ''}\n`;
+            }
+            liveGameBlob += '\n';
+          }
+        }
+
+        console.log('[KALSHI_LIVE_GAME] Live game data assembled');
+
+        // DIRECT CLAUDE CALL to analyze live game state
+        const accountId = env.CF_ACCOUNT_ID || env.ACCOUNT_ID;
+        const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
+        const claudeUrl = `${gatewayBase}/anthropic/v1/messages`;
+        const claudeHeaders = {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01"
+        };
+
+        const analyzePrompt = `You are a real-time sports analyst monitoring a live NFL game. Given the live game data below, analyze current game state and identify critical alerts.
+
+Live Game Data:
+${liveGameBlob}
+
+TASK:
+1. Extract current score and game quarter/time
+2. Identify any injuries reported mid-game
+3. Extract key player stats (yards, TDs, big plays)
+4. Flag any major momentum shifts or upsets brewing
+5. Assess halftime protocol trigger: If any active Kalshi legs are below 15% probability remaining, flag for cash-out consideration
+
+Return ONLY valid JSON (no markdown, no explanations):
+{
+  "score": "ATL 3 GB 14 (Q2 8:30)",
+  "current_quarter": "Q2",
+  "time_remaining": "8:30",
+  "home_team": "GB",
+  "away_team": "ATL",
+  "injuries": [
+    { "player": "Name", "team": "ATL", "injury": "description", "status": "OUT/QUESTIONABLE" }
+  ],
+  "key_stats": {
+    "ATL": { "passing_yards": 0, "rushing_yards": 0, "leading_receiver": "Name - 0 yards" },
+    "GB": { "passing_yards": 0, "rushing_yards": 0, "leading_receiver": "Name - 0 yards" }
+  },
+  "big_plays": ["play 1", "play 2"],
+  "momentum": "GB dominating",
+  "game_script": "blowout / competitive / upset brewing",
+  "alerts": [
+    { "type": "INJURY", "message": "..." },
+    { "type": "CASH_OUT_CHECK", "message": "Halftime protocol: check Tier X leg Y status" },
+    { "type": "MOMENTUM_SHIFT", "message": "..." }
+  ]
+}`;
+
+        const claudeBody = {
+          model: "claude-haiku-4-5",
+          messages: [{ role: "user", content: analyzePrompt }],
+          max_tokens: 1500
+        };
+
+        const liveRes = await fetch(claudeUrl, {
+          method: 'POST',
+          headers: claudeHeaders,
+          body: JSON.stringify(claudeBody)
+        });
+
+        const liveData: any = await liveRes.json();
+        const liveText = liveData.content?.[0]?.text || '{}';
+
+        let liveGameState: any = {};
+        try {
+          const cleanText = liveText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+          liveGameState = JSON.parse(cleanText);
+        } catch (parseErr: any) {
+          console.warn('[KALSHI_LIVE_GAME] Claude JSON parse failed:', parseErr.message);
+          liveGameState = {
+            score: "Unable to fetch",
+            current_quarter: "Unknown",
+            time_remaining: "Unknown",
+            home_team: gameTeam2,
+            away_team: gameTeam1,
+            injuries: [],
+            key_stats: {},
+            big_plays: [],
+            momentum: "Unknown",
+            game_script: "Unable to determine",
+            alerts: [{ type: "ERROR", message: "Live data fetch failed — check ESPN or Kalshi directly" }]
+          };
+        }
+
+        // Format live game monitor for chat
+        let gameSummary = `═══════════════════════════════════════════════════════════════\nLIVE GAME MONITOR — ${gameTeam1} @ ${gameTeam2}\n═══════════════════════════════════════════════════════════════\n\n`;
+
+        gameSummary += `SCORE: ${liveGameState.score || 'TBD'}\n`;
+        gameSummary += `QUARTER: ${liveGameState.current_quarter || '?'} | TIME: ${liveGameState.time_remaining || '?'}\n`;
+        gameSummary += `MOMENTUM: ${liveGameState.momentum || 'Unknown'}\n`;
+        gameSummary += `SCRIPT: ${liveGameState.game_script || 'Unknown'}\n\n`;
+
+        if (liveGameState.key_stats) {
+          gameSummary += `KEY STATS:\n`;
+          if (liveGameState.key_stats[gameTeam1]) {
+            gameSummary += `  ${gameTeam1}: ${liveGameState.key_stats[gameTeam1].passing_yards || 0} pass yd | ${liveGameState.key_stats[gameTeam1].rushing_yards || 0} rush yd\n`;
+            gameSummary += `    └─ ${liveGameState.key_stats[gameTeam1].leading_receiver || 'N/A'}\n`;
+          }
+          if (liveGameState.key_stats[gameTeam2]) {
+            gameSummary += `  ${gameTeam2}: ${liveGameState.key_stats[gameTeam2].passing_yards || 0} pass yd | ${liveGameState.key_stats[gameTeam2].rushing_yards || 0} rush yd\n`;
+            gameSummary += `    └─ ${liveGameState.key_stats[gameTeam2].leading_receiver || 'N/A'}\n`;
+          }
+          gameSummary += '\n';
+        }
+
+        if (liveGameState.big_plays && liveGameState.big_plays.length > 0) {
+          gameSummary += `BIG PLAYS:\n`;
+          for (const play of liveGameState.big_plays) {
+            gameSummary += `  • ${play}\n`;
+          }
+          gameSummary += '\n';
+        }
+
+        if (liveGameState.injuries && liveGameState.injuries.length > 0) {
+          gameSummary += `⚠️  MID-GAME INJURIES:\n`;
+          for (const inj of liveGameState.injuries) {
+            gameSummary += `  ${inj.player} (${inj.team}) — ${inj.injury}: ${inj.status}\n`;
+          }
+          gameSummary += '\n';
+        }
+
+        if (liveGameState.alerts && liveGameState.alerts.length > 0) {
+          gameSummary += `🚨 ALERTS:\n`;
+          for (const alert of liveGameState.alerts) {
+            const alertIcon = alert.type === 'INJURY' ? '⚠️' : alert.type === 'CASH_OUT_CHECK' ? '💰' : '🚨';
+            gameSummary += `  ${alertIcon} [${alert.type}] ${alert.message}\n`;
+          }
+          gameSummary += '\n';
+        }
+
+        gameSummary += `═══════════════════════════════════════════════════════════════\n`;
+        gameSummary += `HALFTIME PROTOCOL REMINDERS:\n`;
+        gameSummary += `At halftime, evaluate each active tier:\n`;
+        gameSummary += `1. Any leg < 15% probability remaining? → CASH OUT that tier\n`;
+        gameSummary += `2. Cash-out offer > 40% of stake? → Consider locking profit\n`;
+        gameSummary += `3. Game script shifted dramatically? → Adjust expectations for second half\n`;
+        gameSummary += `═══════════════════════════════════════════════════════════════\n\n`;
+
+        gameSummary += `Say "monitor ${gameTeam1} ${gameTeam2}" again at halftime for updated check.\n`;
+        gameSummary += `═══════════════════════════════════════════════════════════════\n`;
+
+        console.log('[KALSHI_LIVE_GAME] Game monitor summary generated');
+        liveContext += `\n[KALSHI_LIVE_GAME]\n${gameSummary}`;
+
+      } catch (err: any) {
+        console.error('[KALSHI_LIVE_GAME] Error:', err.message);
+        liveContext += `\n[KALSHI_LIVE_GAME_ERROR] ${err.message}`;
+      }
+    }
+
+    // ============================================================================
+    // END KALSHI LIVE IN-GAME STRATEGIST
+    // ============================================================================
 	// === SYSTEM ENHANCEMENT: DYNAMIC SUBJECT TERM EXTRACTION ARRAY ===
 				let searchTerms = new Set<string>([userMsg]);
 				const words = lowerMsg.split(/[^a-zA-Z0-9']+/);
