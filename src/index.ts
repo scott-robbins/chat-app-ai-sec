@@ -3970,7 +3970,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
-				const finalModel = visionUrls.length > 0 ? "anthropic/claude-opus-4-7" : routedModel;
+				const finalModel = visionUrls.length > 0 ? "anthropic/claude-opus-5.5" : routedModel;
 
 				const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 				const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
@@ -3983,7 +3983,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 					"anthropic-beta": "prompt-caching-2024-07-31"
 				};
 
-			    const cleanModel = (finalModel).replace("anthropic/", "").replace("4.7", "4-7");
+			    const cleanModel = (finalModel).replace("anthropic/", "").replace(/(\d+)\.(\d+)/, "$1-$2");
 
 				// Build multimodal content — text + optional images
 				const finalUserContent: any = visionUrls.length > 0
