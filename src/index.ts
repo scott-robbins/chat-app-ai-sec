@@ -69,7 +69,7 @@ function classifyIntent(message: string): 'heavy' | 'medium' | 'casual' {
 function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 	switch (intent) {
 		case 'heavy':
-			return 'anthropic/claude-opus-4.7';
+			return 'anthropic/claude-opus-5.5';
 		case 'medium':
 			return 'anthropic/claude-sonnet-4-6';
 		case 'casual':
@@ -3970,7 +3970,7 @@ Rewrite the raw data as Jolene would deliver it — substance first, snark where
 
 				const classifiedIntent = classifyIntent(userMessageText);
 				const routedModel = selectModel(classifiedIntent);
-				const finalModel = visionUrls.length > 0 ? "anthropic/claude-opus-4-7" : routedModel;
+				const finalModel = visionUrls.length > 0 ? "anthropic/claude-opus-5.5" : routedModel;
 
 				const accountId = this.env.CF_ACCOUNT_ID || this.env.ACCOUNT_ID;
 				const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${accountId}/${this.env.AI_GATEWAY_NAME || "ai-sec-gateway"}`;
