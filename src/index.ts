@@ -606,7 +606,7 @@ export class ChatSession extends DurableObject<Env> {
 		try {
 			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 			const data: any = await res.json();
-			return data.content?.[0]?.text || "Brain blip. Try again.";
+			return data.content?.find((block: any) => block.type === 'text')?.text || "Brain blip. Try again.";
 		} catch (e) { return "I hit a snag. Let's try that again."; }
 	}
 
@@ -4080,7 +4080,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 					});
 					const firstPassData: any = await firstPassRes.json();
 					console.log('[VISION RESPONSE]', JSON.stringify(firstPassData).substring(0, 500));
-					chatTxt = firstPassData.content?.[0]?.text || "Brain blip. Try again.";
+					chatTxt = firstPassData.content?.find((block: any) => block.type === 'text')?.text || "Brain blip. Try again.";
 					if (firstPassData.usage) {
 						console.log(`[CACHE METRICS] cache_creation_input_tokens: ${firstPassData.usage.cache_creation_input_tokens || 0}, cache_read_input_tokens: ${firstPassData.usage.cache_read_input_tokens || 0}, input_tokens: ${firstPassData.usage.input_tokens || 0}, output_tokens: ${firstPassData.usage.output_tokens || 0}`);
 					}
@@ -4419,7 +4419,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 										if (secondPassRes.ok) {
 											const secondPassData: any = await secondPassRes.json();
-											const summaryText = secondPassData.content?.[0]?.text;
+											const summaryText = secondPassData.content?.find((block: any) => block.type === 'text')?.text;
 											if (summaryText) {
 												console.log("[SECOND PASS] Synthesis execution completely successful. Swapping response text framework.");
 												chatTxt = summaryText;
