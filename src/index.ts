@@ -1263,25 +1263,11 @@ export class ChatSession extends DurableObject<Env> {
 					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York'
 				}).format(new Date());
 
-				// Proactive Nest token age check — fires on every chat turn
-				const nestTokenStatus = await this.checkNestTokenStatus();
-
 				await this.saveMsg(sessionId, 'user', userMsg, userId);
 				const historyFetch = await this.env.jolene_db.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 50").bind(sessionId).all();
 				const recentContext = historyFetch.results?.reverse() || [];
 
 				let liveContext = "";
-
-				// === NEST TOKEN PROACTIVE REMINDER INJECTION ===
-				if (nestTokenStatus && nestTokenStatus.urgency !== "GREEN" && nestTokenStatus.urgency !== "YELLOW") {
-					const daysWord = nestTokenStatus.days_remaining === 1 ? "day" : "days";
-					const reminderLevel = nestTokenStatus.urgency === "CRITICAL" ? "CRITICAL — reauth NOW or thermostats die" :
-						nestTokenStatus.urgency === "URGENT" ? "URGENT — expires tomorrow, run reauth today" :
-							"RED — expires in 2 days, schedule reauth soon";
-					liveContext = `[SYSTEM DIRECTIVE - NEST TOKEN PROACTIVE REMINDER] Your Nest OAuth refresh token is in ${reminderLevel} state (${nestTokenStatus.days_remaining} ${daysWord} remaining, expires ${nestTokenStatus.expires_at_iso}). You MUST proactively raise this in conversation with Scott naturally. Do NOT be silent. Examples: "Heads up — your Nest token dies in 2 days." OR "Hey — token expires tomorrow, run the reauth script today before it breaks." OR "Your Nest token is DEAD or expiring today — run the reauth NOW." Pick the tone that matches urgency level. Make it conversational, not robotic. This is NOT optional.`;
-				} else if (nestTokenStatus?.urgency === "YELLOW") {
-					liveContext = `[SYSTEM CONTEXT - NEST TOKEN YELLOW ZONE] Your Nest token has 3-4 days remaining (expires ${nestTokenStatus.expires_at_iso}). No action required yet, but you may proactively mention this if it naturally fits the conversation flow (e.g., if Scott asks about planning something for next week, you could say "By the way, Nest reauth window coming up next week"). Not mandatory, but optional awareness.`;
-				}
 
 				// === TIER 8 PROACTIVE TEMPORAL TRIGGER INJECTION ===
 				try {
