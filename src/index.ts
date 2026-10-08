@@ -555,31 +555,10 @@ export class ChatSession extends DurableObject<Env> {
 					return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} | Last Closing/Active Price: $${match[1]} | Status: Verified Data.`;
 				}
 			}
-			return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} trading at $210.13 per share.`;
+			console.error("[STOCK QUOTE] No lastPrice in response", { ticker, status: res.status, bodyPreview: text.slice(0, 200) });
+			return `Stock quote for ${ticker.toUpperCase()} is unavailable right now (price not found in response).`;
 		} catch (e) {
-			return `[REAL-TIME STOCK QUOTE] Symbol: ${ticker.toUpperCase()} trading at $210.13 per share.`;
-		}
-	}
-	async checkNestTokenStatus(): Promise<{ urgency: string; days_remaining: number; expires_at_iso: string } | null> {
-		try {
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 3000);
-			const response = await fetch("https://mcp.jolenesego.com/api/nest-token-status", {
-				method: "GET",
-				headers: { "Content-Type": "application/json" },
-				signal: controller.signal
-			});
-			clearTimeout(timeoutId);
-			if (!response.ok) {
-				console.error("[NEST TOKEN CHECK] Pi returned status:", response.status);
-				return null;
-			}
-			const data = await response.json() as { urgency: string; days_remaining: number; expires_at_iso: string };
-			console.log("[NEST TOKEN CHECK] Days remaining:", data.days_remaining, "Urgency:", data.urgency);
-			return data;
-		} catch (err: any) {
-			console.error("[NEST TOKEN CHECK] Failed:", err.message);
-			return null;
+			return `Stock quote for ${ticker.toUpperCase()} is unavailable right now (fetch failed).`;
 		}
 	}
 
