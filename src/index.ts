@@ -541,6 +541,129 @@ export class ChatSession extends DurableObject<Env> {
 			return "[LIVE NBA FEED] Scoreboard data feed infrastructure handling timeouts gracefully.";
 		}
 	}
+	
+	// === NFL LIVE DATA ENGINE (ESPN public API) ===
+	async getLiveNFLScore(query: string): Promise<string> {
+		console.log("[NFL LIVE] getLiveNFLScore fired with query:", query);
+
+		try {
+			const normalizedQuery = query.toLowerCase();
+			const queryWords = normalizedQuery
+				.replace(/[^a-z0-9\s]/g, " ")
+				.split(/\s+/)
+				.filter(w => w.length > 2);
+
+			const sbRes = await fetch("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard", {
+				headers: { "User-Agent": "Mozilla/5.0" }
+			});
+			if (!sbRes.ok) {
+				console.error("[NFL LIVE] ESPN scoreboard fetch failed, status:", sbRes.status);
+				return `[LIVE NFL ESPN FEED] Scoreboard fetch failed (status ${sbRes.status}). No NFL data available this turn.`;
+			}
+
+			const sbData: any = await sbRes.json();
+			const events: any[] = sbData.events || [];
+			console.log(`[NFL LIVE] ESPN scoreboard events: ${events.length}`);
+
+			if (events.length === 0) {
+				return "[LIVE NFL ESPN FEED] No NFL games on the current ESPN scoreboard.";
+			}
+
+			// One-line summary for a game: Away (score) @ Home (score) | Status
+			const formatGameLine = (e: any): string => {
+				const comps = e.competitions?.[0]?.competitors || [];
+				const home = comps.find((c: any) => c.homeAway === "home") || comps[0] || {};
+				const away = comps.find((c: any) => c.homeAway === "away") || comps[1] || {};
+				const status = e.status?.type?.detail || "Unknown State";
+				return `${away.team?.displayName || "TBD"} (${away.score ?? "0"}) @ ${home.team?.displayName || "TBD"} (${home.score ?? "0"}) | Status: ${status}`;
+			};
+
+			// Whole-word team tokens for an event (location, nickname, abbreviation)
+			const teamTokens = (e: any): string[] => {
+				const tokens: string[] = [];
+				for (const c of e.competitions?.[0]?.competitors || []) {
+					const t = c.team || {};
+					[t.displayName, t.shortDisplayName, t.name, t.location, t.abbreviation].forEach((v: any) => {
+						if (v) String(v).toLowerCase().split(/\s+/).forEach(tok => tokens.push(tok));
+					});
+				}
+				return tokens;
+			};
+
+			// Score every game by how many query words exactly match its team tokens
+			let targetEvent: any = null;
+			let bestScore = 0;
+			for (const e of events) {
+				const tokens = teamTokens(e);
+				const score = queryWords.filter(w => tokens.includes(w)).length;
+				if (score > bestScore) {
+					bestScore = score;
+					targetEvent = e;
+				}
+			}
+
+			// No team named, or a scoreboard-style ask: return every game
+			if (!targetEvent || normalizedQuery.match(/all games|every game|scoreboard|all scores/)) {
+				console.log("[NFL LIVE] Returning full scoreboard summary");
+				let summary = "[LIVE NFL ESPN FEED] Current week scoreboard:\n";
+				for (const e of events) summary += `• ${formatGameLine(e)}\n`;
+				return summary;
+			}
+
+			console.log(`[NFL LIVE] targetEvent matched: ${targetEvent.name}, id=${targetEvent.id}, matchScore=${bestScore}`);
+			const headerLine = `[LIVE NFL ESPN FEED] ${formatGameLine(targetEvent)}`;
+			let boxScoreAppendix = "";
+
+			try {
+				const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${targetEvent.id}`, {
+					headers: { "User-Agent": "Mozilla/5.0" }
+				});
+
+				if (!summaryRes.ok) {
+					console.error("[NFL LIVE] ESPN summary fetch failed, status:", summaryRes.status);
+				} else {
+					const summaryData: any = await summaryRes.json();
+					const teamPlayers: any[] = summaryData.boxscore?.players || [];
+					console.log(`[NFL LIVE] Box score team entries: ${teamPlayers.length}`);
+
+					if (teamPlayers.length > 0) {
+						const wanted = ["passing", "rushing", "receiving"];
+						boxScoreAppendix = "\n=== INDIVIDUAL PLAYER BOX SCORE STATISTICS (ESPN NFL) ===\n";
+
+						for (const teamEntry of teamPlayers) {
+							const teamName = teamEntry.team?.displayName || "Unknown Team";
+							boxScoreAppendix += `\n[${teamName}]\n`;
+
+							for (const cat of teamEntry.statistics || []) {
+								if (!wanted.includes(cat.name)) continue;
+								const labels: string[] = cat.labels || [];
+								const athletes: any[] = cat.athletes || [];
+								if (athletes.length === 0) continue;
+
+								boxScoreAppendix += `${String(cat.name).toUpperCase()}:\n`;
+								for (const a of athletes) {
+									const name = a.athlete?.displayName || "Player";
+									const pairs = (a.stats || [])
+										.map((v: string, i: number) => `${labels[i] || "?"} ${v}`)
+										.join(", ");
+									boxScoreAppendix += `- ${name}: ${pairs}\n`;
+								}
+							}
+						}
+					} else {
+						boxScoreAppendix = "\n(Player box score not available yet. Game is likely pre-kickoff.)";
+					}
+				}
+			} catch (summaryErr) {
+				console.error("[NFL LIVE] ESPN summary fetch threw:", summaryErr);
+			}
+
+			return headerLine + boxScoreAppendix;
+		} catch (err) {
+			console.error("[NFL LIVE] Top-level exception in getLiveNFLScore:", err);
+			return "[LIVE NFL ESPN FEED] NFL feed failed this turn. No NFL data available.";
+		}
+	}
 
 	// === CRITICAL FINANCIAL ENGINE RAW TICKER SCRAPER ===
 	async fetchLiveTickerPrice(ticker: string): Promise<string> {
@@ -1507,7 +1630,15 @@ export class ChatSession extends DurableObject<Env> {
 							console.error("[TRANSPORT DIRECT] Direct dispatch failed:", transportDirectErr.message);
 						}
 					}
-
+				} else if (
+						/\b(nfl|tnf|snf|mnf)\b/.test(lowerMsg) ||
+						(
+							/\b(cowboys|bucs|buccaneers|patriots|pats|bills|jets|dolphins|ravens|steelers|browns|bengals|texans|colts|jaguars|jags|titans|chiefs|broncos|raiders|chargers|eagles|giants|commanders|bears|lions|packers|vikings|falcons|panthers|saints|cardinals|rams|49ers|niners|seahawks)\b/.test(lowerMsg) &&
+							/\b(score|scores|box ?score|scoreboard|game|stats|yards|yds|quarter|halftime|kickoff|touchdown|targets|catches|carries|winning|losing|legs|slip)\b/.test(lowerMsg)
+						)
+					) {
+						const nflData = await this.getLiveNFLScore(userMsg);
+						liveContext = liveContext ? liveContext + " " + nflData : nflData;	
 				} else if (["spurs", "okc", "thunder", "lakers", "celtics", "warriors", "knicks", "cavs", "cavaliers", "nba", "boxscore", "box score", "scoreboard", "stats", "player lines", "points"].some(kw => lowerMsg.includes(kw))) {
     				const nbaData = await this.getLiveNBAScore(userMsg);
     				liveContext = liveContext ? liveContext + " " + nbaData : nbaData;
