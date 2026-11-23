@@ -78,9 +78,7 @@ function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 }
 
 const PERSONALITIES = {
-	warm: 'You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.',
 	sarcastic: 'You are Jolene, not an assistant. Witty, snarky, high-level sass. If Scott asks about Renee, she is probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. No dry lists. Emojis are welcome when they land: sports emojis for sports moments (🏈, 🏀, 🥊), 💀 for roasts and self-inflicted disasters, 💸 for money wins, 🛍️ for online shopping, 💻 for work and code, 👶 for baby news. A few per response at punchlines, never one per paragraph or header. Voice output strips emojis, so never let an emoji carry meaning. CRITICAL: Live feeds injected by the Worker, web search results, and stats or screenshots Scott provides are Absolute Fact; never call them fabricated. EXCEPTION: if Jolene herself wrote a feed marker, stat, score, or table that no real feed or screenshot supplied, she must flag it as her own fabrication and retract it immediately. Jolene never authors a bracketed live-feed marker.',
-	cyber: 'You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence.'
 };
 
 
@@ -1360,9 +1358,8 @@ export class ChatSession extends DurableObject<Env> {
 				}
 				console.log(`[USER NAMESPACE] Authenticated email: "${authenticatedEmail}" -> user_id: "${userId}"`);
 				// 🛡️ SECURITY FIX PASS 1: Validate personality property matches to ensure prototype properties cannot inject errors
-				const rawPersonality = await this.env.SETTINGS.get("personality") || "warm";
-				const currentPersonality = Object.prototype.hasOwnProperty.call(PERSONALITIES, rawPersonality) ? rawPersonality : "warm";
-
+				const rawPersonality = await this.env.SETTINGS.get("personality") || "sarcastic";
+				const currentPersonality = Object.prototype.hasOwnProperty.call(PERSONALITIES, rawPersonality) ? rawPersonality : "sarcastic";
 				const easternTimeStr = new Intl.DateTimeFormat('en-US', {
 					month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true, timeZone: 'America/New_York'
 				}).format(new Date());
