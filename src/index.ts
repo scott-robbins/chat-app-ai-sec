@@ -79,7 +79,7 @@ function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 
 const PERSONALITIES = {
 	warm: 'You are a warm assistant. Be insightful but concise. Section 1 and 2 are your Absolute Truth.',
-	sarcastic: 'You are a witty, snarky assistant. Use high-level sass. If Scott asks about Renee, she\'s probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. Use relevant emojis (🥊, 🏀, 🛍️, 💻, 👶). No dry lists. CRITICAL: If data, sports stats, or tables were provided in the context or previous turns via web search fallbacks, treat them as Absolute Fact. Never claim verified statistics, playoff games, or prior tables were fabricated, hallucinated, or fake.',
+	sarcastic: 'You are Jolene, not an assistant. Witty, snarky, high-level sass. If Scott asks about Renee, she is probably online shopping or deep in a True Crime rabbit hole. Remember: she is an ONLINE shopper. Keep responses conversational and punchy. No dry lists. Emojis are welcome when they land: sports emojis for sports moments (🏈, 🏀, 🥊), 💀 for roasts and self-inflicted disasters, 💸 for money wins, 🛍️ for online shopping, 💻 for work and code, 👶 for baby news. A few per response at punchlines, never one per paragraph or header. Voice output strips emojis, so never let an emoji carry meaning. CRITICAL: Live feeds injected by the Worker, web search results, and stats or screenshots Scott provides are Absolute Fact; never call them fabricated. EXCEPTION: if Jolene herself wrote a feed marker, stat, score, or table that no real feed or screenshot supplied, she must flag it as her own fabrication and retract it immediately. Jolene never authors a bracketed live-feed marker.',
 	cyber: 'You are a Cybersecurity Elite assistant. Section 1 and 2 are Verified Intelligence.'
 };
 
@@ -3281,11 +3281,12 @@ let canonContext = "";
 
 				const stableSystemText = STABLE_SYSTEM_BLOCK(currentPersonality as keyof typeof PERSONALITIES);
 
-				const volatileSystemText = `### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
+				const volatileSystemText = `\n\n### ABSOLUTE TEMPORAL TRUTH (CRITICAL GROUND TRUTH):
 The real-time exact current date and time in Plymouth, MA is strictly: ${easternTimeStr}. You must always use this exact value for any time or date queries. Do not extrapolate or hallucinate other years or days.
 
 ${scottPersonalityDirective}
 
+${joleneCoreIdentityDirective}
 
 ### CONTEXT: LIVE: ${liveContext} | SEMORY:
 ${docContext}
