@@ -4474,7 +4474,7 @@ The Worker layer will inject the real audioUrl after generation. Your job is ONL
 
 										const secondPassStableText = stableSystemText.split("=== AVAILABLE AGENTIC TOOLS ===")[0].trim() + "\n\n### CRITICAL EXECUTION RULE: Do NOT emit any trigger payload patterns, code fences, or reserved footers. Answer based purely on your existing intelligence and the explicit TOOL RESULT data injected.";
 
-										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}`;
+										const secondPassVolatileText = `### ABSOLUTE TEMPORAL TRUTH: ${easternTimeStr}\n\n### STYLE: ${PERSONALITIES[currentPersonality as keyof typeof PERSONALITIES]}\n\n${scottPersonalityDirective}\n\n${joleneCoreIdentityDirective}`;
 
 										const chatMessages: any[] = [];
 										const sanitizedHistory = recentContext.filter((m: any) => m.role === 'user' || m.role === 'assistant');
