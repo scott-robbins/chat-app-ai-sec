@@ -73,7 +73,7 @@ function selectModel(intent: 'heavy' | 'medium' | 'casual'): string {
 		case 'medium':
 			return 'anthropic/claude-sonnet-4-6';
 		case 'casual':
-			return 'anthropic/claude-haiku-4-5';
+			return 'anthropic/claude-sonnet-4-6';
 	}
 }
 
